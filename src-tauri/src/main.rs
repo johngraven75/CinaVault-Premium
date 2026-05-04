@@ -51,6 +51,7 @@ fn main() {
             db::get_all_settings,
             db::get_setting,
             db::set_setting,
+            db::set_settings_batch,
             db::get_feature_settings,
             db::set_feature_setting,
             // Media Library

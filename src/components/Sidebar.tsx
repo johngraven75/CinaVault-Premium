@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import {
   Home, FolderOpen, Download, Tv, Server, Shield, Sliders,
-  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Zap
+  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Zap, Clapperboard
 } from "lucide-react";
 
 interface NavItem {
@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "cloud", label: "Cloud & NAS", icon: Cloud },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "ai", label: "AI Diagnostics", icon: Brain },
+  { id: "mediaactions", label: "Media Actions", icon: Clapperboard },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 

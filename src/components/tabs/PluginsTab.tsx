@@ -6,7 +6,7 @@ import { useAppStore } from "../../store/appStore";
 import {
   Puzzle, Plus, RefreshCw, Download, CheckCircle, XCircle,
   Key, TestTube, Search, Database, ChevronDown, ChevronRight,
-  CheckSquare, Square, Wand2, Save
+  CheckSquare, Square, Wand2, Save, Trash2
 } from "lucide-react";
 
 interface MetadataProvider {
@@ -192,6 +192,17 @@ export default function PluginsTab() {
       loadPlugins(id);
     } catch (e) {
       addStatusMessage(`Sync failed: ${e}`);
+    }
+  };
+
+  const removeRepo = async (id: number) => {
+    try {
+      await invoke("remove_plugin_repo", { repoId: id });
+      addStatusMessage("Repository removed");
+      if (repos.length === 1) setPlugins([]);
+      loadRepos();
+    } catch (e) {
+      addStatusMessage(`Failed to remove repository: ${e}`);
     }
   };
 
@@ -503,6 +514,7 @@ export default function PluginsTab() {
                     <div className="flex gap-1">
                       <button onClick={() => syncRepo(repo.id)} className="cv-btn cv-btn-secondary text-[10px] py-1 px-2"><RefreshCw size={10} /> Sync</button>
                       <button onClick={() => loadPlugins(repo.id)} className="cv-btn cv-btn-secondary text-[10px] py-1 px-2"><Search size={10} /> Browse</button>
+                      <button onClick={() => removeRepo(repo.id)} className="cv-btn cv-btn-danger text-[10px] py-1 px-2"><Trash2 size={10} /> Remove</button>
                     </div>
                   </div>
                 ))}

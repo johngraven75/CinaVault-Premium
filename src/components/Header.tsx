@@ -8,7 +8,7 @@ const TAB_LABELS: Record<TabId, string> = {
   home: "Library", sources: "Media Sources", downloads: "Downloads",
   livetv: "Live TV", server: "Server", security: "Security",
   advanced: "Advanced", cloud: "Cloud & NAS", plugins: "Plugins & Metadata",
-  ai: "AI Diagnostics", settings: "Settings",
+  ai: "AI Diagnostics", mediaactions: "Media Actions", settings: "Settings",
 };
 
 export default function Header() {

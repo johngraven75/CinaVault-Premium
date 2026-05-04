@@ -16,7 +16,10 @@ import AdvancedTab from "./components/tabs/AdvancedTab";
 import CloudNASTab from "./components/tabs/CloudNASTab";
 import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
+import MediaActionsTab from "./components/tabs/MediaActionsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
+import SignupScreen from "./components/SignupScreen";
+import { useState } from "react";
 
 const TAB_COMPONENTS: Record<TabId, React.FC> = {
   home: HomeTab,
@@ -29,11 +32,13 @@ const TAB_COMPONENTS: Record<TabId, React.FC> = {
   cloud: CloudNASTab,
   plugins: PluginsTab,
   ai: AIDiagnosticsTab,
+  mediaactions: MediaActionsTab,
   settings: SettingsTab,
 };
 
 export default function App() {
-  const { activeTab, currentTheme, sidebarCollapsed, setSettings, setTheme, addStatusMessage } = useAppStore();
+  const { activeTab, currentTheme, setSettings, setTheme, setSetting, settings, addStatusMessage } = useAppStore();
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
@@ -49,6 +54,8 @@ export default function App() {
         // Running outside Tauri (dev mode) — use defaults
         applyTheme("prism_fusion");
         addStatusMessage("Running in development mode");
+      } finally {
+        setSettingsLoaded(true);
       }
     };
     init();
@@ -59,7 +66,51 @@ export default function App() {
     applyTheme(currentTheme);
   }, [currentTheme]);
 
+  useEffect(() => {
+    const flushSettings = () => {
+      const state = useAppStore.getState();
+      const payload = { ...state.settings, theme: state.currentTheme };
+      invoke("set_settings_batch", { settings: payload }).catch(() => {});
+    };
+
+    window.addEventListener("beforeunload", flushSettings);
+    return () => {
+      flushSettings();
+      window.removeEventListener("beforeunload", flushSettings);
+    };
+  }, []);
+
+  const completeSignup = async (payload: { provider: "google" | "microsoft" | "local"; username: string; passwordHash?: string }) => {
+    const batch = {
+      auth_signed_in: "true",
+      auth_provider: payload.provider,
+      auth_username: payload.username,
+      auth_local_password_hash: payload.passwordHash || "",
+    };
+
+    try {
+      await invoke("set_settings_batch", { settings: batch });
+    } catch {
+      // ignore in non-tauri dev mode
+    }
+
+    setSetting("auth_signed_in", "true");
+    setSetting("auth_provider", payload.provider);
+    setSetting("auth_username", payload.username);
+    setSetting("auth_local_password_hash", payload.passwordHash || "");
+    addStatusMessage(`Signup complete via ${payload.provider}`);
+  };
+
   const ActiveComponent = TAB_COMPONENTS[activeTab] || HomeTab;
+  const requiresSignup = settings.auth_signed_in !== "true";
+
+  if (!settingsLoaded) {
+    return <div className="h-screen w-screen" style={{ background: "var(--cv-bg)" }} />;
+  }
+
+  if (requiresSignup) {
+    return <SignupScreen onComplete={completeSignup} />;
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--cv-bg)" }}>

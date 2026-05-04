@@ -225,6 +225,10 @@ impl Database {
             ("cloud_gdrive_connected", "false"),
             ("iptv_preferred_engine", "xtream"),
             ("iptv_preferred_output", "ts"),
+            ("auth_signed_in", "false"),
+            ("auth_provider", ""),
+            ("auth_username", ""),
+            ("auth_local_password_hash", ""),
         ];
         for (key, value) in defaults {
             self.conn.execute(
@@ -426,6 +430,20 @@ pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>
 pub fn set_setting(state: State<AppState>, key: String, value: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.set_setting_data(&key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_settings_batch(state: State<AppState>, settings: serde_json::Value) -> Result<(), String> {
+    let map = settings.as_object().ok_or("settings must be an object")?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    for (key, value) in map {
+        if let Some(str_val) = value.as_str() {
+            db.set_setting_data(key, str_val).map_err(|e| e.to_string())?;
+        } else {
+            db.set_setting_data(key, &value.to_string()).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

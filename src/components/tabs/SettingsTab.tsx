@@ -7,7 +7,7 @@ import { applyTheme, THEME_PRESETS } from "../../themes";
 import {
   Settings, Monitor, Play, Library, Link, Cloud, Copy, Zap,
   Palette, Eye, Sparkles, SkipForward, Subtitles, Film, FolderOpen,
-  Gauge, Shield, Wifi, CheckCircle, Search, Trash2, SlidersHorizontal
+  Gauge, Shield, Wifi, CheckCircle, Search, Trash2, SlidersHorizontal, Save
 } from "lucide-react";
 
 type SettingsSection = "interface" | "playback" | "library" | "integrations" | "cloud" | "duplicates" | "power";
@@ -237,19 +237,64 @@ export default function SettingsTab() {
                 <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
                   <Cloud size={16} className="text-cv-accent" /> Cloud Storage Connections
                 </h3>
-                <div className="space-y-2">
-                  {["Dropbox", "OneDrive", "Google Drive"].map(provider => (
-                    <div key={provider} className="glass-panel-2 p-4 rounded-lg flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Cloud size={20} className="text-cv-subtext" />
-                        <div>
-                          <div className="text-sm font-semibold">{provider}</div>
-                          <div className="text-[10px] text-cv-subtext">Not connected</div>
-                        </div>
+                <div className="space-y-3">
+                  <div className="glass-panel-2 p-4 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-semibold">OneDrive</div>
+                        <div className="text-[10px] text-cv-subtext">{settings.cloud_onedrive_connected === "true" ? "Connected" : "Not connected"}</div>
                       </div>
-                      <button className="cv-btn cv-btn-primary text-xs">Connect</button>
+                      <span className={`status-dot ${settings.cloud_onedrive_connected === "true" ? "online" : "offline"}`} />
                     </div>
-                  ))}
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        className="cv-input"
+                        value={settings.cloud_onedrive_username || ""}
+                        onChange={(e) => updateSetting("cloud_onedrive_username", e.target.value)}
+                        placeholder="OneDrive username / email"
+                      />
+                      <input
+                        type="password"
+                        className="cv-input"
+                        value={settings.cloud_onedrive_password || ""}
+                        onChange={(e) => updateSetting("cloud_onedrive_password", e.target.value)}
+                        placeholder="OneDrive password"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => updateSetting("cloud_onedrive_connected", "true")} className="cv-btn cv-btn-primary text-xs"><Save size={12} /> Save + Connect</button>
+                      <button onClick={() => updateSetting("cloud_onedrive_connected", "false")} className="cv-btn cv-btn-secondary text-xs">Disconnect</button>
+                    </div>
+                  </div>
+
+                  <div className="glass-panel-2 p-4 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-semibold">Google Drive</div>
+                        <div className="text-[10px] text-cv-subtext">{settings.cloud_gdrive_connected === "true" ? "Connected" : "Not connected"}</div>
+                      </div>
+                      <span className={`status-dot ${settings.cloud_gdrive_connected === "true" ? "online" : "offline"}`} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        className="cv-input"
+                        value={settings.cloud_gdrive_username || ""}
+                        onChange={(e) => updateSetting("cloud_gdrive_username", e.target.value)}
+                        placeholder="Google Drive username / email"
+                      />
+                      <input
+                        type="password"
+                        className="cv-input"
+                        value={settings.cloud_gdrive_password || ""}
+                        onChange={(e) => updateSetting("cloud_gdrive_password", e.target.value)}
+                        placeholder="Google Drive password"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => updateSetting("cloud_gdrive_connected", "true")} className="cv-btn cv-btn-primary text-xs"><Save size={12} /> Save + Connect</button>
+                      <button onClick={() => updateSetting("cloud_gdrive_connected", "false")} className="cv-btn cv-btn-secondary text-xs">Disconnect</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

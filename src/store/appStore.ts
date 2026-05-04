@@ -3,7 +3,7 @@ import { create } from "zustand";
 
 export type TabId =
   | "home" | "sources" | "downloads" | "livetv" | "server"
-  | "security" | "advanced" | "cloud" | "plugins" | "ai" | "settings";
+  | "security" | "advanced" | "cloud" | "plugins" | "ai" | "mediaactions" | "settings";
 
 export interface MediaItem {
   id?: number;
