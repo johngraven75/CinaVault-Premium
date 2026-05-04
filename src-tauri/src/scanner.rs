@@ -1,0 +1,193 @@
+// CinaVault Premium — Media Scanner Module
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use tauri::State;
+use walkdir::WalkDir;
+use crate::AppState;
+use crate::db::{MediaItem, MediaSource};
+
+static SCANNING: AtomicBool = AtomicBool::new(false);
+static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
+static SCAN_CURRENT: AtomicU64 = AtomicU64::new(0);
+static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
+
+const VIDEO_EXTS: &[&str] = &[
+    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg",
+    "ts", "m2ts", "vob", "ogv", "3gp", "divx", "rm", "rmvb", "asf",
+];
+const AUDIO_EXTS: &[&str] = &[
+    "mp3", "flac", "aac", "ogg", "wma", "wav", "m4a", "opus", "alac", "aiff",
+];
+const IMAGE_EXTS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg",
+];
+
+fn detect_media_type(ext: &str) -> Option<&'static str> {
+    let ext_lower = ext.to_lowercase();
+    if VIDEO_EXTS.contains(&ext_lower.as_str()) {
+        Some("movie")
+    } else if AUDIO_EXTS.contains(&ext_lower.as_str()) {
+        Some("music")
+    } else if IMAGE_EXTS.contains(&ext_lower.as_str()) {
+        Some("photo")
+    } else {
+        None
+    }
+}
+
+fn title_from_filename(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Unknown".to_string())
+        .replace('_', " ")
+        .replace('.', " ")
+}
+
+#[tauri::command]
+pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    if SCANNING.load(Ordering::Relaxed) {
+        return Err("Scan already in progress".into());
+    }
+    SCANNING.store(true, Ordering::Relaxed);
+    CANCEL_FLAG.store(false, Ordering::Relaxed);
+    SCAN_CURRENT.store(0, Ordering::Relaxed);
+
+    let sources = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.get_sources_data().map_err(|e| e.to_string())?
+    };
+
+    let mut total_found: u64 = 0;
+    let mut total_added: u64 = 0;
+
+    for source in &sources {
+        if !source.enabled { continue; }
+        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+
+        let (found, added) = scan_directory(&state, source)?;
+        total_found += found;
+        total_added += added;
+    }
+
+    SCANNING.store(false, Ordering::Relaxed);
+
+    Ok(serde_json::json!({
+        "total_found": total_found,
+        "total_added": total_added,
+        "sources_scanned": sources.len(),
+    }))
+}
+
+#[tauri::command]
+pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> Result<serde_json::Value, String> {
+    if SCANNING.load(Ordering::Relaxed) {
+        return Err("Scan already in progress".into());
+    }
+    SCANNING.store(true, Ordering::Relaxed);
+    CANCEL_FLAG.store(false, Ordering::Relaxed);
+
+    let source = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let sources = db.get_sources_data().map_err(|e| e.to_string())?;
+        sources.into_iter().find(|s| s.id == Some(source_id))
+            .ok_or("Source not found")?
+    };
+
+    let (found, added) = scan_directory(&state, &source)?;
+    SCANNING.store(false, Ordering::Relaxed);
+
+    Ok(serde_json::json!({
+        "total_found": found,
+        "total_added": added,
+    }))
+}
+
+fn scan_directory(state: &State<AppState>, source: &MediaSource) -> Result<(u64, u64), String> {
+    let path = Path::new(&source.path);
+    if !path.exists() {
+        return Err(format!("Source path does not exist: {}", source.path));
+    }
+
+    let mut files: Vec<(String, String, u64)> = Vec::new();
+
+    for entry in WalkDir::new(path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+        let p = entry.path();
+        if !p.is_file() { continue; }
+
+        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+            if let Some(media_type) = detect_media_type(ext) {
+                let size = p.metadata().map(|m| m.len()).unwrap_or(0);
+                files.push((p.to_string_lossy().to_string(), media_type.to_string(), size));
+            }
+        }
+    }
+
+    SCAN_TOTAL.store(files.len() as u64, Ordering::Relaxed);
+    let found = files.len() as u64;
+    let mut added: u64 = 0;
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    for (i, (file_path, media_type, file_size)) in files.iter().enumerate() {
+        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+        SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
+
+        let title = title_from_filename(Path::new(file_path));
+        let item = MediaItem {
+            id: None,
+            title,
+            file_path: file_path.clone(),
+            media_type: media_type.clone(),
+            year: None,
+            rating: None,
+            overview: None,
+            poster_path: None,
+            backdrop_path: None,
+            genre: None,
+            duration: None,
+            file_size: Some(*file_size as i64),
+            resolution: None,
+            codec: None,
+            verified: false,
+            watched: false,
+            favorite: false,
+            date_added: now.clone(),
+            last_played: None,
+            tmdb_id: None,
+            imdb_id: None,
+            source_id: source.id,
+        };
+
+        match db.add_media_item_data(&item) {
+            Ok(_) => added += 1,
+            Err(_) => {} // duplicate, skip
+        }
+    }
+
+    // Update source last_scanned and item_count
+    let _ = db.conn.execute(
+        "UPDATE media_sources SET last_scanned = ?1, item_count = ?2 WHERE id = ?3",
+        rusqlite::params![now, added as i64, source.id],
+    );
+
+    Ok((found, added))
+}
+
+#[tauri::command]
+pub fn get_scan_progress() -> serde_json::Value {
+    serde_json::json!({
+        "scanning": SCANNING.load(Ordering::Relaxed),
+        "total": SCAN_TOTAL.load(Ordering::Relaxed),
+        "current": SCAN_CURRENT.load(Ordering::Relaxed),
+    })
+}
+
+#[tauri::command]
+pub fn cancel_scan() -> Result<(), String> {
+    CANCEL_FLAG.store(true, Ordering::Relaxed);
+    Ok(())
+}
