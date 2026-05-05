@@ -1,0 +1,19 @@
+#Requires -Version 5.1
+# CinaVault Premium Build 112 installer launcher
+
+param(
+    [ValidateSet("exe", "msi")]
+    [string]$Type = "exe"
+)
+
+$base = Split-Path -Parent $MyInvocation.MyCommand.Path
+$exe = Join-Path $base "CinaVault-Premium-Build112-Installer.exe"
+$msi = Join-Path $base "CinaVault-Premium-Build112-Installer.msi"
+
+if ($Type -eq "msi") {
+    if (-not (Test-Path $msi)) { throw "Missing installer: $msi" }
+    Start-Process "msiexec.exe" -ArgumentList "/i `"$msi`"" -Wait
+} else {
+    if (-not (Test-Path $exe)) { throw "Missing installer: $exe" }
+    Start-Process $exe -Wait
+}

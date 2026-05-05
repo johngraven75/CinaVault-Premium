@@ -205,3 +205,29 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- CinaVault web/desktop build outputs ---
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Tauri/Rust artifacts ---
+src-tauri/target/
+*.pdb
+
+# --- Local tooling caches ---
+.snapshots/
+.DS_Store
+Thumbs.db
+
+# --- Legacy/local runtime trees (not source of truth) ---
+android/
+assets/
+cinavault/
+data/
+installer/
+plugins/
