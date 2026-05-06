@@ -128,7 +128,9 @@ export default function AIDiagnosticsTab() {
             {quickActions.map(action => (
               <button
                 key={action.label}
+                disabled={aiProcessing}
                 onClick={() => {
+                  if (aiProcessing) return;
                   setPrompt(action.q);
                   if (action.runNow) {
                     setAiProcessing(true);
@@ -143,7 +145,7 @@ export default function AIDiagnosticsTab() {
                       .finally(() => setAiProcessing(false));
                   }
                 }}
-                className="cv-btn cv-btn-secondary text-[10px] py-1"
+                className="cv-btn cv-btn-secondary text-[10px] py-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <action.icon size={10} /> {action.label}
               </button>

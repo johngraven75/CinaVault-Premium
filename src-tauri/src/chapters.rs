@@ -2,6 +2,19 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::path::Path;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn command_output(cmd: &mut Command) -> Result<std::process::Output, std::io::Error> {
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.output()
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChapterThumb {
@@ -21,15 +34,15 @@ pub async fn generate_chapter_thumbs(
     let interval = interval_secs.unwrap_or(300); // 5 minutes default
 
     // Get video duration first
-    let ffprobe_out = Command::new("ffprobe")
-        .args(&[
+    let ffprobe_out = command_output(
+        Command::new("ffprobe").args(&[
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "csv=p=0",
             &file_path,
         ])
-        .output()
-        .map_err(|e| format!("ffprobe failed: {}", e))?;
+    )
+    .map_err(|e| format!("ffprobe failed: {}", e))?;
 
     let duration_str = String::from_utf8_lossy(&ffprobe_out.stdout);
     let duration: f64 = duration_str.trim().parse().unwrap_or(0.0);
@@ -55,8 +68,8 @@ pub async fn generate_chapter_thumbs(
         let out_path = format!("{}/chapter_{:04}.jpg", out_dir, idx);
         let timestamp = format!("{:.2}", t);
 
-        let result = Command::new(&ffmpeg)
-            .args(&[
+        let result = command_output(
+            Command::new(&ffmpeg).args(&[
                 "-ss", &timestamp,
                 "-i", &file_path,
                 "-vframes", "1",
@@ -64,7 +77,7 @@ pub async fn generate_chapter_thumbs(
                 "-y",
                 &out_path,
             ])
-            .output();
+        );
 
         match result {
             Ok(output) if output.status.success() => {
