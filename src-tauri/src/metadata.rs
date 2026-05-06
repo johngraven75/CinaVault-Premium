@@ -43,9 +43,9 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
     ("TheMovieDB Images", "tmdb_images", "https://image.tmdb.org/t/p", false, "Artwork"),
     ("TVMaze", "tvmaze", "https://api.tvmaze.com", false, "TV Shows"),
     ("EPG Guide", "epg", "", false, "Live TV"),
-    ("Plex Agents", "plex_agents", "", false, "Agents"),
-    ("Emby Providers", "emby_providers", "", false, "Agents"),
-    ("Jellyfin Providers", "jellyfin_providers", "", false, "Agents"),
+    ("MS-A Agents", "plex_agents", "", false, "Agents"),
+    ("MS-B Providers", "emby_providers", "", false, "Agents"),
+    ("MS-C Providers", "jellyfin_providers", "", false, "Agents"),
 ];
 
 #[tauri::command]

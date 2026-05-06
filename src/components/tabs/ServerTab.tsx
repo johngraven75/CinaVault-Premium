@@ -1,4 +1,4 @@
-// CinaVault Premium — Server Tab (Jellyfin/Emby Management)
+// CinaVault Premium — Server Tab (MS-C/MS-B Management)
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
@@ -98,8 +98,8 @@ export default function ServerTab() {
           </h3>
           <div className="flex items-center gap-3">
             <select value={serverType} onChange={e => setServerStatus(serverRunning, e.target.value, serverUrl)} className="cv-select text-xs py-1.5">
-              <option value="jellyfin">Jellyfin</option>
-              <option value="emby">Emby</option>
+              <option value="jellyfin">MS-C</option>
+              <option value="emby">MS-B</option>
             </select>
             <button onClick={checkServer} className="cv-btn cv-btn-secondary text-xs py-1.5">
               <RefreshCw size={12} className={checking ? "animate-spin" : ""} /> Check
@@ -146,16 +146,16 @@ export default function ServerTab() {
             <div className="flex gap-2 mb-2">
               <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} className="cv-input flex-1" placeholder="Enter API key" />
               <button
-                onClick={() => openLink(serverType === "emby" ? "https://emby.media/community/index.php?/topic/72043-api-keys/" : "https://jellyfin.org/docs/general/server/api/#creating-an-api-key")}
+                onClick={() => openLink(customUrl)}
                 className="cv-btn cv-btn-secondary text-xs shrink-0"
               >
-                <ExternalLink size={12} /> Get API Key
+                <ExternalLink size={12} /> Get Access Key
               </button>
             </div>
             <div className="text-[10px] text-cv-subtext mb-3">
               {serverType === "emby"
-                ? "Emby: open Dashboard > Advanced > API Keys."
-                : "Jellyfin: open Dashboard > Advanced > API Keys."}
+                ? "MS-B: open Dashboard > Advanced > Access Keys."
+                : "MS-C: open Dashboard > Advanced > Access Keys."}
             </div>
             <div className="flex gap-2">
               <button onClick={importLibraries} className="cv-btn cv-btn-secondary text-xs flex-1">
@@ -164,9 +164,9 @@ export default function ServerTab() {
             </div>
           </div>
 
-          {/* Emby Compatibility */}
+          {/* MS-B Compatibility */}
           <div className="glass-panel-2 p-4 rounded-lg">
-            <label className="section-label">Emby SDK Compatibility</label>
+            <label className="section-label">MS-B SDK Compatibility</label>
             <button onClick={checkEmbyCompat} className="cv-btn cv-btn-secondary text-xs mb-3 w-full">
               <CheckCircle size={12} /> Check Compatibility
             </button>
@@ -178,8 +178,8 @@ export default function ServerTab() {
                 </div>
                 {embyCompat.product && <div className="text-cv-subtext">Product: {embyCompat.product}</div>}
                 {embyCompat.version && <div className="text-cv-subtext">Version: {embyCompat.version}</div>}
-                <div className="text-cv-subtext">Emby API: {embyCompat.emby_api ? "Yes" : "No"}</div>
-                <div className="text-cv-subtext">Jellyfin API: {embyCompat.jellyfin_api ? "Yes" : "No"}</div>
+                <div className="text-cv-subtext">MS-B API: {embyCompat.emby_api ? "Yes" : "No"}</div>
+                <div className="text-cv-subtext">MS-C API: {embyCompat.jellyfin_api ? "Yes" : "No"}</div>
               </div>
             )}
           </div>

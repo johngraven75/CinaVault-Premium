@@ -198,9 +198,9 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "goodreads", name: "GoodReads", category: "Other", enabled: true },
   { id: "epg_guide", name: "EPG Guide", category: "Other", enabled: true },
   // Agents
-  { id: "plex_agents", name: "Plex Agents", category: "Agents", enabled: true },
-  { id: "emby_providers", name: "Emby Providers", category: "Agents", enabled: true },
-  { id: "jellyfin_providers", name: "Jellyfin Providers", category: "Agents", enabled: true },
+  { id: "plex_agents", name: "MS-A Agents", category: "Agents", enabled: true },
+  { id: "emby_providers", name: "MS-B Providers", category: "Agents", enabled: true },
+  { id: "jellyfin_providers", name: "MS-C Providers", category: "Agents", enabled: true },
 ];
 
 const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
@@ -248,6 +248,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   auto_next: "true",
   auto_subtitles: "true",
   chapter_thumbs_enabled: "true",
+  prefer_embedded_titles: "false",
   smart_collections: "true",
   poster_sync: "true",
   unified_library: "true",

@@ -103,7 +103,7 @@ export default function App() {
     init();
   }, []);
 
-  // ── Preload plugin catalog at launch (Emby/Plex/Jellyfin) ──
+  // ── Preload plugin catalog at launch (MS-B/MS-A/MS-C) ──
   useEffect(() => {
     const preloadPlugins = async () => {
       await pluginEngine.loadFromBackend();

@@ -1,4 +1,4 @@
-// CinaVault Premium — Advanced Tab (Emby SDK Feature Matrix + Media Requests)
+// CinaVault Premium — Advanced Tab (MS-B SDK Feature Matrix + Media Requests)
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
@@ -120,7 +120,7 @@ export default function AdvancedTab() {
       {/* Feature Matrix */}
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Zap size={16} className="text-cv-accent" /> Emby SDK Feature Matrix
+          <Zap size={16} className="text-cv-accent" /> MS-B SDK Feature Matrix
         </h3>
         <div className="space-y-2">
           {FEATURE_MATRIX.map(cat => (
@@ -205,7 +205,7 @@ export default function AdvancedTab() {
             <div className="space-y-2">
               {[
                 { name: "Overseerr", desc: "Media request management", url: "https://overseerr.dev" },
-                { name: "Jellyseerr", desc: "Jellyfin request management", url: "https://github.com/Fallenbagel/jellyseerr" },
+                { name: "MS-C Requests", desc: "MS-C request management", url: "https://github.com/Fallenbagel/MS-C Requests" },
               ].map(int => (
                 <div key={int.name} className="glass-panel-2 p-3 rounded-lg flex items-center justify-between">
                   <div>

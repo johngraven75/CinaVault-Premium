@@ -9,11 +9,12 @@ import {
 } from "lucide-react";
 
 export default function MediaSourcesTab() {
-  const { sources, setSources, scanning, setScanning, scanProgress, setScanProgress, addStatusMessage } = useAppStore();
+  const { sources, setSources, scanning, setScanning, scanProgress, setScanProgress, addStatusMessage, settings, setSetting } = useAppStore();
   const [newSourcePath, setNewSourcePath] = useState("");
   const [newSourceName, setNewSourceName] = useState("");
   const [newSourceType, setNewSourceType] = useState("folder");
   const [webLink, setWebLink] = useState("");
+  const [savingOption, setSavingOption] = useState<string | null>(null);
 
   useEffect(() => {
     loadSources();
@@ -66,6 +67,22 @@ export default function MediaSourcesTab() {
     addStatusMessage("AI Source Discovery: Analyzing system drives for media folders...");
   };
 
+  const isEnabled = (key: string, defaultOn = false) =>
+    (settings[key] ?? (defaultOn ? "true" : "false")) === "true";
+
+  const saveLibraryOption = async (key: string, enabled: boolean) => {
+    const value = enabled ? "true" : "false";
+    setSetting(key, value);
+    setSavingOption(key);
+    try {
+      await invoke("set_setting", { key, value });
+      addStatusMessage(`Library option updated: ${key} = ${value}`);
+    } catch (e) {
+      addStatusMessage(`Failed to save option ${key}: ${e}`);
+    }
+    setSavingOption(null);
+  };
+
   return (
     <div className="space-y-5">
       {/* Add Source Panel */}
@@ -114,6 +131,52 @@ export default function MediaSourcesTab() {
             <Scan size={14} className={scanning ? "animate-spin" : ""} />
             {scanning ? "Scanning..." : "Scan All Sources"}
           </button>
+        </div>
+      </div>
+
+      {/* Unified Library Options */}
+      <div className="glass-panel p-5">
+        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+          <Sparkles size={16} className="text-cv-accent" /> Library Options (Unified)
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {[
+            {
+              key: "prefer_embedded_titles",
+              label: "Prefer embedded titles over filenames",
+              desc: "Use media container tags (title metadata) when scanning, fallback to filename if missing.",
+            },
+            {
+              key: "library_auto_scan",
+              label: "Scan library automatically",
+              desc: "Automatically refresh library metadata in background.",
+            },
+            {
+              key: "library_partial_scan_on_changes",
+              label: "Run partial scan when changes are detected",
+              desc: "Only rescan changed folders/files for faster updates.",
+            },
+            {
+              key: "library_empty_trash_after_scan",
+              label: "Empty trash automatically after every scan",
+              desc: "Remove stale media records for files no longer on disk.",
+            },
+          ].map((opt) => (
+            <div key={opt.key} className="glass-panel-2 p-3 rounded-lg">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold">{opt.label}</div>
+                  <div className="text-[10px] text-cv-subtext mt-1">{opt.desc}</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isEnabled(opt.key, false)}
+                  disabled={savingOption === opt.key}
+                  onChange={(e) => saveLibraryOption(opt.key, e.target.checked)}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

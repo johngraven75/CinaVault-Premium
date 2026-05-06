@@ -1,4 +1,4 @@
-// CinaVault Premium — Remote Access Management (Plex-style layout)
+// CinaVault Premium — Remote Access Management (Unified layout)
 import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
@@ -170,7 +170,7 @@ export default function RemoteAccessTab() {
           />
           <div className="text-[10px] text-cv-subtext mt-2 flex items-center gap-1">
             <Globe size={10} />
-            Match Plex-style remote access controls; values are persisted in CineVault settings.
+            Match unified remote access controls; values are persisted in CineVault settings.
           </div>
         </div>
       </div>
