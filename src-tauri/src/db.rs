@@ -213,7 +213,7 @@ impl Database {
             ("glassmorphism", "true"),
             ("starfield_header", "true"),
             ("offline_mode", "false"),
-            ("ai_model", "facebook/bart-large-cnn"),
+            ("ai_model", "katanemo/Arch-Router-1.5B:hf-inference"),
             ("hf_token", ""),
             // Scheduled task defaults
             ("_scheduledTasks", r#"{"thumbnails":"on_scan","chapter_images":"on_scan","metadata_check":"daily","match_unmatch":"on_import"}"#),
