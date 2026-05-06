@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use rusqlite::params;
 use crate::AppState;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const DEFAULT_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
+static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 pub async fn ai_query(
@@ -252,6 +254,23 @@ fn count_existing_chapter_images(chapter_dir: &str) -> usize {
 }
 
 async fn gather_adult_metadata_assets(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    if ADULT_GATHER_RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Ok(serde_json::json!({
+            "type": "adult_metadata_gather",
+            "status": "busy",
+            "message": "Adult metadata gather is already running. Please wait for completion.",
+        }));
+    }
+
+    let result = gather_adult_metadata_assets_inner(state).await;
+    ADULT_GATHER_RUNNING.store(false, Ordering::SeqCst);
+    result
+}
+
+async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let configured_adult_providers: Vec<String> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db.conn.prepare(
@@ -340,6 +359,7 @@ async fn gather_adult_metadata_assets(state: State<'_, AppState>) -> Result<serd
 
     Ok(serde_json::json!({
         "type": "adult_metadata_gather",
+        "status": "success",
         "configured_adult_providers": configured_adult_providers,
         "provider_count": configured_adult_providers.len(),
         "items_scanned": media_items.len(),

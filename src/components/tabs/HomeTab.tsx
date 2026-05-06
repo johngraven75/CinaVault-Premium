@@ -75,6 +75,11 @@ export default function HomeTab() {
     } catch {}
   };
 
+  const handleMediaClick = async (item: MediaItem) => {
+    setSelectedMedia(item);
+    await handlePlay(item);
+  };
+
   const cardMinWidth = cardStyle === "banner"
     ? Math.max(240, Math.round(iconSize * 1.7))
     : Math.max(112, iconSize);
@@ -292,7 +297,7 @@ export default function HomeTab() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(i * 0.03, 0.5) }}
-              onClick={() => setSelectedMedia(item)}
+              onClick={() => void handleMediaClick(item)}
               className={`media-card glass-panel-2 rounded-xl overflow-hidden group ${cardStyle === "disc" ? "p-3" : ""}`}
             >
               <CardVisual item={item} styleMode={cardStyle} />
@@ -315,7 +320,7 @@ export default function HomeTab() {
             {filteredItems.map((item, i) => (
               <div
                 key={item.id || i}
-                onClick={() => setSelectedMedia(item)}
+                onClick={() => void handleMediaClick(item)}
                 className="grid grid-cols-[1fr_100px_80px_80px_80px] gap-2 px-4 py-2.5 zebra-row cursor-pointer items-center text-sm"
               >
                 <span className="truncate font-medium">{item.title}</span>
