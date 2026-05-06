@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tauri::State;
 use crate::AppState;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PlayerInfo {
@@ -67,10 +72,12 @@ pub async fn play_media(state: State<'_, AppState>, file_path: String, player: O
         if let Err(primary_err) = open::that(&file_path) {
             #[cfg(target_os = "windows")]
             {
-                Command::new("cmd")
-                    .args(["/C", "start", "", &file_path])
+                let mut fallback = Command::new("explorer");
+                fallback.arg(&file_path);
+                fallback.creation_flags(CREATE_NO_WINDOW);
+                fallback
                     .spawn()
-                    .map_err(|e| format!("System open failed (open + cmd fallback): {}; {}", primary_err, e))?;
+                    .map_err(|e| format!("System open failed (open + explorer fallback): {}; {}", primary_err, e))?;
             }
             #[cfg(not(target_os = "windows"))]
             {

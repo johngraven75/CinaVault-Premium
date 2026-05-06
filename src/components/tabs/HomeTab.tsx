@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
+import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
 import ParticleField from "../effects/ParticleField";
 import {
   Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Heart, RefreshCw, Sparkles,
@@ -42,7 +43,7 @@ export default function HomeTab() {
   useEffect(() => { loadMedia(); }, []);
 
   useEffect(() => {
-    let items = [...mediaItems];
+    let items = mediaItems.filter(isLibraryDisplayableMediaItem);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       items = items.filter(m => m.title.toLowerCase().includes(q) || m.genre?.toLowerCase().includes(q));
@@ -61,6 +62,10 @@ export default function HomeTab() {
   }, [selectedMedia?.id, selectedMedia?.title]);
 
   const handlePlay = async (item: MediaItem) => {
+    if (!canPlayMediaItem(item)) {
+      addStatusMessage(`Play skipped: ${item.title} is not a playable library video/audio item`);
+      return;
+    }
     try {
       await invoke("play_media", { filePath: item.file_path });
       addStatusMessage(`Playing: ${item.title}`);
@@ -77,7 +82,6 @@ export default function HomeTab() {
 
   const handleMediaClick = async (item: MediaItem) => {
     setSelectedMedia(item);
-    await handlePlay(item);
   };
 
   const cardMinWidth = cardStyle === "banner"

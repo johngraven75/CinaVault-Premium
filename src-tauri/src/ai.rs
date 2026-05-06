@@ -9,6 +9,26 @@ const DEFAULT_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 
+pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bool {
+    let path_lower = file_path.replace('/', "\\").to_lowercase();
+    let is_video = [
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg",
+        ".ts", ".m2ts", ".vob", ".ogv", ".3gp", ".divx", ".rm", ".rmvb", ".asf",
+    ]
+    .iter()
+    .any(|ext| path_lower.ends_with(ext));
+
+    if !is_video {
+        return false;
+    }
+
+    if path_lower.contains("_chapters\\chapter_") {
+        return false;
+    }
+
+    matches!(media_type, "adult" | "movie" | "video")
+}
+
 #[tauri::command]
 pub async fn ai_query(
     state: State<'_, AppState>,
@@ -315,9 +335,21 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     let mut chapters_generated_for_items = 0usize;
     let mut chapter_images_generated = 0usize;
     let mut items_needing_metadata = 0usize;
+    let mut skipped_missing_files = 0usize;
+    let mut skipped_non_video_items = 0usize;
     let mut errors: Vec<String> = Vec::new();
 
     for (id, title, file_path, poster_path, overview) in media_items.iter() {
+        let media_path = std::path::Path::new(file_path);
+        if !media_path.exists() {
+            skipped_missing_files += 1;
+            continue;
+        }
+        if !is_adult_gather_candidate("movie", file_path) {
+            skipped_non_video_items += 1;
+            continue;
+        }
+
         let has_overview = overview
             .as_ref()
             .map(|s| !s.trim().is_empty())
@@ -367,9 +399,34 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "chapter_sets_generated": chapters_generated_for_items,
         "chapter_images_generated": chapter_images_generated,
         "items_needing_metadata": items_needing_metadata,
+        "skipped_missing_files": skipped_missing_files,
+        "skipped_non_video_items": skipped_non_video_items,
         "note": "Adult provider metadata writeback is limited to configured integrations currently available in this build. Poster and chapter image gathering run locally.",
         "errors": errors,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_adult_gather_candidate;
+
+    #[test]
+    fn accepts_real_video_candidates_for_adult_gather() {
+        assert!(is_adult_gather_candidate("adult", r"E:\Videos\scene.mp4"));
+        assert!(is_adult_gather_candidate("movie", r"E:\Videos\scene.mkv"));
+    }
+
+    #[test]
+    fn rejects_generated_images_and_non_video_assets_for_adult_gather() {
+        assert!(!is_adult_gather_candidate(
+            "photo",
+            r"E:\Videos\scene_chapters\chapter_0001.jpg"
+        ));
+        assert!(!is_adult_gather_candidate(
+            "photo",
+            r"E:\Videos\poster.jpg"
+        ));
+    }
 }
 
 #[tauri::command]

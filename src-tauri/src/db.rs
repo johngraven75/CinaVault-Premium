@@ -242,6 +242,14 @@ impl Database {
             )?;
         }
 
+        // Generated chapter thumbnails belong to media cards, not the main library index.
+        self.conn.execute(
+            "DELETE FROM media_items
+             WHERE media_type = 'photo'
+               AND (lower(replace(file_path, '/', '\\')) LIKE '%_chapters\\chapter_%')",
+            [],
+        )?;
+
         Ok(())
     }
 
