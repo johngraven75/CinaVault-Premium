@@ -7,11 +7,16 @@ use tauri::State;
 use walkdir::WalkDir;
 use crate::AppState;
 use crate::db::{MediaItem, MediaSource};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+use std::process::Command;
 
 static SCANNING: AtomicBool = AtomicBool::new(false);
 static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
 static SCAN_CURRENT: AtomicU64 = AtomicU64::new(0);
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const VIDEO_EXTS: &[&str] = &[
     "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg",
@@ -45,6 +50,30 @@ fn title_from_filename(path: &Path) -> String {
         .replace('.', " ")
 }
 
+fn extract_embedded_title(file_path: &str) -> Option<String> {
+    let mut cmd = Command::new("ffprobe");
+    cmd.args([
+        "-v", "error",
+        "-show_entries", "format_tags=title",
+        "-of", "default=nw=1:nk=1",
+        file_path,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
 #[tauri::command]
 pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     if SCANNING.load(Ordering::Relaxed) {
@@ -54,9 +83,15 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
     CANCEL_FLAG.store(false, Ordering::Relaxed);
     SCAN_CURRENT.store(0, Ordering::Relaxed);
 
-    let sources = {
+    let (sources, prefer_embedded_titles) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.get_sources_data().map_err(|e| e.to_string())?
+        let sources = db.get_sources_data().map_err(|e| e.to_string())?;
+        let prefer_embedded_titles = db
+            .get_setting_data("prefer_embedded_titles")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| "false".to_string())
+            == "true";
+        (sources, prefer_embedded_titles)
     };
 
     let mut total_found: u64 = 0;
@@ -66,7 +101,7 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         if !source.enabled { continue; }
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
 
-        let (found, added) = scan_directory(&state, source)?;
+        let (found, added) = scan_directory(&state, source, prefer_embedded_titles)?;
         total_found += found;
         total_added += added;
     }
@@ -88,14 +123,20 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
     SCANNING.store(true, Ordering::Relaxed);
     CANCEL_FLAG.store(false, Ordering::Relaxed);
 
-    let source = {
+    let (source, prefer_embedded_titles) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let sources = db.get_sources_data().map_err(|e| e.to_string())?;
-        sources.into_iter().find(|s| s.id == Some(source_id))
-            .ok_or("Source not found")?
+        let source = sources.into_iter().find(|s| s.id == Some(source_id))
+            .ok_or("Source not found")?;
+        let prefer_embedded_titles = db
+            .get_setting_data("prefer_embedded_titles")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| "false".to_string())
+            == "true";
+        (source, prefer_embedded_titles)
     };
 
-    let (found, added) = scan_directory(&state, &source)?;
+    let (found, added) = scan_directory(&state, &source, prefer_embedded_titles)?;
     SCANNING.store(false, Ordering::Relaxed);
 
     Ok(serde_json::json!({
@@ -104,7 +145,7 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
     }))
 }
 
-fn scan_directory(state: &State<AppState>, source: &MediaSource) -> Result<(u64, u64), String> {
+fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded_titles: bool) -> Result<(u64, u64), String> {
     let path = Path::new(&source.path);
     if !path.exists() {
         return Err(format!("Source path does not exist: {}", source.path));
@@ -136,7 +177,11 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource) -> Result<(u64,
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
 
-        let title = title_from_filename(Path::new(file_path));
+        let title = if prefer_embedded_titles {
+            extract_embedded_title(file_path).unwrap_or_else(|| title_from_filename(Path::new(file_path)))
+        } else {
+            title_from_filename(Path::new(file_path))
+        };
         let item = MediaItem {
             id: None,
             title,

@@ -20,7 +20,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   },
   {
     id: "emby_sdk",
-    name: "Emby SDK Classic",
+    name: "MS-B Classic",
     colors: {
       bg: "#f0f0f5", panel: "#ffffff", "panel-2": "#f8f8fc", "panel-3": "#eeeef4",
       text: "#1a1a2e", subtext: "#6b6b8a", accent: "#52b54b", "accent-2": "#4ba34b",
@@ -30,7 +30,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   },
   {
     id: "jellyfin_glass",
-    name: "Jellyfin Aurora",
+    name: "MS-C Aurora",
     colors: {
       bg: "#0a0a1a", panel: "rgba(20,15,40,0.85)", "panel-2": "rgba(30,20,60,0.75)",
       "panel-3": "rgba(40,25,80,0.65)", text: "#e8e6f0", subtext: "#9b95b0",

@@ -50,11 +50,33 @@ pub fn get_available_players() -> Vec<PlayerInfo> {
 }
 
 #[tauri::command]
-pub async fn play_media(file_path: String, player: Option<String>) -> Result<(), String> {
-    let player_exe = player.unwrap_or_else(|| "system".to_string());
+pub async fn play_media(state: State<'_, AppState>, file_path: String, player: Option<String>) -> Result<(), String> {
+    if !std::path::Path::new(&file_path).exists() {
+        return Err(format!("Media file not found: {}", file_path));
+    }
+
+    let configured_default = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.get_setting_data("default_player")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_else(|| "system".to_string())
+    };
+    let player_exe = player.unwrap_or(configured_default);
 
     if player_exe == "system" {
-        open::that(&file_path).map_err(|e| e.to_string())?;
+        if let Err(primary_err) = open::that(&file_path) {
+            #[cfg(target_os = "windows")]
+            {
+                Command::new("cmd")
+                    .args(["/C", "start", "", &file_path])
+                    .spawn()
+                    .map_err(|e| format!("System open failed (open + cmd fallback): {}; {}", primary_err, e))?;
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err(primary_err.to_string());
+            }
+        }
     } else if std::path::Path::new(&player_exe).exists() {
         Command::new(&player_exe)
             .arg(&file_path)

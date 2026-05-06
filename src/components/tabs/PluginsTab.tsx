@@ -31,7 +31,7 @@ const PLATFORM_COLORS: Record<PluginPlatform, string> = {
 };
 
 const PLATFORM_LABELS: Record<PluginPlatform, string> = {
-  jellyfin: "Jellyfin", emby: "Emby", plex: "Plex", cinavault: "CinaVault",
+  jellyfin: "MS-C", emby: "MS-B", plex: "MS-A", cinavault: "CinaVault",
 };
 
 const TASK_FREQ_OPTIONS = [
@@ -189,8 +189,8 @@ export default function PluginsTab() {
               {[
                 { label: "Total Plugins", value: totalCount, icon: Package, color: "var(--cv-accent)" },
                 { label: "Installed", value: installedCount, icon: CheckCircle2, color: "#22c55e" },
-                { label: "Jellyfin", value: plugins.filter(p => p.platforms.includes("jellyfin")).length, icon: Layers, color: "#a78bfa" },
-                { label: "Emby", value: plugins.filter(p => p.platforms.includes("emby")).length, icon: Layers, color: "#52b54b" },
+                { label: "MS-C", value: plugins.filter(p => p.platforms.includes("jellyfin")).length, icon: Layers, color: "#a78bfa" },
+                { label: "MS-B", value: plugins.filter(p => p.platforms.includes("emby")).length, icon: Layers, color: "#52b54b" },
               ].map((s, i) => (
                 <div key={i} className="cv-card p-3 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${s.color}22` }}>
@@ -215,7 +215,7 @@ export default function PluginsTab() {
               <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value as any)}
                 className="cv-input text-xs min-w-[130px]">
                 <option value="all">All Platforms</option>
-                {(["jellyfin","emby","plex","cinavault"] as PluginPlatform[]).map(p => (
+                {(["MS-C","MS-B","MS-A","cinavault"] as PluginPlatform[]).map(p => (
                   <option key={p} value={p}>{PLATFORM_LABELS[p]}</option>
                 ))}
               </select>
@@ -472,3 +472,4 @@ function PluginRow({ plugin, installing, onInstall, onUninstall }: {
     </div>
   );
 }
+

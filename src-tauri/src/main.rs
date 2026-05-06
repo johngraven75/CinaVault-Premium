@@ -91,7 +91,7 @@ fn main() {
             iptv::sync_epg,
             iptv::get_live_channels,
             iptv::play_channel,
-            // Jellyfin / Emby Server
+            // MS-C / MS-B Server
             jellyfin::start_server,
             jellyfin::stop_server,
             jellyfin::get_server_status,
@@ -320,7 +320,7 @@ async fn cloud_get_status(provider: String, state: tauri::State<'_, AppState>) -
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "brand": "CinaVault Emby Fusion",
+        "brand": "CinaVault Fusion",
         "version": "1.0.0",
         "build_tag": "Build 111 (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",

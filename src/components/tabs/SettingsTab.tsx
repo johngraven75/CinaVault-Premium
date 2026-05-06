@@ -230,7 +230,7 @@ export default function SettingsTab() {
               <div className="cv-card p-6 text-center">
                 <div className="text-3xl mb-2">🎬</div>
                 <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cv-text)" }}>CinaVault Premium</h2>
-                <p className="text-sm font-medium mb-0.5" style={{ color: "var(--cv-accent)" }}>Emby Fusion Edition</p>
+                <p className="text-sm font-medium mb-0.5" style={{ color: "var(--cv-accent)" }}>Fusion Edition</p>
                 <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>v1.0.0 · Build 112 · Tauri v2 + React 18</p>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-white/3">
@@ -250,8 +250,8 @@ export default function SettingsTab() {
               <div className="cv-card p-4 text-xs space-y-1" style={{ color: "var(--cv-subtext)" }}>
                 <p><strong>Engine:</strong> Tauri v2 + Rust + React 18 + Vite 6</p>
                 <p><strong>Player:</strong> Vidstack + MPV + VLC + System Default</p>
-                <p><strong>Server:</strong> Jellyfin / Emby compatible API server</p>
-                <p><strong>Plugins:</strong> Jellyfin, Emby, Plex, and CinaVault native</p>
+                <p><strong>Server:</strong> MS-C / MS-B compatible API server</p>
+                <p><strong>Plugins:</strong> MS-C, MS-B, MS-A, and CinaVault native</p>
                 <p><strong>Cloud:</strong> OneDrive, Google Drive, Dropbox</p>
                 <p><strong>Security:</strong> ClamAV, VPN, encrypted settings</p>
                 <p><strong>AI:</strong> HuggingFace Transformers, local inference</p>

@@ -201,6 +201,7 @@ impl Database {
             ("auto_next", "true"),
             ("auto_subtitles", "true"),
             ("chapter_thumbs_enabled", "true"),
+            ("prefer_embedded_titles", "false"),
             ("default_player", "system"),
             ("smart_collections", "true"),
             ("poster_sync", "true"),
