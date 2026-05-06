@@ -1,5 +1,6 @@
 // CinaVault Premium — Global State Store (Zustand) with Persistence
 import { create } from "zustand";
+import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 
 export type TabId =
   | "home" | "sources" | "downloads" | "livetv" | "server"
@@ -432,7 +433,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else if (key === "_featureSettings") {
         try { featureSettings = { ...DEFAULT_FEATURE_SETTINGS, ...JSON.parse(value) }; } catch {}
       } else if (key === "_metadataProviders") {
-        try { metadataProviders = JSON.parse(value); } catch {}
+        try { metadataProviders = sanitizeMetadataProviders(JSON.parse(value), DEFAULT_PROVIDERS); } catch {}
       } else if (key === "_scheduledTasks") {
         try { scheduledTasks = { ...DEFAULT_SCHEDULED_TASKS, ...JSON.parse(value) }; } catch {}
       } else if (key === "_cloudServices") {

@@ -42,6 +42,15 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
     }
 }
 
+fn is_generated_chapter_image(path: &Path) -> bool {
+    let path_lower = path.to_string_lossy().replace('/', "\\").to_lowercase();
+    path_lower.contains("_chapters\\chapter_")
+}
+
+fn should_index_path(path: &Path) -> bool {
+    !is_generated_chapter_image(path)
+}
+
 fn title_from_filename(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -157,6 +166,7 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         let p = entry.path();
         if !p.is_file() { continue; }
+        if !should_index_path(p) { continue; }
 
         if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
             if let Some(media_type) = detect_media_type(ext) {
@@ -220,6 +230,22 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
     );
 
     Ok((found, added))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_index_path;
+    use std::path::Path;
+
+    #[test]
+    fn skips_generated_chapter_images() {
+        assert!(!should_index_path(Path::new(r"E:\Videos\sample_chapters\chapter_0001.jpg")));
+    }
+
+    #[test]
+    fn keeps_real_media_files() {
+        assert!(should_index_path(Path::new(r"E:\Videos\sample.mp4")));
+    }
 }
 
 #[tauri::command]

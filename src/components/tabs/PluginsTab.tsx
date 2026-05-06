@@ -8,6 +8,7 @@ import {
   PluginEntry, PluginCategory, PluginPlatform, PluginStatus,
 } from "../../data/pluginRegistry";
 import { pluginEngine } from "../../data/pluginAdapter";
+import { getMetadataProviderInitials, matchesPluginSearch } from "../../utils/pluginUiSafety";
 import {
   Package, Search, Filter, Download, Trash2, Settings, Play,
   CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronRight,
@@ -33,6 +34,8 @@ const PLATFORM_COLORS: Record<PluginPlatform, string> = {
 const PLATFORM_LABELS: Record<PluginPlatform, string> = {
   jellyfin: "MS-C", emby: "MS-B", plex: "MS-A", cinavault: "CinaVault",
 };
+
+const PLATFORM_FILTER_OPTIONS: PluginPlatform[] = ["jellyfin", "emby", "plex", "cinavault"];
 
 const TASK_FREQ_OPTIONS = [
   { value: "manual", label: "Manual Only" },
@@ -84,9 +87,7 @@ export default function PluginsTab() {
   // Filtered plugins
   const filtered = useMemo(() => {
     return plugins.filter(p => {
-      if (search && !p.name.toLowerCase().includes(search.toLowerCase()) &&
-          !p.description.toLowerCase().includes(search.toLowerCase()) &&
-          !p.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))) return false;
+      if (!matchesPluginSearch(p, search)) return false;
       if (platformFilter !== "all" && !p.platforms.includes(platformFilter)) return false;
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
       return true;
@@ -215,7 +216,7 @@ export default function PluginsTab() {
               <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value as any)}
                 className="cv-input text-xs min-w-[130px]">
                 <option value="all">All Platforms</option>
-                {(["MS-C","MS-B","MS-A","cinavault"] as PluginPlatform[]).map(p => (
+                {PLATFORM_FILTER_OPTIONS.map(p => (
                   <option key={p} value={p}>{PLATFORM_LABELS[p]}</option>
                 ))}
               </select>
@@ -318,7 +319,7 @@ export default function PluginsTab() {
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
                           provider.enabled ? "bg-[var(--cv-accent)]/30 text-[var(--cv-accent)]" : "bg-white/10 text-[var(--cv-subtext)]"
                         }`}>
-                          {provider.name.substring(0, 2).toUpperCase()}
+                          {getMetadataProviderInitials(provider.name)}
                         </div>
                         <div className="flex-1 text-left">
                           <div className="text-xs font-medium" style={{ color: provider.enabled ? "var(--cv-text)" : "var(--cv-subtext)" }}>
