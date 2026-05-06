@@ -3,7 +3,6 @@
 
 use rusqlite::{Connection, params, Result as SqlResult};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tauri::State;
 use crate::AppState;
 
@@ -337,6 +336,34 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    pub fn upsert_scanned_media_item_data(&self, item: &MediaItem) -> SqlResult<bool> {
+        let existing_id = self.conn.query_row(
+            "SELECT id FROM media_items WHERE file_path = ?1",
+            params![&item.file_path],
+            |row| row.get::<_, i64>(0),
+        );
+
+        match existing_id {
+            Ok(id) => {
+                self.conn.execute(
+                    "UPDATE media_items
+                     SET title = ?1,
+                         media_type = ?2,
+                         file_size = ?3,
+                         source_id = ?4
+                     WHERE id = ?5",
+                    params![item.title, item.media_type, item.file_size, item.source_id, id],
+                )?;
+                Ok(false)
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                self.add_media_item_data(item)?;
+                Ok(true)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     pub fn search_media_data(&self, query: &str) -> SqlResult<Vec<MediaItem>> {
         let pattern = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
@@ -549,4 +576,89 @@ pub fn add_source(state: State<AppState>, path: String, source_type: String, nam
 pub fn remove_source(state: State<AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.remove_source_data(id).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Database, MediaItem};
+    use rusqlite::params;
+    use std::fs;
+
+    fn test_db_path(name: &str) -> String {
+        let mut path = std::env::temp_dir();
+        path.push(format!("cinavault-{name}-{}.db", uuid::Uuid::new_v4()));
+        path.to_string_lossy().to_string()
+    }
+
+    fn sample_item(title: &str) -> MediaItem {
+        MediaItem {
+            id: None,
+            title: title.to_string(),
+            file_path: r"C:\media\movie.mkv".to_string(),
+            media_type: "movie".to_string(),
+            year: None,
+            rating: None,
+            overview: None,
+            poster_path: None,
+            backdrop_path: None,
+            genre: None,
+            duration: None,
+            file_size: Some(100),
+            resolution: None,
+            codec: None,
+            verified: false,
+            watched: false,
+            favorite: false,
+            date_added: "2026-05-06T00:00:00Z".to_string(),
+            last_played: None,
+            tmdb_id: None,
+            imdb_id: None,
+            source_id: None,
+        }
+    }
+
+    #[test]
+    fn scan_upsert_updates_existing_title_without_overwriting_user_flags() {
+        let db_path = test_db_path("scan-upsert");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let mut original = sample_item("File Name");
+        db.add_media_item_data(&original).expect("initial insert should succeed");
+        db.conn.execute(
+            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+            params![&original.file_path],
+        ).expect("should update flags");
+
+        original.title = "Embedded Title".to_string();
+        original.file_size = Some(200);
+        let inserted = db
+            .upsert_scanned_media_item_data(&original)
+            .expect("scan upsert should succeed");
+
+        assert!(!inserted, "existing rows should be refreshed, not counted as new");
+
+        let row = db
+            .conn
+            .query_row(
+                "SELECT title, file_size, watched, favorite FROM media_items WHERE file_path = ?1",
+                params![&original.file_path],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, bool>(3)?,
+                    ))
+                },
+            )
+            .expect("item should still exist");
+
+        assert_eq!(row.0, "Embedded Title");
+        assert_eq!(row.1, Some(200));
+        assert!(row.2, "watched state should be preserved");
+        assert!(row.3, "favorite state should be preserved");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
 }

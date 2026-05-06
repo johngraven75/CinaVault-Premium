@@ -217,9 +217,13 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
             source_id: source.id,
         };
 
-        match db.add_media_item_data(&item) {
-            Ok(_) => added += 1,
-            Err(_) => {} // duplicate, skip
+        match db.upsert_scanned_media_item_data(&item) {
+            Ok(inserted) => {
+                if inserted {
+                    added += 1;
+                }
+            }
+            Err(_) => {}
         }
     }
 
