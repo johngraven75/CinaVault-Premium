@@ -43,6 +43,28 @@
         color: rgba(255,255,255,0.4); font-size: 0.75rem;
         margin-top: 1rem; font-family: 'JetBrains Mono', monospace;
       }
+      #brand-splash {
+        position: fixed; inset: 0; z-index: 9998;
+        display: flex; align-items: center; justify-content: center;
+        background:
+          radial-gradient(circle at 16% 22%, rgba(74, 180, 255, 0.34), transparent 46%),
+          radial-gradient(circle at 86% 20%, rgba(255, 133, 30, 0.3), transparent 48%),
+          linear-gradient(140deg, #03101e 0%, #102035 50%, #261107 100%);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.7s ease-out;
+      }
+      #brand-splash.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #brand-splash img {
+        width: min(78vw, 920px);
+        max-height: 76vh;
+        object-fit: contain;
+        filter: drop-shadow(0 22px 42px rgba(0, 0, 0, 0.55));
+        border-radius: 10px;
+      }
     </style>
   </head>
   <body>
@@ -50,6 +72,9 @@
       <h1>CinaVault Premium</h1>
       <div id="splash-bar-track"><div id="splash-bar"></div></div>
       <div id="splash-status">Initializing systems...</div>
+    </div>
+    <div id="brand-splash" aria-hidden="true">
+      <img src="/branding/cinavault-premium-brand-full.png" alt="CinaVault Premium Media Server branding" />
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

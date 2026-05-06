@@ -562,3 +562,30 @@ html, body, #root {
   32% { transform: translateX(130%); opacity: 0; }
   100% { transform: translateX(130%); opacity: 0; }
 }
+
+[data-theme="mediafire_fusion"] .app-shell {
+  background:
+    radial-gradient(circle at 16% 24%, rgba(77, 175, 255, 0.34), transparent 42%),
+    radial-gradient(circle at 84% 20%, rgba(255, 132, 32, 0.3), transparent 38%),
+    linear-gradient(118deg, #0a2e59 0%, #0d1b34 48%, #3f190a 100%);
+}
+
+[data-theme="mediafire_fusion"] .app-shell::before {
+  background:
+    radial-gradient(circle at 16% 30%, rgba(85, 184, 255, 0.28), transparent 52%),
+    radial-gradient(circle at 86% 20%, rgba(255, 126, 26, 0.24), transparent 48%),
+    linear-gradient(135deg, #123d72 0%, #0f2038 48%, #5b1f0a 100%);
+}
+
+[data-theme="mediafire_fusion"] .app-shell::after {
+  background:
+    linear-gradient(rgba(255, 170, 98, 0.11) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(114, 190, 255, 0.11) 1px, transparent 1px);
+}
+
+[data-theme="mediafire_fusion"] .cv-header-chip {
+  border-color: rgba(255, 111, 53, 0.38);
+  color: #ff8d45;
+  background: rgba(255, 111, 53, 0.12);
+  box-shadow: inset 0 0 14px rgba(255, 111, 53, 0.16);
+}
