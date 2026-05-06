@@ -227,6 +227,13 @@ export default function SettingsTab() {
           {/* ═══ About ═══ */}
           {activeSection === "about" && (
             <>
+              <div className="cv-card p-3">
+                <img
+                  src="/branding/cinavault-premium-banner.png"
+                  alt="CinaVault Premium Media Server brand"
+                  className="w-full rounded-lg border border-white/10"
+                />
+              </div>
               <div className="cv-card p-6 text-center">
                 <div className="text-3xl mb-2">🎬</div>
                 <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cv-text)" }}>CinaVault Premium</h2>

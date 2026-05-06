@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import {
   Home, FolderOpen, Download, Tv, Server, Shield, Sliders,
-  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Zap, Router
+  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Router
 } from "lucide-react";
 
 interface NavItem {
@@ -40,18 +40,12 @@ export default function Sidebar() {
       transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
     >
       {/* Logo / Brand */}
-      <div className="h-14 flex items-center px-4 gap-3 border-b border-white/5 shrink-0 overflow-hidden">
-        <motion.div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{
-            background: "linear-gradient(135deg, var(--cv-accent), var(--cv-neon-3))",
-            boxShadow: "0 0 15px rgba(167,139,250,0.3)",
-          }}
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <Zap size={18} color="white" />
-        </motion.div>
+      <div className="h-20 flex items-center px-3 gap-3 border-b border-white/5 shrink-0 overflow-hidden">
+        <img
+          src="/branding/cinavault-premium-mark.png"
+          alt="CinaVault Premium"
+          className="w-12 h-12 rounded-xl object-cover border border-white/10 shadow-[0_10px_22px_rgba(0,0,0,0.45)] shrink-0"
+        />
         {!sidebarCollapsed && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -63,7 +57,7 @@ export default function Sidebar() {
               CinaVault
             </span>
             <span className="text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--cv-accent)" }}>
-              Premium
+              Premium Media Server
             </span>
           </motion.div>
         )}

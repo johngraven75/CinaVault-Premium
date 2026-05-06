@@ -163,6 +163,11 @@ export default function Header() {
       <div className="relative z-10 flex items-center justify-between w-full px-5">
         {/* Tab title */}
         <div className="flex items-center gap-3">
+          <img
+            src="/branding/cinavault-premium-mark.png"
+            alt="CinaVault brand"
+            className="w-9 h-9 rounded-md object-cover border border-white/10 shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
+          />
           <motion.h1
             key={activeTab}
             initial={{ opacity: 0, y: 8 }}
@@ -174,7 +179,7 @@ export default function Header() {
           </motion.h1>
           <div className="h-4 w-px bg-white/10" />
           <span className="cv-header-chip text-xs font-medium">
-            Vidhub Flagship
+            Cinavault Premium Media Server
           </span>
         </div>
 

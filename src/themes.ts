@@ -83,6 +83,17 @@ export const THEME_PRESETS: ThemePreset[] = [
       danger: "#ef4444", "neon-1": "#fdba74", "neon-2": "#fb923c", "neon-3": "#f97316",
     },
   },
+  {
+    id: "mediafire_fusion",
+    name: "MediaFire Fusion",
+    colors: {
+      bg: "#081326", panel: "rgba(16, 24, 43, 0.84)", "panel-2": "rgba(22, 32, 54, 0.76)",
+      "panel-3": "rgba(29, 40, 66, 0.66)", text: "#eef4ff", subtext: "#b9cadf",
+      accent: "#ff4b2d", "accent-2": "#ff7a1f", "accent-3": "#1d8fe3",
+      gold: "#ffb83d", "row-a": "rgba(10, 23, 44, 0.6)", "row-b": "rgba(16, 30, 58, 0.6)",
+      danger: "#ff2f43", "neon-1": "#59b6ff", "neon-2": "#ff8330", "neon-3": "#ff4637",
+    },
+  },
 ];
 
 export function applyTheme(themeId: string): void {
