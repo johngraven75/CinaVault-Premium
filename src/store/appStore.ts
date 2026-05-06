@@ -3,7 +3,7 @@ import { create } from "zustand";
 
 export type TabId =
   | "home" | "sources" | "downloads" | "livetv" | "server"
-  | "security" | "advanced" | "cloud" | "plugins" | "ai" | "settings";
+  | "security" | "remote" | "advanced" | "cloud" | "plugins" | "ai" | "settings";
 
 export interface MediaItem {
   id?: number;
@@ -254,6 +254,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   watchlist_enabled: "true",
   hw_transcoding: "true",
   quality_control: "auto",
+  remote_access_enabled: "true",
+  remote_manually_specify_port: "false",
+  remote_public_port: "32400",
+  remote_secure_connections: "preferred",
+  remote_preferred_relay: "false",
+  remote_allow_fallback: "true",
+  remote_upload_limit_mbps: "20",
+  remote_allowed_networks: "",
+  remote_enable_upnp: "true",
+  remote_enable_natpmp: "true",
   default_player: "system",
   particle_effects: "true",
   ai_visualizer: "true",

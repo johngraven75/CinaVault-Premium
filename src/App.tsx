@@ -13,6 +13,7 @@ import DownloadsTab from "./components/tabs/DownloadsTab";
 import LiveTVTab from "./components/tabs/LiveTVTab";
 import ServerTab from "./components/tabs/ServerTab";
 import SecurityTab from "./components/tabs/SecurityTab";
+import RemoteAccessTab from "./components/tabs/RemoteAccessTab";
 import AdvancedTab from "./components/tabs/AdvancedTab";
 import CloudNASTab from "./components/tabs/CloudNASTab";
 import PluginsTab from "./components/tabs/PluginsTab";
@@ -28,6 +29,7 @@ const TAB_COMPONENTS: Record<TabId, React.FC> = {
   livetv: LiveTVTab,
   server: ServerTab,
   security: SecurityTab,
+  remote: RemoteAccessTab,
   advanced: AdvancedTab,
   cloud: CloudNASTab,
   plugins: PluginsTab,
@@ -167,6 +169,10 @@ export default function App() {
 
   return (
     <div className="app-shell flex h-screen w-screen overflow-hidden" style={{ background: "var(--cv-bg)" }}>
+      <div className="app-shell-orb app-shell-orb-a" />
+      <div className="app-shell-orb app-shell-orb-b" />
+      <div className="app-shell-orb app-shell-orb-c" />
+      <div className="app-shell-noise" />
       {/* Sidebar */}
       <Sidebar />
 
@@ -203,8 +209,7 @@ function StatusTicker() {
   const latest = statusMessages[statusMessages.length - 1] || "";
 
   return (
-    <div className="h-7 flex items-center px-4 gap-4 border-t border-white/5 text-[11px] font-mono"
-         style={{ background: "rgba(0,0,0,0.3)" }}>
+    <div className="status-ticker h-7 flex items-center px-4 gap-4 border-t border-white/5 text-[11px] font-mono">
       <div className="flex items-center gap-2 shrink-0">
         <span className={`status-dot ${serverRunning ? "online" : "offline"}`} />
         <span className="text-cv-subtext">Server</span>

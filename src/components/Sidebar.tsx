@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import {
   Home, FolderOpen, Download, Tv, Server, Shield, Sliders,
-  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Zap
+  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Zap, Router
 } from "lucide-react";
 
 interface NavItem {
@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "livetv", label: "Live TV", icon: Tv },
   { id: "server", label: "Server", icon: Server },
   { id: "security", label: "Security", icon: Shield },
+  { id: "remote", label: "Remote Access", icon: Router },
   { id: "advanced", label: "Advanced", icon: Sliders },
   { id: "cloud", label: "Cloud & NAS", icon: Cloud },
   { id: "plugins", label: "Plugins", icon: Puzzle },
@@ -33,7 +34,7 @@ export default function Sidebar() {
 
   return (
     <motion.aside
-      className="h-full flex flex-col border-r border-white/5 relative z-10"
+      className="cv-sidebar h-full flex flex-col border-r border-white/5 relative z-10"
       style={{ background: "var(--cv-panel)" }}
       animate={{ width: sidebarCollapsed ? 64 : 220 }}
       transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
@@ -79,6 +80,7 @@ export default function Sidebar() {
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               className={`
+                cv-nav-item
                 w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left
                 transition-all duration-200 relative group
                 ${isActive
@@ -128,7 +130,7 @@ export default function Sidebar() {
       {/* Collapse Toggle */}
       <button
         onClick={toggleSidebar}
-        className="h-10 flex items-center justify-center border-t border-white/5 text-cv-subtext hover:text-cv-text transition-colors"
+        className="h-10 flex items-center justify-center border-t border-white/5 text-cv-subtext hover:text-cv-text transition-colors cv-sidebar-toggle"
       >
         {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
       </button>

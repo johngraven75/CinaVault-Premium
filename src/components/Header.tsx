@@ -7,14 +7,16 @@ import { Search, Bell, Maximize2 } from "lucide-react";
 const TAB_LABELS: Record<TabId, string> = {
   home: "Library", sources: "Media Sources", downloads: "Downloads",
   livetv: "Live TV", server: "Server", security: "Security",
+  remote: "Remote Access",
   advanced: "Advanced", cloud: "Cloud & NAS", plugins: "Plugins & Metadata",
   ai: "AI Diagnostics", settings: "Settings",
 };
 
 export default function Header() {
-  const { activeTab, searchQuery, setSearchQuery, statusMessages } = useAppStore();
+  const { activeTab, searchQuery, setSearchQuery } = useAppStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
+  const [clock, setClock] = useState(new Date());
 
   // Starfield + Nebula + Comets animation
   useEffect(() => {
@@ -133,8 +135,23 @@ export default function Header() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {}
+  };
+
   return (
-    <header className="relative h-16 shrink-0 flex items-center border-b border-white/5 overflow-hidden">
+    <header className="cv-header relative h-16 shrink-0 flex items-center border-b border-white/5 overflow-hidden">
       {/* Animated background */}
       <canvas
         ref={canvasRef}
@@ -156,14 +173,14 @@ export default function Header() {
             {TAB_LABELS[activeTab]}
           </motion.h1>
           <div className="h-4 w-px bg-white/10" />
-          <span className="text-xs font-medium" style={{ color: "var(--cv-accent)" }}>
-            CinaVault Emby Fusion
+          <span className="cv-header-chip text-xs font-medium">
+            Vidhub Flagship
           </span>
         </div>
 
         {/* Search & Actions */}
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <div className="relative cv-command-bar">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-cv-subtext" />
             <input
               type="text"
@@ -174,8 +191,21 @@ export default function Header() {
             />
           </div>
 
-          <button className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors">
+          <div className="text-[11px] text-cv-subtext/80 font-mono tracking-wide min-w-[74px] text-right">
+            {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          </div>
+
+          <button
+            onClick={toggleFullscreen}
+            className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors"
+            title="Toggle fullscreen"
+          >
+            <Maximize2 size={14} className="text-cv-subtext" />
+          </button>
+
+          <button className="relative w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors">
             <Bell size={14} className="text-cv-subtext" />
+            <span className="absolute right-1.5 top-1.5 w-1.5 h-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
           </button>
         </div>
       </div>

@@ -1,10 +1,11 @@
 // CinaVault Premium — AI Diagnostics Module (HuggingFace Inference)
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use rusqlite::params;
 use crate::AppState;
 
-const DEFAULT_MODEL: &str = "facebook/bart-large-cnn";
-const HF_BASE_URL: &str = "https://router.huggingface.co/hf-inference/models";
+const DEFAULT_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
+const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 
 #[tauri::command]
 pub async fn ai_query(
@@ -20,12 +21,19 @@ pub async fn ai_query(
     if lower.contains("source") || lower.contains("folder") || lower.contains("media") || lower.contains("library") {
         return check_sources(state).await;
     }
+    if lower.contains("adult metadata")
+        || lower.contains("gather metadata")
+        || lower.contains("chapter images")
+        || lower.contains("adult providers")
+    {
+        return gather_adult_metadata_assets(state).await;
+    }
     if lower.contains("provider") || lower.contains("api") || lower.contains("metadata") {
         return check_providers(state).await;
     }
 
     // Default: run AI inference
-    ai_inference(state, prompt, None).await
+    ai_inference(state, prompt, None, None).await
 }
 
 #[tauri::command]
@@ -33,6 +41,7 @@ pub async fn ai_inference(
     state: State<'_, AppState>,
     input: String,
     model: Option<String>,
+    image_url: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let token = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -46,21 +55,35 @@ pub async fn ai_inference(
             .unwrap_or_else(|| DEFAULT_MODEL.to_string())
     });
 
-    let url = format!("{}/{}", HF_BASE_URL, model_id);
-
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut req = client.post(&url)
-        .json(&serde_json::json!({
-            "inputs": input,
-            "parameters": {
-                "max_length": 256,
-                "min_length": 30,
+    let user_content = if let Some(url) = image_url.filter(|url| !url.trim().is_empty()) {
+        serde_json::json!([
+            { "type": "text", "text": input },
+            { "type": "image_url", "image_url": { "url": url } }
+        ])
+    } else {
+        serde_json::json!(input)
+    };
+
+    let mut req = client.post(HF_BASE_URL).json(&serde_json::json!({
+        "model": model_id,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are CineVault Premium's AI assistant for media server operations, metadata workflows, and diagnostics. Give concise, practical answers."
+            },
+            {
+                "role": "user",
+                "content": user_content
             }
-        }));
+        ],
+        "temperature": 0.2,
+        "max_tokens": 512
+    }));
 
     if let Some(t) = &token {
         if !t.is_empty() {
@@ -82,10 +105,18 @@ pub async fn ai_inference(
     }
 
     let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let content = data
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     Ok(serde_json::json!({
         "status": "success",
         "model": model_id,
+        "message": content,
         "result": data,
     }))
 }
@@ -173,6 +204,151 @@ async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value
         "type": "provider_check",
         "configured_providers": providers,
         "total_configured": providers.len(),
+    }))
+}
+
+fn detect_local_poster(file_path: &str) -> Option<String> {
+    let media = std::path::Path::new(file_path);
+    let parent = media.parent()?;
+    let stem = media.file_stem()?.to_string_lossy();
+    let candidates = [
+        parent.join("poster.jpg"),
+        parent.join("folder.jpg"),
+        parent.join("cover.jpg"),
+        parent.join(format!("{stem}.jpg")),
+        parent.join(format!("{stem}.png")),
+        parent.join(format!("{stem}-poster.jpg")),
+    ];
+    candidates
+        .iter()
+        .find(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+fn chapter_dir_for(file_path: &str) -> Option<String> {
+    let p = std::path::Path::new(file_path);
+    let parent = p.parent()?;
+    let stem = p.file_stem()?.to_string_lossy();
+    Some(parent.join(format!("{stem}_chapters")).to_string_lossy().to_string())
+}
+
+fn count_existing_chapter_images(chapter_dir: &str) -> usize {
+    let dir = std::path::Path::new(chapter_dir);
+    if !dir.exists() {
+        return 0;
+    }
+    std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "jpg" || ext == "png" || ext == "webp")
+                .unwrap_or(false)
+        })
+        .count()
+}
+
+async fn gather_adult_metadata_assets(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let configured_adult_providers: Vec<String> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let mut stmt = db.conn.prepare(
+            "SELECT provider FROM api_keys WHERE provider IN ('tpdb','stashdb','phoenixadult','iafd')"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    let media_items: Vec<(i64, String, String, Option<String>, Option<String>)> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let mut stmt = db.conn.prepare(
+            "SELECT id, title, file_path, poster_path, overview
+             FROM media_items
+             WHERE media_type = 'adult'
+                OR lower(file_path) LIKE '%adult%'
+                OR lower(file_path) LIKE '%xxx%'
+                OR lower(file_path) LIKE '%porn%'
+                OR lower(title) LIKE '%adult%'
+                OR lower(title) LIKE '%xxx%'
+                OR lower(title) LIKE '%porn%'
+             ORDER BY date_added DESC
+             LIMIT 200"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    let mut posters_updated = 0usize;
+    let mut chapters_generated_for_items = 0usize;
+    let mut chapter_images_generated = 0usize;
+    let mut items_needing_metadata = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    for (id, title, file_path, poster_path, overview) in media_items.iter() {
+        let has_overview = overview
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        if !has_overview {
+            items_needing_metadata += 1;
+        }
+
+        let has_poster = poster_path
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+        if !has_poster {
+            if let Some(local_poster) = detect_local_poster(file_path) {
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                db.conn.execute(
+                    "UPDATE media_items SET poster_path = ?1 WHERE id = ?2",
+                    params![local_poster, id],
+                ).map_err(|e| e.to_string())?;
+                posters_updated += 1;
+            }
+        }
+
+        if let Some(chapter_dir) = chapter_dir_for(file_path) {
+            let existing = count_existing_chapter_images(&chapter_dir);
+            if existing == 0 {
+                match crate::chapters::generate_chapter_thumbs(file_path.clone(), None, Some(300), None).await {
+                    Ok(thumbs) if !thumbs.is_empty() => {
+                        chapters_generated_for_items += 1;
+                        chapter_images_generated += thumbs.len();
+                    }
+                    Ok(_) => {}
+                    Err(e) => errors.push(format!("{title}: {e}")),
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "type": "adult_metadata_gather",
+        "configured_adult_providers": configured_adult_providers,
+        "provider_count": configured_adult_providers.len(),
+        "items_scanned": media_items.len(),
+        "posters_updated": posters_updated,
+        "chapter_sets_generated": chapters_generated_for_items,
+        "chapter_images_generated": chapter_images_generated,
+        "items_needing_metadata": items_needing_metadata,
+        "note": "Adult provider metadata writeback is limited to configured integrations currently available in this build. Poster and chapter image gathering run locally.",
+        "errors": errors,
     }))
 }
 

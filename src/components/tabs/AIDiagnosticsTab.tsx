@@ -9,8 +9,9 @@ import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loade
 export default function AIDiagnosticsTab() {
   const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage } = useAppStore();
   const [prompt, setPrompt] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [hfToken, setHfToken] = useState("");
-  const [model, setModel] = useState("facebook/bart-large-cnn");
+  const [model, setModel] = useState("katanemo/Arch-Router-1.5B:hf-inference");
   const [showConfig, setShowConfig] = useState(false);
   const [history, setHistory] = useState<{ query: string; result: any; time: string }[]>([]);
 
@@ -37,7 +38,7 @@ export default function AIDiagnosticsTab() {
     if (!prompt.trim()) return;
     setAiProcessing(true);
     try {
-      const result = await invoke<any>("ai_inference", { input: prompt, model });
+      const result = await invoke<any>("ai_inference", { input: prompt, model, imageUrl: imageUrl.trim() || null });
       setAiResult(result);
       setHistory(prev => [{ query: `[Inference] ${prompt}`, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       addStatusMessage("AI inference complete");
@@ -62,6 +63,18 @@ export default function AIDiagnosticsTab() {
   const openLink = (url: string) => {
     window.open(url, "_blank", "noopener,noreferrer");
   };
+
+  const quickActions: { label: string; icon: any; q: string; runNow?: boolean }[] = [
+    { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
+    { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
+    { label: "Check Providers", icon: Database, q: "Check metadata providers" },
+    {
+      label: "Adult Metadata Gather",
+      icon: Sparkles,
+      q: "Run adult metadata gather for installed providers and generate posters and chapter images",
+      runNow: true,
+    },
+  ];
 
   return (
     <div className="space-y-5">
@@ -100,17 +113,36 @@ export default function AIDiagnosticsTab() {
               <Sparkles size={14} /> Inference
             </button>
           </div>
+          <div className="mt-2">
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={e => setImageUrl(e.target.value)}
+              placeholder="Optional image URL for multimodal query (jpg/png/webp)"
+              className="cv-input w-full bg-black/30 text-xs"
+            />
+          </div>
 
           {/* Quick Actions */}
           <div className="flex gap-2 mt-3">
-            {[
-              { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
-              { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
-              { label: "Check Providers", icon: Database, q: "Check metadata providers" },
-            ].map(action => (
+            {quickActions.map(action => (
               <button
                 key={action.label}
-                onClick={() => { setPrompt(action.q); }}
+                onClick={() => {
+                  setPrompt(action.q);
+                  if (action.runNow) {
+                    setAiProcessing(true);
+                    addStatusMessage("Running adult metadata gather...");
+                    invoke<any>("ai_query", { prompt: action.q })
+                      .then((result) => {
+                        setAiResult(result);
+                        setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+                        addStatusMessage("Adult metadata gather complete");
+                      })
+                      .catch((e) => addStatusMessage(`Adult metadata gather failed: ${e}`))
+                      .finally(() => setAiProcessing(false));
+                  }
+                }}
                 className="cv-btn cv-btn-secondary text-[10px] py-1"
               >
                 <action.icon size={10} /> {action.label}
@@ -141,14 +173,14 @@ export default function AIDiagnosticsTab() {
             <div>
               <label className="section-label">AI Model</label>
               <div className="flex gap-2">
-                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder="facebook/bart-large-cnn" />
+                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder="katanemo/Arch-Router-1.5B:hf-inference" />
                 <button onClick={saveModel} className="cv-btn cv-btn-primary text-xs"><Cpu size={12} /> Set</button>
               </div>
-              <div className="text-[10px] text-cv-subtext mt-1">Default: facebook/bart-large-cnn via HF Inference Router</div>
+              <div className="text-[10px] text-cv-subtext mt-1">Default: katanemo/Arch-Router-1.5B:hf-inference</div>
             </div>
           </div>
           <div className="mt-3 text-[10px] text-cv-subtext">
-            Inference URL: https://router.huggingface.co/hf-inference/models
+            Inference URL: https://router.huggingface.co/v1/chat/completions
           </div>
         </motion.div>
       )}
