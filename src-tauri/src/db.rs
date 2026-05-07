@@ -306,19 +306,36 @@ impl Database {
 
     // ── Media items ──
     pub fn get_media_items_data(&self, media_type: Option<&str>, limit: Option<i64>, offset: Option<i64>) -> SqlResult<Vec<MediaItem>> {
-        let sql = match media_type {
-            Some(_) => "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC LIMIT ?2 OFFSET ?3",
-            None => "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
-        };
-        let mut stmt = self.conn.prepare(sql)?;
-        let lim = limit.unwrap_or(100);
         let off = offset.unwrap_or(0);
-        if let Some(mt) = media_type {
-            let rows = stmt.query_map(params![mt, lim, off], Self::row_to_media)?;
-            rows.collect()
-        } else {
-            let rows = stmt.query_map(params![lim, off], Self::row_to_media)?;
-            rows.collect()
+        match (media_type, limit) {
+            (Some(mt), Some(lim)) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC LIMIT ?2 OFFSET ?3"
+                )?;
+                let rows = stmt.query_map(params![mt, lim, off], Self::row_to_media)?;
+                rows.collect()
+            }
+            (Some(mt), None) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC"
+                )?;
+                let rows = stmt.query_map(params![mt], Self::row_to_media)?;
+                rows.collect()
+            }
+            (None, Some(lim)) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2"
+                )?;
+                let rows = stmt.query_map(params![lim, off], Self::row_to_media)?;
+                rows.collect()
+            }
+            (None, None) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT * FROM media_items ORDER BY date_added DESC"
+                )?;
+                let rows = stmt.query_map([], Self::row_to_media)?;
+                rows.collect()
+            }
         }
     }
 
@@ -367,7 +384,7 @@ impl Database {
     pub fn search_media_data(&self, query: &str) -> SqlResult<Vec<MediaItem>> {
         let pattern = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items WHERE title LIKE ?1 OR genre LIKE ?1 OR overview LIKE ?1 ORDER BY title LIMIT 200"
+            "SELECT * FROM media_items WHERE title LIKE ?1 OR genre LIKE ?1 OR overview LIKE ?1 ORDER BY title"
         )?;
         let rows = stmt.query_map(params![pattern], |row| Self::row_to_media(row))?;
         rows.collect()
@@ -383,7 +400,7 @@ impl Database {
 
     pub fn get_unverified_media_data(&self) -> SqlResult<Vec<MediaItem>> {
         let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC LIMIT 200"
+            "SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC"
         )?;
         let rows = stmt.query_map([], |row| Self::row_to_media(row))?;
         rows.collect()
@@ -590,11 +607,11 @@ mod tests {
         path.to_string_lossy().to_string()
     }
 
-    fn sample_item(title: &str) -> MediaItem {
+    fn sample_item(title: &str, file_path: &str) -> MediaItem {
         MediaItem {
             id: None,
             title: title.to_string(),
-            file_path: r"C:\media\movie.mkv".to_string(),
+            file_path: file_path.to_string(),
             media_type: "movie".to_string(),
             year: None,
             rating: None,
@@ -622,7 +639,7 @@ mod tests {
         let db_path = test_db_path("scan-upsert");
         let db = Database::new(&db_path).expect("db should open");
 
-        let mut original = sample_item("File Name");
+        let mut original = sample_item("File Name", r"C:\media\movie.mkv");
         db.add_media_item_data(&original).expect("initial insert should succeed");
         db.conn.execute(
             "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
@@ -657,6 +674,46 @@ mod tests {
         assert_eq!(row.1, Some(200));
         assert!(row.2, "watched state should be preserved");
         assert!(row.3, "favorite state should be preserved");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn get_media_items_without_limit_returns_all_rows() {
+        let db_path = test_db_path("get-all-media");
+        let db = Database::new(&db_path).expect("db should open");
+
+        for idx in 0..250 {
+            let title = format!("Item {idx}");
+            let path = format!(r"C:\media\item-{idx}.mkv");
+            db.add_media_item_data(&sample_item(&title, &path))
+                .expect("insert should succeed");
+        }
+
+        let all_items = db
+            .get_media_items_data(None, None, Some(0))
+            .expect("query should succeed");
+        assert_eq!(all_items.len(), 250);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn search_media_is_not_capped_at_200() {
+        let db_path = test_db_path("search-not-capped");
+        let db = Database::new(&db_path).expect("db should open");
+
+        for idx in 0..230 {
+            let title = format!("Match {idx}");
+            let path = format!(r"C:\media\match-{idx}.mkv");
+            db.add_media_item_data(&sample_item(&title, &path))
+                .expect("insert should succeed");
+        }
+
+        let matches = db.search_media_data("Match").expect("search should succeed");
+        assert_eq!(matches.len(), 230);
 
         drop(db);
         let _ = fs::remove_file(db_path);
