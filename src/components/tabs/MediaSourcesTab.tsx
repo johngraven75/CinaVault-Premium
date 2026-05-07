@@ -76,6 +76,11 @@ export default function MediaSourcesTab() {
     setSavingOption(key);
     try {
       await invoke("set_setting", { key, value });
+      if (key === "prefer_embedded_titles" && enabled) {
+        addStatusMessage("Applying embedded titles to existing library...");
+        const result = await invoke<{ checked: number; updated: number; missing_files: number }>("apply_embedded_titles");
+        addStatusMessage(`Embedded titles applied: ${result.updated}/${result.checked} updated`);
+      }
       addStatusMessage(`Library option updated: ${key} = ${value}`);
     } catch (e) {
       addStatusMessage(`Failed to save option ${key}: ${e}`);
