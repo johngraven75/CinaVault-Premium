@@ -18,6 +18,14 @@ static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+struct ScanGuard;
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        SCANNING.store(false, Ordering::Relaxed);
+    }
+}
+
 const VIDEO_EXTS: &[&str] = &[
     "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg",
     "ts", "m2ts", "vob", "ogv", "3gp", "divx", "rm", "rmvb", "asf",
@@ -63,7 +71,7 @@ fn extract_embedded_title(file_path: &str) -> Option<String> {
     let mut cmd = Command::new("ffprobe");
     cmd.args([
         "-v", "error",
-        "-show_entries", "format_tags=title",
+        "-show_entries", "format_tags=title:stream_tags=title",
         "-of", "default=nw=1:nk=1",
         file_path,
     ]);
@@ -75,12 +83,11 @@ fn extract_embedded_title(file_path: &str) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
-    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())
 }
 
 #[tauri::command]
@@ -89,6 +96,7 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         return Err("Scan already in progress".into());
     }
     SCANNING.store(true, Ordering::Relaxed);
+    let _scan_guard = ScanGuard;
     CANCEL_FLAG.store(false, Ordering::Relaxed);
     SCAN_CURRENT.store(0, Ordering::Relaxed);
 
@@ -115,8 +123,6 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         total_added += added;
     }
 
-    SCANNING.store(false, Ordering::Relaxed);
-
     Ok(serde_json::json!({
         "total_found": total_found,
         "total_added": total_added,
@@ -130,7 +136,9 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
         return Err("Scan already in progress".into());
     }
     SCANNING.store(true, Ordering::Relaxed);
+    let _scan_guard = ScanGuard;
     CANCEL_FLAG.store(false, Ordering::Relaxed);
+    SCAN_CURRENT.store(0, Ordering::Relaxed);
 
     let (source, prefer_embedded_titles) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -146,8 +154,6 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
     };
 
     let (found, added) = scan_directory(&state, &source, prefer_embedded_titles)?;
-    SCANNING.store(false, Ordering::Relaxed);
-
     Ok(serde_json::json!({
         "total_found": found,
         "total_added": added,
@@ -162,7 +168,8 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
 
     let mut files: Vec<(String, String, u64)> = Vec::new();
 
-    for entry in WalkDir::new(path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+    // Following links on Windows can recurse through junction/symlink loops forever.
+    for entry in WalkDir::new(path).follow_links(false).into_iter().filter_map(|e| e.ok()) {
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         let p = entry.path();
         if !p.is_file() { continue; }

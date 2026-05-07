@@ -30,7 +30,7 @@ export default function HomeTab() {
   const loadMedia = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await invoke<MediaItem[]>("get_media_items", { limit: 200 });
+      const items = await invoke<MediaItem[]>("get_media_items");
       setMediaItems(items);
       addStatusMessage(`Library loaded: ${items.length} items`);
     } catch {
