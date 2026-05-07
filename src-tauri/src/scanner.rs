@@ -273,3 +273,56 @@ pub fn cancel_scan() -> Result<(), String> {
     CANCEL_FLAG.store(true, Ordering::Relaxed);
     Ok(())
 }
+
+#[tauri::command]
+pub async fn apply_embedded_titles(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let rows: Vec<(i64, String, String)> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let mut stmt = db
+            .conn
+            .prepare("SELECT id, file_path, title FROM media_items ORDER BY id")
+            .map_err(|e| e.to_string())?;
+        let iter = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        iter.filter_map(|r| r.ok()).collect()
+    };
+
+    let mut checked = 0u64;
+    let mut updated = 0u64;
+    let mut missing_files = 0u64;
+
+    for (id, file_path, current_title) in rows {
+        checked += 1;
+        let path = Path::new(&file_path);
+        if !path.exists() {
+            missing_files += 1;
+            continue;
+        }
+
+        if let Some(embedded_title) = extract_embedded_title(&file_path) {
+            if !embedded_title.trim().is_empty() && !embedded_title.eq_ignore_ascii_case(&current_title) {
+                let db = state.db.lock().map_err(|e| e.to_string())?;
+                db.conn
+                    .execute(
+                        "UPDATE media_items SET title = ?1 WHERE id = ?2",
+                        rusqlite::params![embedded_title, id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                updated += 1;
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "checked": checked,
+        "updated": updated,
+        "missing_files": missing_files,
+    }))
+}

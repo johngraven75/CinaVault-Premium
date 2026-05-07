@@ -79,6 +79,7 @@ fn main() {
             scanner::scan_single_source,
             scanner::get_scan_progress,
             scanner::cancel_scan,
+            scanner::apply_embedded_titles,
             // Duplicates
             duplicates::find_duplicates,
             duplicates::get_duplicate_groups,

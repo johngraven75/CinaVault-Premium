@@ -7,11 +7,24 @@ import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/med
 import ParticleField from "../effects/ParticleField";
 import {
   Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Heart, RefreshCw, Sparkles,
-  Disc3, RectangleHorizontal, PanelTop, RotateCw
+  Disc3, RectangleHorizontal, PanelTop, RotateCw, Download
 } from "lucide-react";
 
 type Shelf = "recent" | "verified" | "unverified" | "favorites";
 type CardStyle = "poster" | "disc" | "banner";
+const PAGE_SIZE = 200;
+
+function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
+  const seen = new Set<string>();
+  const result: MediaItem[] = [];
+  for (const item of items) {
+    const key = item.id ? `id:${item.id}` : `path:${item.file_path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
 
 export default function HomeTab() {
   const {
@@ -26,19 +39,71 @@ export default function HomeTab() {
   const [iconSize, setIconSize] = useState(148);
   const [cardStyle, setCardStyle] = useState<CardStyle>("poster");
   const [detailFlipped, setDetailFlipped] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const loadMedia = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await invoke<MediaItem[]>("get_media_items");
+      const items = await invoke<MediaItem[]>("get_media_items", { limit: PAGE_SIZE, offset: 0 });
       setMediaItems(items);
+      setHasMore(items.length === PAGE_SIZE);
       addStatusMessage(`Library loaded: ${items.length} items`);
     } catch {
       // Dev mode — use demo data
       setMediaItems(DEMO_ITEMS);
+      setHasMore(false);
     }
     setLoading(false);
   }, []);
+
+  const loadMoreMedia = useCallback(async () => {
+    if (loading || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const moreItems = await invoke<MediaItem[]>("get_media_items", {
+        limit: PAGE_SIZE,
+        offset: mediaItems.length,
+      });
+      const merged = dedupeMediaItems([...mediaItems, ...moreItems]);
+      setMediaItems(merged);
+      setHasMore(moreItems.length === PAGE_SIZE);
+      addStatusMessage(`Loaded ${moreItems.length} more items (${merged.length} total)`);
+    } catch (e) {
+      addStatusMessage(`Load more failed: ${e}`);
+    }
+    setLoadingMore(false);
+  }, [loading, loadingMore, hasMore, mediaItems, setMediaItems, addStatusMessage]);
+
+  const loadAllMediaBatches = useCallback(async () => {
+    if (loading || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      let merged = mediaItems;
+      let offset = merged.length;
+      let canContinue = true;
+      while (canContinue) {
+        const moreItems = await invoke<MediaItem[]>("get_media_items", {
+          limit: PAGE_SIZE,
+          offset,
+        });
+        if (moreItems.length === 0) {
+          canContinue = false;
+          break;
+        }
+        merged = dedupeMediaItems([...merged, ...moreItems]);
+        setMediaItems(merged);
+        offset = merged.length;
+        canContinue = moreItems.length === PAGE_SIZE;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      setHasMore(false);
+      addStatusMessage(`Loaded full library (${merged.length} items)`);
+    } catch (e) {
+      addStatusMessage(`Load all failed: ${e}`);
+    }
+    setLoadingMore(false);
+  }, [loading, loadingMore, hasMore, mediaItems, setMediaItems, addStatusMessage]);
 
   useEffect(() => { loadMedia(); }, []);
 
@@ -235,6 +300,16 @@ export default function HomeTab() {
             <button onClick={loadMedia} className="cv-btn cv-btn-secondary text-xs py-1.5">
               <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
             </button>
+            {hasMore && (
+              <>
+                <button onClick={loadMoreMedia} disabled={loadingMore} className="cv-btn cv-btn-secondary text-xs py-1.5">
+                  <Download size={12} className={loadingMore ? "animate-spin" : ""} /> {loadingMore ? "Loading..." : "Load More"}
+                </button>
+                <button onClick={loadAllMediaBatches} disabled={loadingMore} className="cv-btn cv-btn-secondary text-xs py-1.5">
+                  <Download size={12} /> Load All
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -295,25 +370,42 @@ export default function HomeTab() {
           className="grid gap-3"
           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))` }}
         >
-          {filteredItems.map((item, i) => (
-            <motion.div
-              key={item.id || i}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.03, 0.5) }}
-              onClick={() => void handleMediaClick(item)}
-              className={`media-card glass-panel-2 rounded-xl overflow-hidden group ${cardStyle === "disc" ? "p-3" : ""}`}
-            >
-              <CardVisual item={item} styleMode={cardStyle} />
-              <div className="p-2.5">
-                <h4 className="text-xs font-semibold truncate">{item.title}</h4>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
-                  {item.year && <span>{item.year}</span>}
-                  <span className="capitalize">{item.media_type}</span>
+          {filteredItems.map((item, i) => {
+            const className = `media-card glass-panel-2 rounded-xl overflow-hidden group ${cardStyle === "disc" ? "p-3" : ""}`;
+            if (filteredItems.length > 500) {
+              return (
+                <div key={item.id || i} onClick={() => void handleMediaClick(item)} className={className}>
+                  <CardVisual item={item} styleMode={cardStyle} />
+                  <div className="p-2.5">
+                    <h4 className="text-xs font-semibold truncate">{item.title}</h4>
+                    <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
+                      {item.year && <span>{item.year}</span>}
+                      <span className="capitalize">{item.media_type}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              );
+            }
+            return (
+              <motion.div
+                key={item.id || i}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(i * 0.03, 0.5) }}
+                onClick={() => void handleMediaClick(item)}
+                className={className}
+              >
+                <CardVisual item={item} styleMode={cardStyle} />
+                <div className="p-2.5">
+                  <h4 className="text-xs font-semibold truncate">{item.title}</h4>
+                  <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
+                    {item.year && <span>{item.year}</span>}
+                    <span className="capitalize">{item.media_type}</span>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       ) : (
         <div className="glass-panel rounded-xl overflow-hidden">
