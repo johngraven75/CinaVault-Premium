@@ -1,6 +1,6 @@
 // CinaVault Premium — Home / Library Tab (Flagship Vidhub-style UI)
 import React, { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
 import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
@@ -12,6 +12,16 @@ import {
 
 type Shelf = "recent" | "verified" | "unverified" | "favorites";
 type CardStyle = "poster" | "disc" | "banner";
+
+function resolveMediaImageSrc(path?: string | null): string | undefined {
+  if (!path) return undefined;
+  if (/^(https?:|data:|asset:)/i.test(path)) return path;
+  try {
+    return convertFileSrc(path);
+  } catch {
+    return path;
+  }
+}
 
 export default function HomeTab() {
   const {
@@ -120,8 +130,8 @@ export default function HomeTab() {
                 transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
               >
                 <div className="detail-face detail-face-front border border-cyan-300/20 bg-gradient-to-br from-cv-panel-2/95 to-black/80">
-                  {selectedMedia.poster_path ? (
-                    <img src={selectedMedia.poster_path} alt={selectedMedia.title} className="w-full h-full object-cover opacity-90" />
+                  {resolveMediaImageSrc(selectedMedia.poster_path) ? (
+                    <img src={resolveMediaImageSrc(selectedMedia.poster_path)} alt={selectedMedia.title} className="w-full h-full object-cover opacity-90" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <Film size={46} className="text-cv-accent/60" />
@@ -382,7 +392,7 @@ function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle
     return (
       <div className="w-full flex items-center justify-center py-2">
         <div className="relative w-full aspect-square max-w-[220px] rounded-full border border-cyan-300/20 bg-gradient-to-br from-cv-accent/20 to-cv-neon-3/10 overflow-hidden">
-          {item.backdrop_path && <img src={item.backdrop_path} alt={item.title} className="w-full h-full object-cover opacity-65" />}
+          {resolveMediaImageSrc(item.backdrop_path) && <img src={resolveMediaImageSrc(item.backdrop_path)} alt={item.title} className="w-full h-full object-cover opacity-65" />}
           <div className="absolute inset-0 bg-black/30" />
           <div className="absolute inset-[18%] rounded-full border border-white/20" />
           <div className="absolute inset-[40%] rounded-full bg-black/65 border border-white/20" />
@@ -397,8 +407,8 @@ function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle
   if (styleMode === "banner") {
     return (
       <div className="aspect-[16/9] relative bg-gradient-to-br from-cv-accent/10 to-cv-neon-3/10 flex items-center justify-center">
-        {item.backdrop_path ? (
-          <img src={item.backdrop_path} alt={item.title} className="w-full h-full object-cover" />
+        {resolveMediaImageSrc(item.backdrop_path) ? (
+          <img src={resolveMediaImageSrc(item.backdrop_path)} alt={item.title} className="w-full h-full object-cover" />
         ) : (
           <Film size={30} className="text-cv-subtext/20" />
         )}
@@ -414,8 +424,8 @@ function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle
 
   return (
     <div className="aspect-[2/3] relative bg-gradient-to-br from-cv-accent/10 to-cv-neon-3/10 flex items-center justify-center">
-      {item.poster_path ? (
-        <img src={item.poster_path} alt={item.title} className="w-full h-full object-cover" />
+      {resolveMediaImageSrc(item.poster_path) ? (
+        <img src={resolveMediaImageSrc(item.poster_path)} alt={item.title} className="w-full h-full object-cover" />
       ) : (
         <Film size={32} className="text-cv-subtext/20" />
       )}

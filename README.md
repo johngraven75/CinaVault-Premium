@@ -12,6 +12,13 @@ Windows desktop media application built with Tauri + React + Rust.
 
 ```bash
 npm install --legacy-peer-deps
+npm run dev
+npm run tauri dev
+```
+
+## Build Commands
+
+```bash
 npm run build
 npm run tauri build
 ```
@@ -20,6 +27,6 @@ npm run tauri build
 
 Current sequential installer build:
 
-- `releases/build-112/CinaVault-Premium-Build112-Installer.exe`
-- `releases/build-112/CinaVault-Premium-Build112-Installer.msi`
-- `releases/build-112/SHA256SUMS.txt`
+- `releases/beta4-build7/CinaVault Premium_1.0.0-beta.4+7_x64-setup.exe`
+- `releases/beta4-build7/CinaVault Premium_1.0.0-beta.4+7_x64_en-US.msi`
+- `releases/beta4-build7/SHA256SUMS.txt`

@@ -22,6 +22,17 @@ const secureOptions: { value: SecureMode; label: string; desc: string }[] = [
   { value: "disabled", label: "Disabled", desc: "Allow insecure remote connections." },
 ];
 
+export function isRemoteAccessConfigurationValid(
+  remoteEnabled: boolean,
+  publicPort: string,
+  manualPort: boolean,
+) {
+  if (!remoteEnabled) return false;
+  if (!publicPort || Number.isNaN(Number(publicPort))) return false;
+  if (manualPort && (Number(publicPort) < 1 || Number(publicPort) > 65535)) return false;
+  return true;
+}
+
 export default function RemoteAccessTab() {
   const { settings, setSetting, serverUrl, addStatusMessage } = useAppStore();
   const [testing, setTesting] = useState(false);
@@ -39,12 +50,10 @@ export default function RemoteAccessTab() {
   const uploadLimit = settings.remote_upload_limit_mbps || "20";
   const allowedNetworks = settings.remote_allowed_networks || "";
 
-  const remoteOk = useMemo(() => {
-    if (!remoteEnabled) return false;
-    if (!publicPort || Number.isNaN(Number(publicPort))) return false;
-    if (manualPort && (!publicPort || Number(publicPort) < 1 || Number(publicPort) > 65535)) return false;
-    return true;
-  }, [remoteEnabled, publicPort, manualPort]);
+  const remoteOk = useMemo(
+    () => isRemoteAccessConfigurationValid(remoteEnabled, publicPort, manualPort),
+    [remoteEnabled, publicPort, manualPort],
+  );
 
   const runConnectionTest = async () => {
     setTesting(true);
@@ -170,7 +179,7 @@ export default function RemoteAccessTab() {
           />
           <div className="text-[10px] text-cv-subtext mt-2 flex items-center gap-1">
             <Globe size={10} />
-            Match unified remote access controls; values are persisted in CineVault settings.
+            Match unified remote access controls; values are persisted in CinaVault settings.
           </div>
         </div>
       </div>
