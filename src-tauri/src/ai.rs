@@ -367,6 +367,42 @@ fn count_existing_chapter_images(chapter_dir: &str) -> usize {
         .count()
 }
 
+fn metadata_sidecar_path(file_path: &str) -> Option<std::path::PathBuf> {
+    let media = std::path::Path::new(file_path);
+    let parent = media.parent()?;
+    let stem = media.file_stem()?.to_string_lossy();
+    Some(parent.join(format!("{stem}.cinavault.json")))
+}
+
+fn write_metadata_sidecar(
+    file_path: &str,
+    title: &str,
+    overview: Option<&String>,
+    poster_path: Option<&String>,
+    year: Option<i32>,
+    rating: Option<f64>,
+    genre: Option<&String>,
+    tmdb_id: Option<&String>,
+    imdb_id: Option<&String>,
+) -> Result<bool, String> {
+    let sidecar_path = metadata_sidecar_path(file_path).ok_or("Unable to resolve sidecar path")?;
+    let payload = serde_json::json!({
+        "source_file": file_path,
+        "title": title,
+        "overview": overview,
+        "poster_path": poster_path,
+        "year": year,
+        "rating": rating,
+        "genre": genre,
+        "tmdb_id": tmdb_id,
+        "imdb_id": imdb_id,
+        "written_at_utc": chrono::Utc::now().to_rfc3339(),
+    });
+    let body = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
+    std::fs::write(sidecar_path, body).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 #[derive(Default, Debug, Clone)]
 struct RemoteMetadata {
     title: Option<String>,
@@ -608,6 +644,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     let mut titles_refreshed_from_embedded = 0usize;
     let mut metadata_items_enriched = 0usize;
     let mut metadata_fields_updated = 0usize;
+    let mut sidecars_written = 0usize;
     let mut chapter_generation_skipped_after_limit = 0usize;
     let mut skipped_missing_files = 0usize;
     let mut skipped_non_video_items = 0usize;
@@ -640,19 +677,6 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             items_reclassified_as_adult += 1;
         }
 
-        if should_refresh_title_from_embedded(title, file_path) {
-            if let Some(embedded_title) = extract_embedded_title(file_path) {
-                if !embedded_title.eq_ignore_ascii_case(title) {
-                    let db = state.db.lock().map_err(|e| e.to_string())?;
-                    db.conn.execute(
-                        "UPDATE media_items SET title = ?1 WHERE id = ?2",
-                        params![embedded_title, id],
-                    ).map_err(|e| e.to_string())?;
-                    titles_refreshed_from_embedded += 1;
-                }
-            }
-        }
-
         let mut final_title = title.clone();
         let mut final_overview = overview.clone();
         let mut final_poster = poster_path.clone();
@@ -661,6 +685,20 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         let mut final_genre = genre.clone();
         let mut final_tmdb_id = tmdb_id.clone();
         let mut final_imdb_id = imdb_id.clone();
+
+        if should_refresh_title_from_embedded(&final_title, file_path) {
+            if let Some(embedded_title) = extract_embedded_title(file_path) {
+                if !embedded_title.eq_ignore_ascii_case(&final_title) {
+                    let db = state.db.lock().map_err(|e| e.to_string())?;
+                    db.conn.execute(
+                        "UPDATE media_items SET title = ?1 WHERE id = ?2",
+                        params![embedded_title, id],
+                    ).map_err(|e| e.to_string())?;
+                    final_title = embedded_title;
+                    titles_refreshed_from_embedded += 1;
+                }
+            }
+        }
 
         let has_overview = overview
             .as_ref()
@@ -683,7 +721,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                     params![local_poster, id],
                 ).map_err(|e| e.to_string())?;
                 posters_updated += 1;
-                final_poster = detect_local_poster(file_path);
+                final_poster = Some(local_poster);
             }
         }
 
@@ -819,6 +857,22 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                 }
             }
         }
+
+        match write_metadata_sidecar(
+            file_path,
+            &final_title,
+            final_overview.as_ref(),
+            final_poster.as_ref(),
+            final_year,
+            final_rating,
+            final_genre.as_ref(),
+            final_tmdb_id.as_ref(),
+            final_imdb_id.as_ref(),
+        ) {
+            Ok(true) => sidecars_written += 1,
+            Ok(false) => {}
+            Err(e) => errors.push(format!("{title}: sidecar write failed: {e}")),
+        }
     }
 
     Ok(serde_json::json!({
@@ -831,6 +885,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "titles_refreshed_from_embedded": titles_refreshed_from_embedded,
         "metadata_items_enriched": metadata_items_enriched,
         "metadata_fields_updated": metadata_fields_updated,
+        "sidecars_written": sidecars_written,
         "posters_updated": posters_updated,
         "chapter_sets_generated": chapters_generated_for_items,
         "chapter_images_generated": chapter_images_generated,
@@ -848,6 +903,7 @@ mod tests {
     use super::{
         is_adult_gather_candidate,
         is_adult_library_item,
+        metadata_sidecar_path,
         normalize_adult_provider_key,
     };
 
@@ -892,6 +948,15 @@ mod tests {
         assert_eq!(normalize_adult_provider_key("theporndb"), "tpdb");
         assert_eq!(normalize_adult_provider_key("tpdb"), "tpdb");
         assert_eq!(normalize_adult_provider_key("stashdb"), "stashdb");
+    }
+
+    #[test]
+    fn derives_sidecar_path_next_to_media_file() {
+        let path = metadata_sidecar_path(r"E:\Adult\scene-01.mp4")
+            .expect("sidecar path should resolve")
+            .to_string_lossy()
+            .replace('/', "\\");
+        assert!(path.ends_with(r"E:\Adult\scene-01.cinavault.json"));
     }
 }
 
