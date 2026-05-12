@@ -3,6 +3,7 @@ import React, { useRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import { Search, Bell, Maximize2 } from "lucide-react";
+import { getUnreadStatusMessages } from "../utils/pluginUiSafety";
 
 const TAB_LABELS: Record<TabId, string> = {
   home: "Library", sources: "Media Sources", downloads: "Downloads",
@@ -13,10 +14,13 @@ const TAB_LABELS: Record<TabId, string> = {
 };
 
 export default function Header() {
-  const { activeTab, searchQuery, setSearchQuery } = useAppStore();
+  const { activeTab, searchQuery, setSearchQuery, statusMessages } = useAppStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
   const [clock, setClock] = useState(new Date());
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
+  const unreadMessages = getUnreadStatusMessages(statusMessages, lastReadMessageIndex);
 
   // Starfield + Nebula + Comets animation
   useEffect(() => {
@@ -151,7 +155,7 @@ export default function Header() {
   };
 
   return (
-    <header className="cv-header relative h-16 shrink-0 flex items-center border-b border-white/5 overflow-hidden">
+    <header className="cv-header relative h-16 shrink-0 flex items-center border-b border-white/5 overflow-visible">
       {/* Animated background */}
       <canvas
         ref={canvasRef}
@@ -208,12 +212,41 @@ export default function Header() {
             <Maximize2 size={14} className="text-cv-subtext" />
           </button>
 
-          <button className="relative w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors">
+          <button
+            onClick={() => {
+              setShowNotifications((open) => !open);
+              setLastReadMessageIndex(Math.max(0, statusMessages.length - 1));
+            }}
+            className="relative w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors"
+            title="Show notifications"
+          >
             <Bell size={14} className="text-cv-subtext" />
-            <span className="absolute right-1.5 top-1.5 w-1.5 h-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+            {unreadMessages.length > 0 && (
+              <span className="absolute right-1.5 top-1.5 w-1.5 h-1.5 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+            )}
           </button>
         </div>
       </div>
+
+      {showNotifications && (
+        <div className="absolute right-5 top-[calc(100%+8px)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-[#10131d]/95 shadow-2xl backdrop-blur-xl overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <span className="text-xs font-semibold" style={{ color: "var(--cv-text)" }}>Notifications</span>
+            <span className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>{statusMessages.length} messages</span>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {statusMessages.length === 0 ? (
+              <div className="px-3 py-4 text-xs" style={{ color: "var(--cv-subtext)" }}>No notifications yet</div>
+            ) : (
+              statusMessages.slice(-12).reverse().map((message, index) => (
+                <div key={`${message}-${index}`} className="px-3 py-2 border-b border-white/[0.04] last:border-b-0">
+                  <div className="text-xs leading-relaxed" style={{ color: "var(--cv-text)" }}>{message}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

@@ -20,7 +20,6 @@ import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import { pluginEngine } from "./data/pluginAdapter";
-import { FULL_PLUGIN_REGISTRY } from "./data/pluginRegistry";
 
 const TAB_COMPONENTS: Record<TabId, React.FC> = {
   home: HomeTab,
@@ -103,21 +102,11 @@ export default function App() {
     init();
   }, []);
 
-  // ── Preload plugin catalog at launch (MS-B/MS-A/MS-C) ──
+  // ── Preload installed plugin state at launch (MS-B/MS-A/MS-C) ──
   useEffect(() => {
     const preloadPlugins = async () => {
       await pluginEngine.loadFromBackend();
-      const added = pluginEngine.bootstrapCatalog(
-        FULL_PLUGIN_REGISTRY.filter(
-          (p) =>
-            p.platforms.includes("jellyfin") ||
-            p.platforms.includes("emby") ||
-            p.platforms.includes("plex")
-        )
-      );
-      if (added > 0) {
-        addStatusMessage(`Plugin catalog ready at launch (${added} loaded)`);
-      }
+      addStatusMessage(`Plugin catalog ready at launch (${pluginEngine.getInstalled().length} installed)`);
     };
     preloadPlugins();
   }, [addStatusMessage]);

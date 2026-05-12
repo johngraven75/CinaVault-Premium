@@ -1,8 +1,7 @@
 // CinaVault Premium — Media Scanner Module
-use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 use tauri::State;
 use walkdir::WalkDir;
 use crate::AppState;
@@ -90,6 +89,53 @@ fn extract_embedded_title(file_path: &str) -> Option<String> {
         .map(|line| line.to_string())
 }
 
+fn poster_cache_path_for_file(file_path: &str) -> Option<std::path::PathBuf> {
+    let base = dirs::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("CinaVault")
+        .join("embedded-posters");
+    std::fs::create_dir_all(&base).ok()?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(file_path.as_bytes());
+    let digest = hasher.finalize();
+    Some(base.join(format!("{digest:x}.jpg")))
+}
+
+fn extract_embedded_poster(file_path: &str) -> Option<String> {
+    let output_path = poster_cache_path_for_file(file_path)?;
+    if output_path.exists() {
+        return Some(output_path.to_string_lossy().to_string());
+    }
+
+    let output_arg = output_path.to_string_lossy().to_string();
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args([
+        "-y",
+        "-v",
+        "error",
+        "-i",
+        file_path,
+        "-map",
+        "0:v:m:attached_pic",
+        "-frames:v",
+        "1",
+        &output_arg,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = cmd.output().ok()?;
+    if output.status.success() && output_path.exists() {
+        Some(output_path.to_string_lossy().to_string())
+    } else {
+        let _ = std::fs::remove_file(output_path);
+        None
+    }
+}
+
 #[tauri::command]
 pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     if SCANNING.load(Ordering::Relaxed) {
@@ -106,7 +152,7 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         let prefer_embedded_titles = db
             .get_setting_data("prefer_embedded_titles")
             .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| "false".to_string())
+            .unwrap_or_else(|| "true".to_string())
             == "true";
         (sources, prefer_embedded_titles)
     };
@@ -148,7 +194,7 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
         let prefer_embedded_titles = db
             .get_setting_data("prefer_embedded_titles")
             .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| "false".to_string())
+            .unwrap_or_else(|| "true".to_string())
             == "true";
         (source, prefer_embedded_titles)
     };
@@ -194,11 +240,26 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
 
+        let is_new_item = !db
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
+                rusqlite::params![file_path],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap_or(false);
+
         let title = if prefer_embedded_titles {
             extract_embedded_title(file_path).unwrap_or_else(|| title_from_filename(Path::new(file_path)))
         } else {
             title_from_filename(Path::new(file_path))
         };
+        let poster_path = if is_new_item {
+            extract_embedded_poster(file_path)
+        } else {
+            None
+        };
+
         let item = MediaItem {
             id: None,
             title,
@@ -207,7 +268,7 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
             year: None,
             rating: None,
             overview: None,
-            poster_path: None,
+            poster_path,
             backdrop_path: None,
             genre: None,
             duration: None,
@@ -245,7 +306,7 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
 
 #[cfg(test)]
 mod tests {
-    use super::should_index_path;
+    use super::{poster_cache_path_for_file, should_index_path};
     use std::path::Path;
 
     #[test]
@@ -256,6 +317,15 @@ mod tests {
     #[test]
     fn keeps_real_media_files() {
         assert!(should_index_path(Path::new(r"E:\Videos\sample.mp4")));
+    }
+
+    #[test]
+    fn poster_cache_path_is_stable_and_uses_jpg_extension() {
+        let first = poster_cache_path_for_file(r"E:\Videos\Movie.mkv").expect("path should build");
+        let second = poster_cache_path_for_file(r"E:\Videos\Movie.mkv").expect("path should build");
+
+        assert_eq!(first, second);
+        assert_eq!(first.extension().and_then(|ext| ext.to_str()), Some("jpg"));
     }
 }
 

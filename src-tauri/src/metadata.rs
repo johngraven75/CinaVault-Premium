@@ -289,7 +289,7 @@ pub async fn fetch_metadata(
 pub async fn search_metadata(
     provider: String,
     query: String,
-    media_type: Option<String>,
+    _media_type: Option<String>,
     api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
     fetch_metadata(provider, query, api_key).await

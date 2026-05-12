@@ -3,6 +3,8 @@ import type { MetadataProvider } from "../store/appStore";
 
 type MetadataProviderLike = Partial<MetadataProvider> | null | undefined;
 type PluginSearchCandidate = Partial<Pick<PluginEntry, "name" | "description" | "tags">>;
+type PluginRuntimeState = { id?: unknown; enabled?: unknown } | null | undefined;
+type PluginStatusCandidate = Pick<PluginEntry, "id" | "status"> & Partial<Pick<PluginEntry, "cinavaultNative">>;
 
 export function matchesPluginSearch(plugin: PluginSearchCandidate, rawSearch: string): boolean {
   const search = rawSearch.trim().toLowerCase();
@@ -60,4 +62,35 @@ export function sanitizeMetadataProviders(
   }
 
   return Array.from(merged.values());
+}
+
+export function applyPluginRuntimeState<T extends PluginStatusCandidate>(
+  registry: T[],
+  installed: PluginRuntimeState[],
+): T[] {
+  const installedById = new Map<string, { enabled: boolean }>();
+
+  for (const plugin of installed) {
+    if (!plugin || typeof plugin.id !== "string" || !plugin.id.trim()) continue;
+    installedById.set(plugin.id, {
+      enabled: plugin.enabled !== false,
+    });
+  }
+
+  return registry.map((plugin) => {
+    const runtime = installedById.get(plugin.id);
+    if (!runtime) return { ...plugin };
+
+    return {
+      ...plugin,
+      status: runtime.enabled
+        ? (plugin.cinavaultNative ? "active" : "installed")
+        : "disabled",
+    };
+  });
+}
+
+export function getUnreadStatusMessages(messages: string[], lastReadIndex: number): string[] {
+  const safeIndex = Number.isFinite(lastReadIndex) ? Math.max(0, Math.floor(lastReadIndex)) : 0;
+  return messages.slice(Math.min(safeIndex + 1, messages.length));
 }

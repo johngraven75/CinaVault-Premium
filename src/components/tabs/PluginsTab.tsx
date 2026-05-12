@@ -8,7 +8,7 @@ import {
   PluginEntry, PluginCategory, PluginPlatform, PluginStatus,
 } from "../../data/pluginRegistry";
 import { pluginEngine } from "../../data/pluginAdapter";
-import { getMetadataProviderInitials, matchesPluginSearch } from "../../utils/pluginUiSafety";
+import { applyPluginRuntimeState, getMetadataProviderInitials, matchesPluginSearch } from "../../utils/pluginUiSafety";
 import {
   Package, Search, Filter, Download, Trash2, Settings, Play,
   CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronRight,
@@ -61,26 +61,14 @@ export default function PluginsTab() {
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [metaCategoryFilter, setMetaCategoryFilter] = useState<string>("all");
 
+  const statusForPlugin = (plugin: PluginEntry, enabled = true): PluginStatus =>
+    enabled ? (plugin.cinavaultNative ? "active" : "installed") : "disabled";
+
   // Load installed status on mount
   useEffect(() => {
     pluginEngine.loadFromBackend().then(() => {
-      const added = pluginEngine.bootstrapCatalog(
-        FULL_PLUGIN_REGISTRY.filter((p) =>
-          p.platforms.includes("jellyfin") ||
-          p.platforms.includes("emby") ||
-          p.platforms.includes("plex") ||
-          p.platforms.includes("cinavault")
-        )
-      );
-      setPlugins(prev => prev.map(p => ({
-        ...p,
-        status: pluginEngine.isInstalled(p.id)
-          ? (p.platforms.includes("cinavault") ? "active" as PluginStatus : "installed" as PluginStatus)
-          : p.status,
-      })));
-      if (added > 0) {
-        addStatusMessage(`Preloaded full plugin catalog (${added} new installs) with duplicate protection`);
-      }
+      setPlugins(applyPluginRuntimeState(FULL_PLUGIN_REGISTRY, pluginEngine.getInstalled()));
+      addStatusMessage(`Plugin catalog loaded (${pluginEngine.getInstalled().length} installed)`);
     });
   }, [addStatusMessage]);
 
@@ -127,9 +115,9 @@ export default function PluginsTab() {
     const success = await pluginEngine.installPlugin(plugin);
     if (success) {
       setPlugins(prev => prev.map(p =>
-        p.id === plugin.id ? { ...p, status: "installed" as PluginStatus } : p
+        p.id === plugin.id ? { ...p, status: statusForPlugin(plugin) } : p
       ));
-      addStatusMessage(`Installed: ${plugin.name} (${plugin.platforms.map(p => PLATFORM_LABELS[p]).join(", ")})`);
+      addStatusMessage(`Downloaded and enabled: ${plugin.name} (${plugin.platforms.map(p => PLATFORM_LABELS[p]).join(", ")})`);
     }
     setInstalling(prev => { const s = new Set(prev); s.delete(plugin.id); return s; });
   };
@@ -141,6 +129,17 @@ export default function PluginsTab() {
       p.id === plugin.id ? { ...p, status: "available" as PluginStatus } : p
     ));
     addStatusMessage(`Uninstalled: ${plugin.name}`);
+  };
+
+  const handleSetEnabled = async (plugin: PluginEntry, enabled: boolean) => {
+    if (!pluginEngine.getInstalledPlugin(plugin.id)) {
+      await pluginEngine.installPlugin(plugin);
+    }
+    await pluginEngine.setPluginEnabled(plugin.id, enabled);
+    setPlugins(prev => prev.map(p =>
+      p.id === plugin.id ? { ...p, status: statusForPlugin(plugin, enabled) } : p
+    ));
+    addStatusMessage(`${plugin.name}: ${enabled ? "enabled" : "disabled"}`);
   };
 
   const toggleCategory = (cat: string) => {
@@ -255,7 +254,8 @@ export default function PluginsTab() {
                           <PluginRow key={plugin.id} plugin={plugin}
                             installing={installing.has(plugin.id)}
                             onInstall={() => handleInstall(plugin)}
-                            onUninstall={() => handleUninstall(plugin)} />
+                            onUninstall={() => handleUninstall(plugin)}
+                            onSetEnabled={(enabled) => handleSetEnabled(plugin, enabled)} />
                         ))}
                       </motion.div>
                     )}
@@ -412,64 +412,147 @@ export default function PluginsTab() {
 }
 
 // ── Plugin Row Component ──
-function PluginRow({ plugin, installing, onInstall, onUninstall }: {
-  plugin: PluginEntry; installing: boolean; onInstall: () => void; onUninstall: () => void;
+function PluginRow({ plugin, installing, onInstall, onUninstall, onSetEnabled }: {
+  plugin: PluginEntry; installing: boolean; onInstall: () => void; onUninstall: () => void; onSetEnabled: (enabled: boolean) => void;
 }) {
   const [showConfig, setShowConfig] = useState(false);
+  const [configText, setConfigText] = useState("{}");
+  const [configError, setConfigError] = useState("");
   const compat = pluginEngine.checkCompatibility(plugin);
-  const isInstalled = plugin.status === "installed" || plugin.status === "active";
+  const isInstalled = plugin.status === "installed" || plugin.status === "active" || plugin.status === "disabled";
+  const enabled = isInstalled && plugin.status !== "disabled" && pluginEngine.getInstalledPlugin(plugin.id)?.enabled !== false;
+
+  useEffect(() => {
+    if (!showConfig) return;
+    setConfigText(JSON.stringify(pluginEngine.getPluginConfig(plugin.id), null, 2));
+    setConfigError("");
+  }, [plugin.id, showConfig]);
+
+  const saveConfig = async () => {
+    try {
+      const parsed = JSON.parse(configText || "{}");
+      if (!pluginEngine.getInstalledPlugin(plugin.id)) {
+        await pluginEngine.installPlugin(plugin);
+      }
+      await pluginEngine.setPluginConfig(plugin.id, parsed);
+      setConfigError("");
+    } catch (error) {
+      setConfigError(`Invalid JSON: ${error}`);
+    }
+  };
+
+  const runPlugin = async () => {
+    if (!pluginEngine.getInstalledPlugin(plugin.id)) {
+      await pluginEngine.installPlugin(plugin);
+    }
+    await pluginEngine.runPlugin(plugin.id, "run");
+  };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-white/3 last:border-b-0 hover:bg-white/3 transition-colors">
-      {/* Icon */}
-      <div className="w-9 h-9 rounded-lg flex items-center justify-center text-base bg-white/5 shrink-0">
-        {plugin.icon}
-      </div>
+    <div className="border-b border-white/3 last:border-b-0">
+      <div className="flex items-center gap-3 px-4 py-3 hover:bg-white/3 transition-colors">
+        {/* Icon */}
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center text-base bg-white/5 shrink-0">
+          {plugin.icon}
+        </div>
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate" style={{ color: "var(--cv-text)" }}>{plugin.name}</span>
-          {plugin.platforms.map(p => (
-            <span key={p} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-              style={{ background: `${PLATFORM_COLORS[p]}22`, color: PLATFORM_COLORS[p] }}>
-              {PLATFORM_LABELS[p]}
-            </span>
-          ))}
-          {plugin.premium && (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">PREMIUM</span>
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium truncate" style={{ color: "var(--cv-text)" }}>{plugin.name}</span>
+            {plugin.platforms.map(p => (
+              <span key={p} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                style={{ background: `${PLATFORM_COLORS[p]}22`, color: PLATFORM_COLORS[p] }}>
+                {PLATFORM_LABELS[p]}
+              </span>
+            ))}
+            {plugin.premium && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">PREMIUM</span>
+            )}
+            {plugin.cinavaultNative && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">NATIVE</span>
+            )}
+            {plugin.status === "disabled" && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-[var(--cv-subtext)]">DISABLED</span>
+            )}
+          </div>
+          <div className="text-[11px] truncate" style={{ color: "var(--cv-subtext)" }}>{plugin.description}</div>
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--cv-subtext)" }}>
+            v{plugin.version} · {plugin.author} · {compat.reason}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          {plugin.configurable && isInstalled && (
+            <button onClick={() => setShowConfig(!showConfig)}
+              title="Configure plugin"
+              className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors">
+              <Settings size={13} className="text-[var(--cv-subtext)]" />
+            </button>
           )}
-          {plugin.cinavaultNative && (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">NATIVE</span>
+          {isInstalled && (
+            <button onClick={() => onSetEnabled(!enabled)}
+              className={`cv-btn-sm text-[11px] flex items-center gap-1 ${
+                enabled ? "bg-green-500/15 text-green-400 hover:bg-green-500/25" : "bg-white/10 text-[var(--cv-subtext)] hover:bg-white/15"
+              }`}>
+              {enabled ? <ToggleRight size={12} /> : <ToggleLeft size={12} />}
+              {enabled ? "Enabled" : "Enable"}
+            </button>
+          )}
+          {isInstalled ? (
+            <button onClick={onUninstall}
+              className="cv-btn-sm text-[11px] bg-red-500/15 text-red-400 hover:bg-red-500/25 flex items-center gap-1">
+              <Trash2 size={11} /> Remove
+            </button>
+          ) : (
+            <button onClick={onInstall} disabled={installing}
+              className="cv-btn-sm text-[11px] bg-[var(--cv-accent)]/15 text-[var(--cv-accent)] hover:bg-[var(--cv-accent)]/25 flex items-center gap-1 disabled:opacity-50">
+              {installing ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />}
+              {installing ? "Installing..." : "Download & Enable"}
+            </button>
           )}
         </div>
-        <div className="text-[11px] truncate" style={{ color: "var(--cv-subtext)" }}>{plugin.description}</div>
-        <div className="text-[10px] mt-0.5" style={{ color: "var(--cv-subtext)" }}>
-          v{plugin.version} · {plugin.author} · {compat.reason}
-        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0">
-        {plugin.configurable && isInstalled && (
-          <button onClick={() => setShowConfig(!showConfig)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors">
-            <Settings size={13} className="text-[var(--cv-subtext)]" />
-          </button>
+      <AnimatePresence>
+        {showConfig && isInstalled && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-t border-white/5 bg-black/15"
+          >
+            <div className="px-4 py-3 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--cv-subtext)" }}>
+                  Plugin settings JSON
+                </div>
+                <textarea
+                  value={configText}
+                  onChange={(event) => setConfigText(event.target.value)}
+                  className="cv-input w-full min-h-[84px] font-mono text-[11px]"
+                  spellCheck={false}
+                />
+                {configError && <div className="text-[10px] text-red-400 mt-1">{configError}</div>}
+              </div>
+              <div className="flex lg:flex-col gap-2 lg:items-stretch">
+                <button onClick={saveConfig} className="cv-btn-sm text-[11px] bg-[var(--cv-accent)]/15 text-[var(--cv-accent)] hover:bg-[var(--cv-accent)]/25">
+                  Save Settings
+                </button>
+                <button onClick={runPlugin} className="cv-btn-sm text-[11px] bg-white/10 text-[var(--cv-subtext)] hover:bg-white/15">
+                  Run Plugin
+                </button>
+                {plugin.repo && (
+                  <button onClick={() => window.open(plugin.repo, "_blank", "noopener,noreferrer")} className="cv-btn-sm text-[11px] bg-white/10 text-[var(--cv-subtext)] hover:bg-white/15">
+                    Source
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
         )}
-        {isInstalled ? (
-          <button onClick={onUninstall}
-            className="cv-btn-sm text-[11px] bg-red-500/15 text-red-400 hover:bg-red-500/25 flex items-center gap-1">
-            <Trash2 size={11} /> Remove
-          </button>
-        ) : (
-          <button onClick={onInstall} disabled={installing}
-            className="cv-btn-sm text-[11px] bg-[var(--cv-accent)]/15 text-[var(--cv-accent)] hover:bg-[var(--cv-accent)]/25 flex items-center gap-1 disabled:opacity-50">
-            {installing ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />}
-            {installing ? "Installing..." : "Install"}
-          </button>
-        )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }

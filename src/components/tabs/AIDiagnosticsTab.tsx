@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import AIVisualizer from "../effects/AIVisualizer";
-import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink } from "lucide-react";
+import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag } from "lucide-react";
 
 export default function AIDiagnosticsTab() {
   const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage } = useAppStore();
@@ -64,15 +64,50 @@ export default function AIDiagnosticsTab() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const quickActions: { label: string; icon: any; q: string; runNow?: boolean }[] = [
+  const runQuickAction = async (action: { label: string; q: string; runNow?: () => Promise<any> }) => {
+    if (aiProcessing) return;
+    setPrompt(action.q);
+    if (!action.runNow) return;
+
+    setAiProcessing(true);
+    addStatusMessage(`Running: ${action.label}...`);
+    try {
+      const result = await action.runNow();
+      setAiResult(result);
+      setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+      if (result?.type === "library_enrichment") {
+        addStatusMessage(`${action.label}: ${result.metadata_updated || 0} metadata updates, ${result.files_renamed || 0} files renamed`);
+      } else {
+        addStatusMessage(`${action.label} complete`);
+      }
+    } catch (e) {
+      addStatusMessage(`${action.label} failed: ${e}`);
+    } finally {
+      setAiProcessing(false);
+    }
+  };
+
+  const quickActions: { label: string; icon: any; q: string; runNow?: () => Promise<any> }[] = [
     { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
     { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
     { label: "Check Providers", icon: Database, q: "Check metadata providers" },
     {
+      label: "Enrich Metadata",
+      icon: Database,
+      q: "Enrich Library Metadata",
+      runNow: () => invoke("run_library_enrichment", { renameFiles: false }),
+    },
+    {
+      label: "Normalize Filenames",
+      icon: Tag,
+      q: "Enrich + Normalize Filenames",
+      runNow: () => invoke("run_library_enrichment", { renameFiles: true }),
+    },
+    {
       label: "Adult Metadata Gather",
       icon: Sparkles,
       q: "Run adult metadata gather for installed providers and generate posters and chapter images",
-      runNow: true,
+      runNow: () => invoke("ai_query", { prompt: "Run adult metadata gather for installed providers and generate posters and chapter images" }),
     },
   ];
 
@@ -129,22 +164,7 @@ export default function AIDiagnosticsTab() {
               <button
                 key={action.label}
                 disabled={aiProcessing}
-                onClick={() => {
-                  if (aiProcessing) return;
-                  setPrompt(action.q);
-                  if (action.runNow) {
-                    setAiProcessing(true);
-                    addStatusMessage("Running adult metadata gather...");
-                    invoke<any>("ai_query", { prompt: action.q })
-                      .then((result) => {
-                        setAiResult(result);
-                        setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
-                        addStatusMessage("Adult metadata gather complete");
-                      })
-                      .catch((e) => addStatusMessage(`Adult metadata gather failed: ${e}`))
-                      .finally(() => setAiProcessing(false));
-                  }
-                }}
+                onClick={() => runQuickAction(action)}
                 className="cv-btn cv-btn-secondary text-[10px] py-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <action.icon size={10} /> {action.label}

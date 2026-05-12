@@ -1,5 +1,4 @@
 // CinaVault Premium — VPN & Security Module (Windscribe + AV)
-use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 const VPN_LOCATIONS: &[(&str, &str)] = &[

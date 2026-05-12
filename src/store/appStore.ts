@@ -249,7 +249,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   auto_next: "true",
   auto_subtitles: "true",
   chapter_thumbs_enabled: "true",
-  prefer_embedded_titles: "false",
+  prefer_embedded_titles: "true",
   smart_collections: "true",
   poster_sync: "true",
   unified_library: "true",
