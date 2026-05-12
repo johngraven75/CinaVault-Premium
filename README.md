@@ -27,6 +27,6 @@ npm run tauri build
 
 Current sequential installer build:
 
-- `releases/beta4-build7/CinaVault Premium_1.0.0-beta.4+7_x64-setup.exe`
-- `releases/beta4-build7/CinaVault Premium_1.0.0-beta.4+7_x64_en-US.msi`
-- `releases/beta4-build7/SHA256SUMS.txt`
+- `releases/prerelease-candidate-1.0-rc1/CinaVault Premium_1.0.0-1_x64-setup.exe`
+- `releases/prerelease-candidate-1.0-rc1/CinaVault Premium_1.0.0-1_x64_en-US.msi`
+- `releases/prerelease-candidate-1.0-rc1/SHA256SUMS.txt`

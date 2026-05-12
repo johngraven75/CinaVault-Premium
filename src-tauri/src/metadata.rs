@@ -186,8 +186,18 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
     ("MS-C Providers", "jellyfin_providers", "", false, "Agents"),
 ];
 
+fn normalize_provider_key(provider: &str) -> String {
+    match provider.trim().to_lowercase().as_str() {
+        "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
+        "theporndb" | "tpdb" => "tpdb".to_string(),
+        "open_movie_db" | "openmoviedb" | "omdb" => "omdb".to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn is_known_provider(provider: &str) -> bool {
-    PROVIDERS.iter().any(|(_, key, _, _, _)| *key == provider)
+    let normalized = normalize_provider_key(provider);
+    PROVIDERS.iter().any(|(_, key, _, _, _)| *key == normalized)
 }
 
 fn provider_has_live_key_check(provider: &str) -> bool {
@@ -219,6 +229,7 @@ pub async fn fetch_metadata(
     api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
+    let provider = normalize_provider_key(&provider);
 
     match provider.as_str() {
         "tmdb" => {
@@ -300,7 +311,7 @@ pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, 
     let mut configured = serde_json::Map::new();
     for row in rows {
         let (provider, _key) = row.map_err(|e| e.to_string())?;
-        configured.insert(provider, serde_json::Value::Bool(true));
+        configured.insert(normalize_provider_key(&provider), serde_json::Value::Bool(true));
     }
 
     Ok(serde_json::json!({
@@ -311,6 +322,7 @@ pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, 
 
 #[tauri::command]
 pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_json::Value, String> {
+    let provider = normalize_provider_key(&provider);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -350,13 +362,21 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
 
 #[cfg(test)]
 mod tests {
-    use super::{is_known_provider, should_assume_key_validity};
+    use super::{is_known_provider, normalize_provider_key, should_assume_key_validity};
 
     #[test]
     fn known_provider_is_detected() {
         assert!(is_known_provider("tmdb"));
+        assert!(is_known_provider("themoviedb_images"));
         assert!(is_known_provider("tpdb"));
         assert!(!is_known_provider("unknown_provider"));
+    }
+
+    #[test]
+    fn provider_key_aliases_are_normalized() {
+        assert_eq!(normalize_provider_key("themoviedb_images"), "tmdb");
+        assert_eq!(normalize_provider_key("theporndb"), "tpdb");
+        assert_eq!(normalize_provider_key("openmoviedb"), "omdb");
     }
 
     #[test]
@@ -382,6 +402,7 @@ pub fn set_api_key(
     api_key: String,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    let provider = normalize_provider_key(&provider);
     db.conn
         .execute(
             "INSERT OR REPLACE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
@@ -407,13 +428,14 @@ pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String>
     let mut keys = serde_json::Map::new();
     for row in rows {
         let (provider, key) = row.map_err(|e| e.to_string())?;
+        let normalized_provider = normalize_provider_key(&provider);
         // Mask the key for security
         let masked = if key.len() > 4 {
             format!("{}...{}", &key[..2], &key[key.len() - 2..])
         } else {
             "****".to_string()
         };
-        keys.insert(provider, serde_json::Value::String(masked));
+        keys.insert(normalized_provider, serde_json::Value::String(masked));
     }
 
     Ok(serde_json::Value::Object(keys))
