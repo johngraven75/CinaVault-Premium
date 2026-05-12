@@ -1,5 +1,4 @@
 // CinaVault Premium — AI Diagnostics Module (HuggingFace Inference)
-use serde::{Deserialize, Serialize};
 use tauri::State;
 use rusqlite::params;
 use crate::AppState;
@@ -13,7 +12,6 @@ use std::os::windows::process::CommandExt;
 const DEFAULT_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
-const MAX_CHAPTER_GENERATION_ITEMS_PER_RUN: usize = 25;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -40,6 +38,15 @@ pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bo
 fn normalize_adult_provider_key(provider: &str) -> String {
     match provider.trim().to_lowercase().as_str() {
         "theporndb" | "tpdb" => "tpdb".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn normalize_provider_key(provider: &str) -> String {
+    match provider.trim().to_lowercase().as_str() {
+        "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
+        "theporndb" | "tpdb" => "tpdb".to_string(),
+        "open_movie_db" | "openmoviedb" | "omdb" => "omdb".to_string(),
         other => other.to_string(),
     }
 }
@@ -430,6 +437,23 @@ fn parse_year_prefix(value: Option<&str>) -> Option<i32> {
     text[..4].parse::<i32>().ok()
 }
 
+fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
+    match current_poster.map(str::trim).filter(|v| !v.is_empty()) {
+        None => true,
+        Some(path) => {
+            if path.starts_with("http://") || path.starts_with("https://") || path.starts_with("data:") || path.starts_with("asset:") {
+                return false;
+            }
+            let lower = path.replace('/', "\\").to_lowercase();
+            lower.ends_with("-poster.jpg")
+                || lower.ends_with("-poster.png")
+                || lower.ends_with("\\poster.jpg")
+                || lower.ends_with("\\cover.jpg")
+                || lower.ends_with("\\folder.jpg")
+        }
+    }
+}
+
 async fn fetch_tmdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
     let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
     let url = format!(
@@ -498,6 +522,74 @@ async fn fetch_omdb_metadata(client: &reqwest::Client, api_key: &str, query: &st
     })
 }
 
+async fn fetch_stashdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
+    let body = serde_json::json!({
+        "query": "query($title:String!){ queryScenes(input:{title:$title, per_page:1, page:1, direction:DESC, sort:DATE}) { scenes { title details release_date images { url width height } tags { name } urls { url } } } }",
+        "variables": {
+            "title": query
+        }
+    });
+
+    let data = client
+        .post("https://stashdb.org/graphql")
+        .header("Content-Type", "application/json")
+        .header("ApiKey", api_key)
+        .json(&body)
+        .send()
+        .await
+        .ok()?
+        .json::<serde_json::Value>()
+        .await
+        .ok()?;
+
+    if data.get("errors").is_some() {
+        return None;
+    }
+
+    let first = data
+        .get("data")
+        .and_then(|v| v.get("queryScenes"))
+        .and_then(|v| v.get("scenes"))
+        .and_then(|v| v.as_array())
+        .and_then(|items| items.first())?;
+
+    let title = non_empty_string(first.get("title").and_then(|v| v.as_str()));
+    let overview = non_empty_string(first.get("details").and_then(|v| v.as_str()));
+    let poster_path = first
+        .get("images")
+        .and_then(|v| v.as_array())
+        .and_then(|images| images.first())
+        .and_then(|img| img.get("url"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string());
+    let year = parse_year_prefix(first.get("release_date").and_then(|v| v.as_str()));
+    let genre = first
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| tag.get("name").and_then(|v| v.as_str()))
+                .filter(|name| !name.trim().is_empty())
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|g| !g.trim().is_empty());
+
+    Some(RemoteMetadata {
+        title,
+        overview,
+        poster_path,
+        year,
+        rating: None,
+        genre,
+        tmdb_id: None,
+        imdb_id: None,
+    })
+}
+
 fn merge_remote_metadata(primary: Option<RemoteMetadata>, secondary: Option<RemoteMetadata>) -> Option<RemoteMetadata> {
     let mut merged = primary.or(secondary.clone())?;
     if let Some(extra) = secondary {
@@ -562,12 +654,16 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
 
         let mut keys = HashMap::new();
         for row in rows.filter_map(|r| r.ok()) {
-            keys.insert(row.0.to_lowercase(), row.1);
+            let raw_key = row.0.to_lowercase();
+            let normalized_key = normalize_provider_key(&raw_key);
+            keys.insert(raw_key, row.1.clone());
+            keys.insert(normalized_key, row.1);
         }
         keys
     };
     let tmdb_key = provider_keys.get("tmdb").cloned();
     let omdb_key = provider_keys.get("omdb").cloned();
+    let stashdb_key = provider_keys.get("stashdb").cloned();
 
     let media_items: Vec<(
         i64,
@@ -645,7 +741,6 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     let mut metadata_items_enriched = 0usize;
     let mut metadata_fields_updated = 0usize;
     let mut sidecars_written = 0usize;
-    let mut chapter_generation_skipped_after_limit = 0usize;
     let mut skipped_missing_files = 0usize;
     let mut skipped_non_video_items = 0usize;
     let mut errors: Vec<String> = Vec::new();
@@ -729,19 +824,25 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             .as_ref()
             .map(|g| g.trim().is_empty())
             .unwrap_or(true);
+        let should_upgrade_poster = should_prefer_remote_poster(final_poster.as_deref());
         let needs_remote_metadata = !has_overview
-            || !has_poster
+            || should_upgrade_poster
             || final_year.is_none()
             || final_rating.is_none()
             || missing_genre
             || final_tmdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true)
             || final_imdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true);
 
-        if needs_remote_metadata && (tmdb_key.is_some() || omdb_key.is_some()) {
+        if needs_remote_metadata && (stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some()) {
             let query_title = extract_embedded_title(file_path)
                 .filter(|embedded| !embedded.trim().is_empty())
                 .unwrap_or_else(|| final_title.clone());
 
+            let stashdb_meta = if let Some(key) = stashdb_key.as_deref() {
+                fetch_stashdb_metadata(&client, key, &query_title).await
+            } else {
+                None
+            };
             let tmdb_meta = if let Some(key) = tmdb_key.as_deref() {
                 fetch_tmdb_metadata(&client, key, &query_title).await
             } else {
@@ -752,7 +853,8 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             } else {
                 None
             };
-            let remote_meta = merge_remote_metadata(tmdb_meta, omdb_meta);
+            let stash_then_tmdb = merge_remote_metadata(stashdb_meta, tmdb_meta);
+            let remote_meta = merge_remote_metadata(stash_then_tmdb, omdb_meta);
 
             if let Some(meta) = remote_meta {
                 let mut changed_fields = 0usize;
@@ -771,10 +873,12 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                         changed_fields += 1;
                     }
                 }
-                if final_poster.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
+                if should_prefer_remote_poster(final_poster.as_deref()) {
                     if let Some(new_poster) = meta.poster_path.filter(|v| !v.trim().is_empty()) {
-                        final_poster = Some(new_poster);
-                        changed_fields += 1;
+                        if final_poster.as_deref() != Some(new_poster.as_str()) {
+                            final_poster = Some(new_poster);
+                            changed_fields += 1;
+                        }
                     }
                 }
                 if final_year.is_none() {
@@ -842,11 +946,6 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         if let Some(chapter_dir) = chapter_dir_for(file_path) {
             let existing = count_existing_chapter_images(&chapter_dir);
             if existing == 0 {
-                if chapters_generated_for_items >= MAX_CHAPTER_GENERATION_ITEMS_PER_RUN {
-                    chapter_generation_skipped_after_limit += 1;
-                    continue;
-                }
-
                 match crate::chapters::generate_chapter_thumbs(file_path.clone(), None, Some(300), None).await {
                     Ok(thumbs) if !thumbs.is_empty() => {
                         chapters_generated_for_items += 1;
@@ -889,11 +988,11 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "posters_updated": posters_updated,
         "chapter_sets_generated": chapters_generated_for_items,
         "chapter_images_generated": chapter_images_generated,
-        "chapter_generation_skipped_after_limit": chapter_generation_skipped_after_limit,
+        "chapter_generation_skipped_after_limit": 0,
         "items_needing_metadata": items_needing_metadata,
         "skipped_missing_files": skipped_missing_files,
         "skipped_non_video_items": skipped_non_video_items,
-        "note": "Adult metadata gather now writes back missing overview/poster/year/rating/genre/TMDb/IMDb IDs when TMDb or OMDb API keys are configured, and still performs local poster + chapter generation.",
+        "note": "Adult metadata gather now supports legacy provider-key aliases, uses StashDB/TMDb/OMDb metadata when available, upgrades local poster placeholders to remote posters, writes sidecar files, and generates chapter images without a hard item cap.",
         "errors": errors,
     }))
 }
@@ -905,6 +1004,8 @@ mod tests {
         is_adult_library_item,
         metadata_sidecar_path,
         normalize_adult_provider_key,
+        normalize_provider_key,
+        should_prefer_remote_poster,
     };
 
     #[test]
@@ -951,12 +1052,27 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_legacy_provider_aliases_for_backward_compatibility() {
+        assert_eq!(normalize_provider_key("themoviedb_images"), "tmdb");
+        assert_eq!(normalize_provider_key("tmdb_images"), "tmdb");
+        assert_eq!(normalize_provider_key("theporndb"), "tpdb");
+    }
+
+    #[test]
     fn derives_sidecar_path_next_to_media_file() {
         let path = metadata_sidecar_path(r"E:\Adult\scene-01.mp4")
             .expect("sidecar path should resolve")
             .to_string_lossy()
             .replace('/', "\\");
         assert!(path.ends_with(r"E:\Adult\scene-01.cinavault.json"));
+    }
+
+    #[test]
+    fn remote_poster_preferred_for_local_placeholder_files_only() {
+        assert!(should_prefer_remote_poster(None));
+        assert!(should_prefer_remote_poster(Some(r"E:\Library\video-poster.jpg")));
+        assert!(should_prefer_remote_poster(Some(r"E:\Library\poster.jpg")));
+        assert!(!should_prefer_remote_poster(Some("https://example.com/poster.jpg")));
     }
 }
 
