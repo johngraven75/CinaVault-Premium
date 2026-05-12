@@ -10,6 +10,7 @@ static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static CANCEL_DL: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct DownloadItem {
     pub id: Option<i64>,
     pub url: String,

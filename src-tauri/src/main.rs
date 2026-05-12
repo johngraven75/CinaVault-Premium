@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 111)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 113)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -15,6 +15,7 @@ mod duplicates;
 mod vpn;
 mod downloads;
 mod ai;
+mod enrichment;
 
 use db::Database;
 use std::sync::Mutex;
@@ -50,7 +51,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 111 initialized successfully");
+            log::info!("CinaVault Premium Build 113 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -145,6 +146,8 @@ fn main() {
             ai::set_hf_token,
             ai::get_ai_config,
             ai::set_ai_model,
+            // Library Enrichment
+            enrichment::run_library_enrichment,
             // Cloud Storage
             cloud_auth_start,
             cloud_disconnect,
@@ -323,13 +326,14 @@ fn get_app_info() -> serde_json::Value {
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
         "version": "1.0.0",
-        "build_tag": "Build 111 (Premium Edition)",
+        "build_tag": "Build 113 (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "features": [
             "persistent_settings", "cloud_storage", "plugin_system",
-            "metadata_providers", "scheduled_tasks", "premium_ui"
+            "metadata_providers", "library_enrichment", "filename_normalization",
+            "embedded_title_preference", "embedded_poster_import", "scheduled_tasks", "premium_ui"
         ]
     })
 }

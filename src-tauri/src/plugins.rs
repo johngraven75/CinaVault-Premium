@@ -25,6 +25,18 @@ pub struct Plugin {
     pub config_json: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledPlugin {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub version: String,
+    pub install_path: String,
+    pub config_json: String,
+    pub enabled: bool,
+}
+
 #[tauri::command]
 pub fn get_plugin_repos(state: State<AppState>) -> Result<Vec<PluginRepo>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -124,34 +136,142 @@ pub fn get_plugin_catalog(state: State<AppState>, repo_id: Option<i64>) -> Resul
 }
 
 #[tauri::command]
-pub fn install_plugin(state: State<AppState>, id: i64) -> Result<(), String> {
+pub fn install_plugin(
+    state: State<AppState>,
+    plugin_id: String,
+    name: String,
+    version: String,
+    platforms: Vec<String>,
+    repo_url: String,
+) -> Result<(), String> {
+    let platform = platforms
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "cinavault".to_string());
+    let install_path = format!("plugins/{platform}/{plugin_id}");
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("UPDATE plugins SET installed = 1 WHERE id = ?1", params![id])
+
+    let updated = db
+        .conn
+        .execute(
+            "UPDATE plugins
+             SET name = ?2,
+                 version = ?3,
+                 installed = 1,
+                 enabled = 1,
+                 platform = ?4,
+                 install_path = ?5,
+                 repo_url = ?6
+             WHERE plugin_key = ?1",
+            params![plugin_id, name, version, platform, install_path, repo_url],
+        )
+        .map_err(|e| e.to_string())?;
+
+    if updated == 0 {
+        db.conn
+            .execute(
+                "INSERT INTO plugins
+                 (plugin_key, name, version, description, author, repo_id, installed, config_json, platform, install_path, enabled, repo_url)
+                 VALUES (?1, ?2, ?3, NULL, NULL, NULL, 1, '{}', ?4, ?5, 1, ?6)",
+                params![plugin_id, name, version, platform, install_path, repo_url],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn uninstall_plugin(state: State<AppState>, plugin_id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "UPDATE plugins SET installed = 0, enabled = 0 WHERE plugin_key = ?1 OR name = ?1",
+            params![plugin_id],
+        )
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn uninstall_plugin(state: State<AppState>, id: i64) -> Result<(), String> {
+pub fn run_plugin(
+    state: State<AppState>,
+    plugin_id: String,
+    action: Option<String>,
+    config: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let action = action.unwrap_or_else(|| "run".to_string());
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("UPDATE plugins SET installed = 0 WHERE id = ?1", params![id])
+
+    match action.as_str() {
+        "configure" => {
+            let config = config.unwrap_or_else(|| "{}".to_string());
+            db.conn
+                .execute(
+                    "UPDATE plugins SET config_json = ?2 WHERE plugin_key = ?1 OR name = ?1",
+                    params![plugin_id, config],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        "enable" | "start" => {
+            db.conn
+                .execute(
+                    "UPDATE plugins SET installed = 1, enabled = 1 WHERE plugin_key = ?1 OR name = ?1",
+                    params![plugin_id],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        "disable" | "stop" => {
+            db.conn
+                .execute(
+                    "UPDATE plugins SET enabled = 0 WHERE plugin_key = ?1 OR name = ?1",
+                    params![plugin_id],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        _ => {}
+    }
+
+    Ok(serde_json::json!({
+        "status": "plugin_executed",
+        "plugin_id": plugin_id,
+        "action": action,
+    }))
+}
+
+#[tauri::command]
+pub fn get_installed_plugins(state: State<AppState>) -> Result<Vec<InstalledPlugin>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT COALESCE(plugin_key, name) AS plugin_id,
+                    name,
+                    COALESCE(version, '1.0.0'),
+                    COALESCE(platform, 'cinavault'),
+                    COALESCE(install_path, ''),
+                    COALESCE(config_json, '{}'),
+                    COALESCE(enabled, installed)
+             FROM plugins
+             WHERE installed = 1
+             ORDER BY name",
+        )
         .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn run_plugin(_id: i64) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "status": "plugin_executed" }))
-}
-
-#[tauri::command]
-pub fn get_installed_plugins(state: State<AppState>) -> Result<Vec<Plugin>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db.conn.prepare(
-        "SELECT id, name, version, description, author, repo_id, installed, config_json FROM plugins WHERE installed = 1 ORDER BY name"
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |row| row_to_plugin(row)).map_err(|e| e.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(InstalledPlugin {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                version: row.get(2)?,
+                platform: row.get(3)?,
+                install_path: row.get(4)?,
+                config_json: row.get(5)?,
+                enabled: row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 fn row_to_plugin(row: &rusqlite::Row) -> rusqlite::Result<Plugin> {

@@ -5,6 +5,7 @@ use crate::AppState;
 use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerInfo {
     pub name: String,
     pub version: String,

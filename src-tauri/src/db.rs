@@ -1,4 +1,4 @@
-// CinaVault Premium — SQLite Database Layer (rusqlite) — Build 111
+// CinaVault Premium — SQLite Database Layer (rusqlite) — Build 113
 // Premium defaults: all features ON, full persistence support
 
 use rusqlite::{Connection, params, Result as SqlResult};
@@ -185,6 +185,15 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_media_verified ON media_items(verified);
             CREATE INDEX IF NOT EXISTS idx_media_date ON media_items(date_added);
         ")?;
+        self.ensure_column("plugins", "plugin_key", "TEXT")?;
+        self.ensure_column("plugins", "platform", "TEXT")?;
+        self.ensure_column("plugins", "install_path", "TEXT")?;
+        self.ensure_column("plugins", "enabled", "INTEGER DEFAULT 1")?;
+        self.ensure_column("plugins", "repo_url", "TEXT")?;
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_plugins_plugin_key ON plugins(plugin_key) WHERE plugin_key IS NOT NULL",
+            [],
+        )?;
 
         // ── Premium defaults: ALL features ON ──
         let defaults = vec![
@@ -200,7 +209,7 @@ impl Database {
             ("auto_next", "true"),
             ("auto_subtitles", "true"),
             ("chapter_thumbs_enabled", "true"),
-            ("prefer_embedded_titles", "false"),
+            ("prefer_embedded_titles", "true"),
             ("default_player", "system"),
             ("smart_collections", "true"),
             ("poster_sync", "true"),
@@ -224,6 +233,10 @@ impl Database {
                 params![key, value],
             )?;
         }
+        self.conn.execute(
+            "UPDATE settings SET value = 'true' WHERE key = 'prefer_embedded_titles' AND value = 'false'",
+            [],
+        )?;
 
         // ── Premium feature defaults: ALL enabled ──
         let features = vec![
@@ -249,6 +262,26 @@ impl Database {
             [],
         )?;
 
+        Ok(())
+    }
+
+    fn ensure_column(&self, table: &str, column: &str, definition: &str) -> SqlResult<()> {
+        let mut stmt = self.conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        let mut exists = false;
+        for existing in columns {
+            if existing?.eq_ignore_ascii_case(column) {
+                exists = true;
+                break;
+            }
+        }
+
+        if !exists {
+            self.conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -695,6 +728,21 @@ mod tests {
             .get_media_items_data(None, None, Some(0))
             .expect("query should succeed");
         assert_eq!(all_items.len(), 250);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn prefer_embedded_titles_defaults_to_true() {
+        let db_path = test_db_path("embedded-title-default");
+        let db = Database::new(&db_path).expect("db should open");
+
+        assert_eq!(
+            db.get_setting_data("prefer_embedded_titles")
+                .expect("setting should load"),
+            Some("true".to_string())
+        );
 
         drop(db);
         let _ = fs::remove_file(db_path);
