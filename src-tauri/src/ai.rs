@@ -2,6 +2,7 @@
 use tauri::State;
 use rusqlite::params;
 use crate::AppState;
+use crate::enrichment::{classify_library_item, LibraryItemRecord, SourceKind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -51,25 +52,6 @@ fn normalize_provider_key(provider: &str) -> String {
     }
 }
 
-fn text_has_adult_hint(text: &str) -> bool {
-    let lower = text
-        .replace(['\\', '/', '_', '-'], " ")
-        .to_lowercase();
-
-    [
-        "adult",
-        "porn",
-        "xxx",
-        "nsfw",
-        "personal x",
-        "x library",
-        "vids x",
-        "videos x",
-    ]
-    .iter()
-    .any(|hint| lower.contains(hint))
-}
-
 fn is_adult_library_item(
     media_type: &str,
     title: &str,
@@ -81,11 +63,23 @@ fn is_adult_library_item(
         return false;
     }
 
-    matches!(media_type, "adult")
-        || text_has_adult_hint(title)
-        || text_has_adult_hint(file_path)
-        || source_name.map(text_has_adult_hint).unwrap_or(false)
-        || source_path.map(text_has_adult_hint).unwrap_or(false)
+    let item = LibraryItemRecord {
+        id: 0,
+        title: title.to_string(),
+        file_path: file_path.to_string(),
+        media_type: media_type.to_string(),
+        overview: None,
+        poster_path: None,
+        year: None,
+        rating: None,
+        genre: None,
+        tmdb_id: None,
+        imdb_id: None,
+        source_name: source_name.map(str::to_string),
+        source_path: source_path.map(str::to_string),
+    };
+
+    classify_library_item(&item) == SourceKind::AdultVideo
 }
 
 fn title_from_filename(path: &Path) -> String {
