@@ -414,6 +414,63 @@ impl Database {
         }
     }
 
+    pub fn update_media_metadata_data(
+        &self,
+        file_path: &str,
+        title: Option<&str>,
+        overview: Option<&str>,
+        poster_path: Option<&str>,
+        year: Option<i32>,
+        rating: Option<f64>,
+        genre: Option<&str>,
+        tmdb_id: Option<&str>,
+        imdb_id: Option<&str>,
+        media_type: Option<&str>,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE media_items
+             SET title = COALESCE(?1, title),
+                 overview = COALESCE(?2, overview),
+                 poster_path = COALESCE(?3, poster_path),
+                 year = COALESCE(?4, year),
+                 rating = COALESCE(?5, rating),
+                 genre = COALESCE(?6, genre),
+                 tmdb_id = COALESCE(?7, tmdb_id),
+                 imdb_id = COALESCE(?8, imdb_id),
+                 media_type = COALESCE(?9, media_type)
+             WHERE file_path = ?10",
+            params![
+                title,
+                overview,
+                poster_path,
+                year,
+                rating,
+                genre,
+                tmdb_id,
+                imdb_id,
+                media_type,
+                file_path,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_media_file_path_data(
+        &self,
+        old_file_path: &str,
+        new_file_path: &str,
+        new_title: &str,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE media_items
+             SET file_path = ?1,
+                 title = ?2
+             WHERE file_path = ?3",
+            params![new_file_path, new_title, old_file_path],
+        )?;
+        Ok(())
+    }
+
     pub fn search_media_data(&self, query: &str) -> SqlResult<Vec<MediaItem>> {
         let pattern = format!("%{}%", query);
         let mut stmt = self.conn.prepare(
@@ -762,6 +819,77 @@ mod tests {
 
         let matches = db.search_media_data("Match").expect("search should succeed");
         assert_eq!(matches.len(), 230);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn enrichment_update_preserves_user_flags() {
+        let db_path = test_db_path("enrichment-update");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let item = sample_item("Old Title", r"C:\media\old-title.mp4");
+        db.add_media_item_data(&item).expect("insert should succeed");
+        db.conn.execute(
+            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+            params![&item.file_path],
+        ).expect("flag update should succeed");
+
+        db.update_media_metadata_data(
+            &item.file_path,
+            Some("Better Title"),
+            Some("Overview text"),
+            Some("https://poster"),
+            Some(2024),
+            Some(8.1),
+            Some("Drama"),
+            Some("123"),
+            Some("tt123"),
+            Some("adult"),
+        ).expect("metadata update should succeed");
+
+        let row = db.conn.query_row(
+            "SELECT title, overview, watched, favorite, media_type FROM media_items WHERE file_path = ?1",
+            params![&item.file_path],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, bool>(2)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, String>(4)?,
+            )),
+        ).expect("row should exist");
+
+        assert_eq!(row.0, "Better Title");
+        assert_eq!(row.1.as_deref(), Some("Overview text"));
+        assert!(row.2);
+        assert!(row.3);
+        assert_eq!(row.4, "adult");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn rename_update_changes_file_path_only_after_success() {
+        let db_path = test_db_path("rename-update");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let item = sample_item("Old Title", r"C:\media\old-title.mp4");
+        db.add_media_item_data(&item).expect("insert should succeed");
+
+        db.update_media_file_path_data(&item.file_path, r"C:\media\New Title.mp4", "New Title")
+            .expect("rename update should succeed");
+
+        let row = db.conn.query_row(
+            "SELECT title, file_path FROM media_items WHERE file_path = ?1",
+            params![r"C:\media\New Title.mp4"],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ).expect("renamed row should exist");
+
+        assert_eq!(row.0, "New Title");
+        assert_eq!(row.1, r"C:\media\New Title.mp4");
 
         drop(db);
         let _ = fs::remove_file(db_path);

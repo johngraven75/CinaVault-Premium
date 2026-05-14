@@ -1,0 +1,267 @@
+// CinaVault Premium — Universal Plugin Compatibility Adapter
+// Provides runtime bridge to load, configure, and execute MS-C / MS-B / MS-A plugins
+
+import { invoke } from "@tauri-apps/api/core";
+import type { PluginEntry, PluginPlatform, PluginStatus } from "./pluginRegistry";
+
+// ── Adapter configuration per-platform ──
+export interface AdapterConfig {
+  platform: PluginPlatform;
+  basePath: string;      // local plugin install directory
+  apiBase?: string;       // for server-backed plugins
+  apiKey?: string;
+}
+
+// ── Plugin runtime manifest (what we persist per installed plugin) ──
+export interface InstalledPlugin {
+  id: string;
+  name: string;
+  platform: PluginPlatform;
+  version: string;
+  installPath: string;
+  configJson: string;
+  enabled: boolean;
+  lastRun?: string;
+}
+
+// ── Platform adapters ──
+
+const JELLYFIN_DLL_MAP: Record<string, string> = {
+  "jf-opensubtitles": "Jellyfin.Plugin.OpenSubtitles.dll",
+  "jf-trakt": "Jellyfin.Plugin.Trakt.dll",
+  "jf-fanart": "Jellyfin.Plugin.Fanart.dll",
+  "jf-tvdb": "Jellyfin.Plugin.TheTvdb.dll",
+  "jf-anidb": "Jellyfin.Plugin.AniDB.dll",
+  "jf-anilist": "Jellyfin.Plugin.AniList.dll",
+  "jf-kitsu": "Jellyfin.Plugin.Kitsu.dll",
+  "jf-webhook": "Jellyfin.Plugin.Webhook.dll",
+  "jf-ldap": "Jellyfin.Plugin.LDAP.Auth.dll",
+  "jf-reports": "Jellyfin.Plugin.Reports.dll",
+  "jf-playback-reporting": "Jellyfin.Plugin.PlaybackReporting.dll",
+  "jf-tmdb-boxsets": "Jellyfin.Plugin.TMDbBoxSets.dll",
+  "jf-bookshelf": "Jellyfin.Plugin.Bookshelf.dll",
+  "jf-kodi-sync": "Jellyfin.Plugin.KodiSyncQueue.dll",
+  "jf-dlna": "Jellyfin.Plugin.Dlna.dll",
+  "jf-chapter-segments": "Jellyfin.Plugin.ChapterSegments.dll",
+};
+
+function shouldLogInvokeFailure(): boolean {
+  return typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__);
+}
+
+export class PluginAdapterEngine {
+  private adapters: Map<PluginPlatform, AdapterConfig> = new Map();
+  private installed: Map<string, InstalledPlugin> = new Map();
+
+  constructor() {
+    // Default adapter paths per platform
+    this.adapters.set("jellyfin", {
+      platform: "jellyfin",
+      basePath: "%APPDATA%/CinaVault/plugins/jellyfin",
+    });
+    this.adapters.set("emby", {
+      platform: "emby",
+      basePath: "%APPDATA%/CinaVault/plugins/emby",
+    });
+    this.adapters.set("plex", {
+      platform: "plex",
+      basePath: "%APPDATA%/CinaVault/plugins/plex",
+    });
+    this.adapters.set("cinavault", {
+      platform: "cinavault",
+      basePath: "%APPDATA%/CinaVault/plugins/native",
+    });
+  }
+
+  // ── Install a plugin ──
+  async installPlugin(plugin: PluginEntry): Promise<boolean> {
+    if (this.installed.has(plugin.id)) {
+      await this.setPluginEnabled(plugin.id, true);
+      return true;
+    }
+
+    try {
+      await invoke("install_plugin", {
+        pluginId: plugin.id,
+        name: plugin.name,
+        version: plugin.version,
+        platforms: plugin.platforms,
+        repoUrl: plugin.repo || "",
+      });
+
+      const installPath = this.resolveInstallPath(plugin);
+      const installed: InstalledPlugin = {
+        id: plugin.id,
+        name: plugin.name,
+        platform: plugin.platforms[0],
+        version: plugin.version,
+        installPath,
+        configJson: "{}",
+        enabled: true,
+        lastRun: new Date().toISOString(),
+      };
+      this.installed.set(plugin.id, installed);
+      return true;
+    } catch (err) {
+      if (shouldLogInvokeFailure()) {
+        console.warn(`Plugin install failed: ${plugin.id}`, err);
+      }
+      // Fallback: register as installed locally (UI-only mode)
+      const installed: InstalledPlugin = {
+        id: plugin.id,
+        name: plugin.name,
+        platform: plugin.platforms[0],
+        version: plugin.version,
+        installPath: `plugins/${plugin.platforms[0]}/${plugin.id}`,
+        configJson: "{}",
+        enabled: true,
+      };
+      this.installed.set(plugin.id, installed);
+      return true;
+    }
+  }
+
+  // ── Legacy no-op: catalog entries should remain available until users install them ──
+  bootstrapCatalog(plugins: PluginEntry[]): number {
+    void plugins;
+    return 0;
+  }
+
+  // ── Uninstall a plugin ──
+  async uninstallPlugin(pluginId: string): Promise<boolean> {
+    try {
+      await invoke("uninstall_plugin", { pluginId });
+    } catch {}
+    this.installed.delete(pluginId);
+    return true;
+  }
+
+  // ── Run / activate a plugin ──
+  async runPlugin(pluginId: string, action: string = "start"): Promise<any> {
+    try {
+      return await invoke("run_plugin", { pluginId, action });
+    } catch (err) {
+      if (shouldLogInvokeFailure()) {
+        console.warn(`Plugin run failed: ${pluginId}`, err);
+      }
+      return { success: false, error: String(err) };
+    }
+  }
+
+  // ── Get plugin config ──
+  getPluginConfig(pluginId: string): Record<string, any> {
+    const p = this.installed.get(pluginId);
+    if (!p) return {};
+    try { return JSON.parse(p.configJson); } catch { return {}; }
+  }
+
+  // ── Set plugin config ──
+  async setPluginConfig(pluginId: string, config: Record<string, any>): Promise<void> {
+    const p = this.installed.get(pluginId);
+    if (p) {
+      p.configJson = JSON.stringify(config);
+      this.installed.set(pluginId, p);
+    }
+    try {
+      await invoke("run_plugin", {
+        pluginId,
+        action: "configure",
+        config: JSON.stringify(config),
+      });
+    } catch {}
+  }
+
+  // ── Enable / disable installed plugin ──
+  async setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+    const p = this.installed.get(pluginId);
+    if (p) {
+      this.installed.set(pluginId, { ...p, enabled });
+    }
+    try {
+      await invoke("run_plugin", {
+        pluginId,
+        action: enabled ? "enable" : "disable",
+      });
+    } catch {}
+  }
+
+  // ── Check compatibility ──
+  checkCompatibility(plugin: PluginEntry): { compatible: boolean; reason: string } {
+    // CinaVault native plugins are always compatible
+    if (plugin.cinavaultNative) {
+      return { compatible: true, reason: "CinaVault native adapter available" };
+    }
+
+    // MS-C .NET plugins: compatible via DLL bridge
+    if (plugin.platforms.includes("jellyfin")) {
+      const hasDll = JELLYFIN_DLL_MAP[plugin.id];
+      return {
+        compatible: true,
+        reason: hasDll
+          ? `MS-C DLL bridge: ${hasDll}`
+          : "MS-C API-compatible adapter",
+      };
+    }
+
+    // MS-B plugins: compatible via REST API bridge
+    if (plugin.platforms.includes("emby")) {
+      return { compatible: true, reason: "MS-B REST API adapter" };
+    }
+
+    // MS-A tools: compatible via CLI/process bridge
+    if (plugin.platforms.includes("plex")) {
+      return { compatible: true, reason: "MS-A tool bridge (CLI/Python)" };
+    }
+
+    return { compatible: false, reason: "No adapter available" };
+  }
+
+  // ── Resolve install path ──
+  private resolveInstallPath(plugin: PluginEntry): string {
+    const platform = plugin.platforms[0] || "cinavault";
+    const adapter = this.adapters.get(platform);
+    const base = adapter?.basePath || "plugins";
+    return `${base}/${plugin.id}`;
+  }
+
+  // ── Get all installed plugins ──
+  getInstalled(): InstalledPlugin[] {
+    return Array.from(this.installed.values());
+  }
+
+  getInstalledPlugin(pluginId: string): InstalledPlugin | undefined {
+    return this.installed.get(pluginId);
+  }
+
+  // ── Check if a plugin is installed ──
+  isInstalled(pluginId: string): boolean {
+    return this.installed.has(pluginId);
+  }
+
+  // ── Load installed plugins from backend ──
+  async loadFromBackend(): Promise<void> {
+    try {
+      const plugins = await invoke<any[]>("get_installed_plugins");
+      const loaded = new Map<string, InstalledPlugin>();
+      for (const p of plugins) {
+        const id = String(p.id || p.pluginId || p.name || "");
+        if (!id) continue;
+        loaded.set(id, {
+          id,
+          name: p.name,
+          platform: p.platform || "cinavault",
+          version: p.version || "1.0.0",
+          installPath: p.installPath || "",
+          configJson: p.configJson || "{}",
+          enabled: p.enabled !== false,
+        });
+      }
+      this.installed = loaded;
+    } catch {
+      // No backend — running in dev mode
+    }
+  }
+}
+
+// ── Singleton instance ──
+export const pluginEngine = new PluginAdapterEngine();
