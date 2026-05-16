@@ -400,9 +400,16 @@ impl Database {
                      SET title = ?1,
                          media_type = ?2,
                          file_size = ?3,
-                         source_id = ?4
-                     WHERE id = ?5",
-                    params![item.title, item.media_type, item.file_size, item.source_id, id],
+                         source_id = ?4,
+                         poster_path = CASE
+                             WHEN (poster_path IS NULL OR trim(poster_path) = '')
+                                  AND ?5 IS NOT NULL
+                                  AND trim(?5) <> ''
+                             THEN ?5
+                             ELSE poster_path
+                         END
+                     WHERE id = ?6",
+                    params![item.title, item.media_type, item.file_size, item.source_id, item.poster_path, id],
                 )?;
                 Ok(false)
             }
@@ -707,6 +714,35 @@ mod tests {
         assert_eq!(row.1, Some(200));
         assert!(row.2, "watched state should be preserved");
         assert!(row.3, "favorite state should be preserved");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn scan_upsert_fills_missing_poster_for_existing_items() {
+        let db_path = test_db_path("scan-upsert-poster");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let mut original = sample_item("Movie", r"C:\media\movie.mkv");
+        db.add_media_item_data(&original).expect("initial insert should succeed");
+
+        original.poster_path = Some(r"C:\media\movie-poster.jpg".to_string());
+        let inserted = db
+            .upsert_scanned_media_item_data(&original)
+            .expect("scan upsert should succeed");
+
+        assert!(!inserted, "existing rows should be refreshed, not inserted");
+
+        let poster_path: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![&original.file_path],
+                |row| row.get(0),
+            )
+            .expect("item should still exist");
+        assert_eq!(poster_path, Some(r"C:\media\movie-poster.jpg".to_string()));
 
         drop(db);
         let _ = fs::remove_file(db_path);

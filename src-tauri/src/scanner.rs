@@ -6,6 +6,7 @@ use tauri::State;
 use walkdir::WalkDir;
 use crate::AppState;
 use crate::db::{MediaItem, MediaSource};
+use rusqlite::OptionalExtension;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -136,6 +137,12 @@ fn extract_embedded_poster(file_path: &str) -> Option<String> {
     }
 }
 
+fn should_extract_poster_for_scan(existing_poster_path: Option<&str>) -> bool {
+    existing_poster_path
+        .map(|path| path.trim().is_empty())
+        .unwrap_or(true)
+}
+
 #[tauri::command]
 pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     if SCANNING.load(Ordering::Relaxed) {
@@ -240,21 +247,22 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
 
-        let is_new_item = !db
+        let existing_poster_path = db
             .conn
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
                 rusqlite::params![file_path],
-                |row| row.get::<_, bool>(0),
+                |row| row.get::<_, Option<String>>(0),
             )
-            .unwrap_or(false);
-
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
         let title = if prefer_embedded_titles {
             extract_embedded_title(file_path).unwrap_or_else(|| title_from_filename(Path::new(file_path)))
         } else {
             title_from_filename(Path::new(file_path))
         };
-        let poster_path = if is_new_item {
+        let poster_path = if should_extract_poster_for_scan(existing_poster_path.as_deref()) {
             extract_embedded_poster(file_path)
         } else {
             None
@@ -306,7 +314,7 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
 
 #[cfg(test)]
 mod tests {
-    use super::{poster_cache_path_for_file, should_index_path};
+    use super::{poster_cache_path_for_file, should_extract_poster_for_scan, should_index_path};
     use std::path::Path;
 
     #[test]
@@ -326,6 +334,15 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.extension().and_then(|ext| ext.to_str()), Some("jpg"));
+    }
+
+    #[test]
+    fn poster_extraction_runs_for_new_or_blank_poster_items_only() {
+        assert!(should_extract_poster_for_scan(None));
+        assert!(should_extract_poster_for_scan(Some("")));
+        assert!(should_extract_poster_for_scan(Some("   ")));
+        assert!(!should_extract_poster_for_scan(Some(r"E:\Videos\Movie.jpg")));
+        assert!(!should_extract_poster_for_scan(Some("https://example.com/poster.jpg")));
     }
 }
 

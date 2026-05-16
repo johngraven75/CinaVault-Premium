@@ -16,6 +16,7 @@ mod vpn;
 mod downloads;
 mod ai;
 mod enrichment;
+mod task_progress;
 
 use db::Database;
 use std::sync::Mutex;
@@ -148,6 +149,7 @@ fn main() {
             ai::set_ai_model,
             // Library Enrichment
             enrichment::run_library_enrichment,
+            task_progress::get_metadata_task_progress,
             // Cloud Storage
             cloud_auth_start,
             cloud_disconnect,

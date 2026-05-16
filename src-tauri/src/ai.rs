@@ -1,7 +1,7 @@
 // CinaVault Premium — AI Diagnostics Module (HuggingFace Inference)
 use tauri::State;
 use rusqlite::params;
-use crate::AppState;
+use crate::{task_progress, AppState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -14,6 +14,38 @@ const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiQueryRoute {
+    NetworkDiagnostics,
+    AdultMetadataGather,
+    SourceCheck,
+    ProviderCheck,
+    Inference,
+}
+
+fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
+    let lower = prompt.to_lowercase();
+
+    if lower.contains("network") || lower.contains("ping") || lower.contains("dns") || lower.contains("connection") {
+        return AiQueryRoute::NetworkDiagnostics;
+    }
+    if lower.contains("adult metadata")
+        || lower.contains("gather metadata")
+        || lower.contains("chapter images")
+        || lower.contains("adult providers")
+    {
+        return AiQueryRoute::AdultMetadataGather;
+    }
+    if lower.contains("source") || lower.contains("folder") || lower.contains("media") || lower.contains("library") {
+        return AiQueryRoute::SourceCheck;
+    }
+    if lower.contains("provider") || lower.contains("api") || lower.contains("metadata") {
+        return AiQueryRoute::ProviderCheck;
+    }
+
+    AiQueryRoute::Inference
+}
 
 pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bool {
     let path_lower = file_path.replace('/', "\\").to_lowercase();
@@ -135,28 +167,13 @@ pub async fn ai_query(
     state: State<'_, AppState>,
     prompt: String,
 ) -> Result<serde_json::Value, String> {
-    // Route query to appropriate handler
-    let lower = prompt.to_lowercase();
-
-    if lower.contains("network") || lower.contains("ping") || lower.contains("dns") || lower.contains("connection") {
-        return run_network_diagnostics().await;
+    match classify_ai_query_prompt(&prompt) {
+        AiQueryRoute::NetworkDiagnostics => run_network_diagnostics().await,
+        AiQueryRoute::AdultMetadataGather => gather_adult_metadata_assets(state).await,
+        AiQueryRoute::SourceCheck => check_sources(state).await,
+        AiQueryRoute::ProviderCheck => check_providers(state).await,
+        AiQueryRoute::Inference => ai_inference(state, prompt, None, None).await,
     }
-    if lower.contains("source") || lower.contains("folder") || lower.contains("media") || lower.contains("library") {
-        return check_sources(state).await;
-    }
-    if lower.contains("adult metadata")
-        || lower.contains("gather metadata")
-        || lower.contains("chapter images")
-        || lower.contains("adult providers")
-    {
-        return gather_adult_metadata_assets(state).await;
-    }
-    if lower.contains("provider") || lower.contains("api") || lower.contains("metadata") {
-        return check_providers(state).await;
-    }
-
-    // Default: run AI inference
-    ai_inference(state, prompt, None, None).await
 }
 
 #[tauri::command]
@@ -745,8 +762,18 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     let mut skipped_non_video_items = 0usize;
     let mut errors: Vec<String> = Vec::new();
     let client = reqwest::Client::new();
+    let mut progress = task_progress::MetadataTaskGuard::start(
+        "adult_metadata_gather",
+        "Adult Metadata Gather",
+        media_items.len(),
+        "Preparing adult metadata gather",
+    );
 
-    for (id, title, file_path, poster_path, overview, year, rating, genre, tmdb_id, imdb_id, media_type, source_name, source_path) in media_items.iter() {
+    for (index, (id, title, file_path, poster_path, overview, year, rating, genre, tmdb_id, imdb_id, media_type, source_name, source_path)) in media_items.iter().enumerate() {
+        progress.update(
+            index + 1,
+            format!("Gathering metadata and poster artwork for {} of {}", index + 1, media_items.len()),
+        );
         let media_path = std::path::Path::new(file_path);
         if !media_path.exists() {
             skipped_missing_files += 1;
@@ -974,6 +1001,10 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         }
     }
 
+    progress.finish(format!(
+        "Adult metadata gather complete: {posters_updated} posters updated, {sidecars_written} sidecars written"
+    ));
+
     Ok(serde_json::json!({
         "type": "adult_metadata_gather",
         "status": "success",
@@ -1000,11 +1031,13 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::{
+        classify_ai_query_prompt,
         is_adult_gather_candidate,
         is_adult_library_item,
         metadata_sidecar_path,
         normalize_adult_provider_key,
         normalize_provider_key,
+        AiQueryRoute,
         should_prefer_remote_poster,
     };
 
@@ -1012,6 +1045,14 @@ mod tests {
     fn accepts_real_video_candidates_for_adult_gather() {
         assert!(is_adult_gather_candidate("adult", r"E:\Videos\scene.mp4"));
         assert!(is_adult_gather_candidate("movie", r"E:\Videos\scene.mkv"));
+    }
+
+    #[test]
+    fn adult_metadata_prompt_routes_to_adult_gather_before_generic_media_checks() {
+        assert_eq!(
+            classify_ai_query_prompt("Run adult metadata gather for installed providers and generate posters and chapter images"),
+            AiQueryRoute::AdultMetadataGather
+        );
     }
 
     #[test]
