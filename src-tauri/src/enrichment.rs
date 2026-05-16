@@ -1,4 +1,4 @@
-use crate::AppState;
+use crate::{task_progress, AppState};
 use regex::Regex;
 use rusqlite::params;
 use serde::Serialize;
@@ -162,8 +162,19 @@ pub fn run_library_enrichment(
         low_confidence_skipped: 0,
         samples: Vec::new(),
     };
+    let mut progress = task_progress::MetadataTaskGuard::start(
+        "library_enrichment",
+        if rename_files { "Normalize Filenames" } else { "Enrich Metadata" },
+        items.len(),
+        "Preparing library metadata enrichment",
+    );
 
-    for item in items {
+    let total_items = items.len();
+    for (index, item) in items.into_iter().enumerate() {
+        progress.update(
+            index + 1,
+            format!("Enriching metadata for {} of {}", index + 1, total_items),
+        );
         let normalized = normalize_filename_title(&item.file_path);
         if normalized.is_empty() {
             report.low_confidence_skipped += 1;
@@ -233,6 +244,12 @@ pub fn run_library_enrichment(
             RenameTarget::Invalid(_) | RenameTarget::Unchanged(_) => {}
         }
     }
+
+    progress.finish(format!(
+        "Metadata enrichment complete: {} metadata updates, {} files renamed",
+        report.metadata_updated,
+        report.files_renamed
+    ));
 
     Ok(report)
 }

@@ -1,9 +1,14 @@
 // CinaVault Premium — AI Diagnostics Tab
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import AIVisualizer from "../effects/AIVisualizer";
+import {
+  formatMetadataTaskProgress,
+  metadataTaskPopupVisible,
+  MetadataTaskProgress,
+} from "../../utils/metadataTaskProgress";
 import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag } from "lucide-react";
 
 export default function AIDiagnosticsTab() {
@@ -14,9 +19,69 @@ export default function AIDiagnosticsTab() {
   const [model, setModel] = useState("katanemo/Arch-Router-1.5B:hf-inference");
   const [showConfig, setShowConfig] = useState(false);
   const [history, setHistory] = useState<{ query: string; result: any; time: string }[]>([]);
+  const [metadataProgress, setMetadataProgress] = useState<MetadataTaskProgress | null>(null);
+
+  useEffect(() => {
+    if (!aiProcessing) return;
+
+    let cancelled = false;
+    const pollProgress = async () => {
+      try {
+        const progress = await invoke<MetadataTaskProgress>("get_metadata_task_progress");
+        if (!cancelled && metadataTaskPopupVisible(progress)) {
+          setMetadataProgress(progress);
+        }
+      } catch {}
+    };
+
+    pollProgress();
+    const timer = window.setInterval(pollProgress, 500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [aiProcessing]);
+
+  const formattedProgress = useMemo(
+    () => formatMetadataTaskProgress(metadataProgress, "Metadata Task"),
+    [metadataProgress],
+  );
+  const showMetadataProgress = metadataTaskPopupVisible(metadataProgress);
+
+  const showStartingProgress = (label: string, task = "metadata_task") => {
+    setMetadataProgress({
+      active: true,
+      task,
+      label,
+      current: 0,
+      total: 1,
+      percent: 0,
+      message: `Starting ${label}...`,
+    });
+  };
+
+  const showFinishedProgress = (label: string, message = `${label} complete`) => {
+    setMetadataProgress(prev => ({
+      ...prev,
+      active: false,
+      task: prev?.task || "metadata_task",
+      label: prev?.label || label,
+      current: prev?.total || 1,
+      total: prev?.total || 1,
+      percent: 100,
+      message,
+    }));
+    window.setTimeout(() => {
+      setMetadataProgress(current => current?.active ? current : null);
+    }, 3500);
+  };
 
   const runQuery = async () => {
     if (!prompt.trim()) return;
+    const tracksAdultGather = /adult metadata|gather metadata|chapter images|adult providers/i.test(prompt);
+    if (tracksAdultGather) {
+      showStartingProgress("Adult Metadata Gather", "adult_metadata_gather");
+    }
     setAiProcessing(true);
     addStatusMessage(`AI processing: ${prompt.substring(0, 50)}...`);
     try {
@@ -24,11 +89,17 @@ export default function AIDiagnosticsTab() {
       setAiResult(result);
       setHistory(prev => [{ query: prompt, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       addStatusMessage("AI query complete");
+      if (tracksAdultGather) {
+        showFinishedProgress("Adult Metadata Gather", "Adult metadata gather complete");
+      }
     } catch (e) {
       const errResult = { status: "error", message: String(e) };
       setAiResult(errResult);
       setHistory(prev => [{ query: prompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       addStatusMessage(`AI error: ${e}`);
+      if (tracksAdultGather) {
+        showFinishedProgress("Adult Metadata Gather", `Adult metadata gather failed: ${e}`);
+      }
     }
     setAiProcessing(false);
     setPrompt("");
@@ -64,11 +135,14 @@ export default function AIDiagnosticsTab() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const runQuickAction = async (action: { label: string; q: string; runNow?: () => Promise<any> }) => {
+  const runQuickAction = async (action: { label: string; q: string; progressTask?: string; runNow?: () => Promise<any> }) => {
     if (aiProcessing) return;
     setPrompt(action.q);
     if (!action.runNow) return;
 
+    if (action.progressTask) {
+      showStartingProgress(action.label, action.progressTask);
+    }
     setAiProcessing(true);
     addStatusMessage(`Running: ${action.label}...`);
     try {
@@ -80,14 +154,20 @@ export default function AIDiagnosticsTab() {
       } else {
         addStatusMessage(`${action.label} complete`);
       }
+      if (action.progressTask) {
+        showFinishedProgress(action.label);
+      }
     } catch (e) {
       addStatusMessage(`${action.label} failed: ${e}`);
+      if (action.progressTask) {
+        showFinishedProgress(action.label, `${action.label} failed: ${e}`);
+      }
     } finally {
       setAiProcessing(false);
     }
   };
 
-  const quickActions: { label: string; icon: any; q: string; runNow?: () => Promise<any> }[] = [
+  const quickActions: { label: string; icon: any; q: string; progressTask?: string; runNow?: () => Promise<any> }[] = [
     { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
     { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
     { label: "Check Providers", icon: Database, q: "Check metadata providers" },
@@ -95,24 +175,57 @@ export default function AIDiagnosticsTab() {
       label: "Enrich Metadata",
       icon: Database,
       q: "Enrich Library Metadata",
+      progressTask: "library_enrichment",
       runNow: () => invoke("run_library_enrichment", { renameFiles: false }),
     },
     {
       label: "Normalize Filenames",
       icon: Tag,
       q: "Enrich + Normalize Filenames",
+      progressTask: "library_enrichment",
       runNow: () => invoke("run_library_enrichment", { renameFiles: true }),
     },
     {
       label: "Adult Metadata Gather",
       icon: Sparkles,
       q: "Run adult metadata gather for installed providers and generate posters and chapter images",
+      progressTask: "adult_metadata_gather",
       runNow: () => invoke("ai_query", { prompt: "Run adult metadata gather for installed providers and generate posters and chapter images" }),
     },
   ];
 
   return (
     <div className="space-y-5">
+      {showMetadataProgress && (
+        <motion.div
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 16, scale: 0.98 }}
+          className="fixed right-5 bottom-5 z-[90] w-[min(360px,calc(100vw-2rem))] glass-panel p-4 border border-cv-accent/25 shadow-2xl"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-cv-text truncate">{formattedProgress.label}</div>
+              <div className="text-[11px] text-cv-subtext mt-1 truncate">{formattedProgress.message}</div>
+            </div>
+            <div className="text-xl font-bold text-cv-accent tabular-nums">{formattedProgress.percent}%</div>
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+            <motion.div
+              className="h-full rounded-full"
+              style={{ background: "linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))" }}
+              animate={{ width: `${formattedProgress.percent}%` }}
+              transition={{ duration: 0.25 }}
+            />
+          </div>
+          {formattedProgress.total > 0 && (
+            <div className="mt-2 text-[10px] text-cv-subtext tabular-nums">
+              {formattedProgress.current} / {formattedProgress.total} items
+            </div>
+          )}
+        </motion.div>
+      )}
+
       {/* AI Visualizer */}
       <div className="glass-panel p-5 relative overflow-hidden" style={{ minHeight: 280 }}>
         <div className="absolute inset-0 z-0">
