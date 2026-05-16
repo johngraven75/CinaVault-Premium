@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import { Tv, Plus, Trash2, RefreshCw, Play, Radio, Wifi, Globe, List, Search, Calendar } from "lucide-react";
+import { buildAddXtreamProfileArgs } from "../../utils/xtreamProfile";
 
 export default function LiveTVTab() {
   const { addStatusMessage } = useAppStore();
@@ -24,10 +25,10 @@ export default function LiveTVTab() {
   };
 
   const addProfile = async () => {
-    if (!newProfile.name || !newProfile.server_url) return;
     try {
-      await invoke("add_xtream_profile", newProfile);
-      addStatusMessage(`IPTV profile added: ${newProfile.name}`);
+      const profileArgs = buildAddXtreamProfileArgs(newProfile);
+      await invoke("add_xtream_profile", profileArgs);
+      addStatusMessage(`IPTV profile added: ${profileArgs.name}`);
       setNewProfile({ name: "", server_url: "", username: "", password: "" });
       setShowAddProfile(false);
       loadProfiles();

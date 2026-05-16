@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use crate::AppState;
 use rusqlite::params;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct XtreamProfile {
@@ -75,8 +76,7 @@ pub async fn sync_xtream_streams(state: State<'_, AppState>, profile_id: i64) ->
     };
 
     let (server_url, username, password) = profile;
-    let url = format!("{}/player_api.php?username={}&password={}&action=get_live_streams",
-        server_url.trim_end_matches('/'), username, password);
+    let url = build_player_api_url(&server_url, &username, &password);
 
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -89,7 +89,7 @@ pub async fn sync_xtream_streams(state: State<'_, AppState>, profile_id: i64) ->
     for ch in &channels {
         let name = ch.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
         let stream_id = ch.get("stream_id").and_then(|v| v.as_u64()).unwrap_or(0);
-        let stream_url = format!("{}/live/{}/{}/{}.ts", server_url.trim_end_matches('/'), username, password, stream_id);
+        let stream_url = build_live_stream_url(&server_url, &username, &password, stream_id);
         let logo = ch.get("stream_icon").and_then(|v| v.as_str()).map(String::from);
         let group = ch.get("category_name").and_then(|v| v.as_str()).map(String::from);
         let epg = ch.get("epg_channel_id").and_then(|v| v.as_str()).map(String::from);
@@ -119,7 +119,7 @@ pub async fn sync_epg(state: State<'_, AppState>, profile_id: i64) -> Result<ser
     };
 
     let (server_url, username, password) = profile;
-    let url = format!("{}/xmltv.php?username={}&password={}", server_url.trim_end_matches('/'), username, password);
+    let url = build_epg_url(&server_url, &username, &password);
 
     let client = reqwest::Client::new();
     let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -161,4 +161,61 @@ fn row_to_live_channel(row: &rusqlite::Row) -> rusqlite::Result<LiveChannel> {
         group_name: row.get(5)?,
         epg_id: row.get(6)?,
     })
+}
+
+fn build_player_api_url(server_url: &str, username: &str, password: &str) -> String {
+    format!(
+        "{}/player_api.php?username={}&password={}&action=get_live_streams",
+        normalize_server_base(server_url),
+        encode_url_component(username),
+        encode_url_component(password),
+    )
+}
+
+fn build_epg_url(server_url: &str, username: &str, password: &str) -> String {
+    format!(
+        "{}/xmltv.php?username={}&password={}",
+        normalize_server_base(server_url),
+        encode_url_component(username),
+        encode_url_component(password),
+    )
+}
+
+fn build_live_stream_url(server_url: &str, username: &str, password: &str, stream_id: u64) -> String {
+    format!(
+        "{}/live/{}/{}/{}.ts",
+        normalize_server_base(server_url),
+        encode_url_component(username),
+        encode_url_component(password),
+        stream_id,
+    )
+}
+
+fn normalize_server_base(server_url: &str) -> String {
+    server_url.trim().trim_end_matches('/').to_string()
+}
+
+fn encode_url_component(value: &str) -> String {
+    utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_live_stream_url, build_player_api_url};
+
+    #[test]
+    fn xtream_api_url_encodes_credentials_and_trims_server_slashes() {
+        assert_eq!(
+            build_player_api_url("http://provider.example.com:8080/", "viewer@example.com", "p&a s"),
+            "http://provider.example.com:8080/player_api.php?username=viewer%40example%2Ecom&password=p%26a%20s&action=get_live_streams",
+        );
+    }
+
+    #[test]
+    fn xtream_live_url_encodes_path_credentials() {
+        assert_eq!(
+            build_live_stream_url("http://provider.example.com:8080/", "view er", "p/a", 42),
+            "http://provider.example.com:8080/live/view%20er/p%2Fa/42.ts",
+        );
+    }
 }
