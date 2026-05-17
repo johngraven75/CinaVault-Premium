@@ -327,8 +327,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0",
-        "build_tag": "Build 113 (Premium Edition)",
+        "version": "1.0.0-rc.2+1",
+        "build_tag": "RC2 Build 1 (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
