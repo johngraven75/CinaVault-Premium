@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::State;
 use crate::AppState;
-use crate::library_artifacts::{
-    is_generated_chapter_image_path, is_sidecar_artwork_image, sidecar_poster_path_for_video,
-};
+use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
+#[cfg(test)]
+use crate::library_artifacts::sidecar_poster_path_for_video;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaItem {
@@ -264,8 +264,6 @@ impl Database {
     }
 
     fn cleanup_non_library_photo_artifacts(&self) -> SqlResult<()> {
-        self.sync_sidecar_artwork_for_video_rows()?;
-
         let rows = {
             let mut stmt = self
                 .conn
@@ -287,6 +285,7 @@ impl Database {
         Ok(())
     }
 
+    #[cfg(test)]
     fn sync_sidecar_artwork_for_video_rows(&self) -> SqlResult<()> {
         let rows = {
             let mut stmt = self.conn.prepare(
@@ -934,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_removes_sidecar_artwork_photo_rows_and_backfills_video_posters() {
+    fn cleanup_removes_sidecar_artwork_photo_rows_without_backfilling_video_posters() {
         let db_path = test_db_path("sidecar-artwork-cleanup");
         let media_dir =
             std::env::temp_dir().join(format!("cinavault-sidecar-db-{}", uuid::Uuid::new_v4()));
@@ -980,7 +979,7 @@ mod tests {
                 |row| row.get::<_, Option<String>>(0),
             )
             .expect("video row should load");
-        assert_eq!(attached_poster.as_deref(), Some(poster.file_path.as_str()));
+        assert_eq!(attached_poster, None);
 
         let real_photo_exists = db
             .conn
@@ -991,6 +990,74 @@ mod tests {
             )
             .expect("real photo lookup should load");
         assert!(real_photo_exists);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn manual_sidecar_artwork_backfill_populates_video_posters() {
+        let db_path = test_db_path("manual-sidecar-backfill");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-manual-backfill-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        let db = Database::new(&db_path).expect("db should open");
+        let video = sample_item("Movie", &video_path.to_string_lossy());
+        db.add_media_item_data(&video)
+            .expect("video row should insert");
+
+        db.sync_sidecar_artwork_for_video_rows()
+            .expect("manual backfill should succeed");
+
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video.file_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster.as_deref(), Some(poster_path.to_string_lossy().as_ref()));
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn database_startup_does_not_backfill_video_posters_from_filesystem() {
+        let db_path = test_db_path("startup-does-not-backfill-posters");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-startup-db-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        {
+            let db = Database::new(&db_path).expect("db should open");
+            let video = sample_item("Movie", &video_path.to_string_lossy());
+            db.add_media_item_data(&video)
+                .expect("video row should insert");
+        }
+
+        let db = Database::new(&db_path).expect("db should reopen quickly");
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video_path.to_string_lossy().as_ref()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster, None);
 
         drop(db);
         let _ = fs::remove_file(db_path);
