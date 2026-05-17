@@ -18,6 +18,9 @@ Sequential build number: `117`
 - The UI now sends the Tauri command argument as `serverUrl` instead of `server_url`.
 - Provider URLs pasted as full Xtream endpoints are normalized to the server base URL.
 - Xtream usernames and passwords are percent-encoded for API, EPG, and live stream URLs.
+- Doubled the global scrollbar width and enlarged the draggable thumb with a high-contrast accent style tied to the active theme colors.
+- Added an A-Z and `#` Library title selector so users can show only media whose title starts with the selected letter.
+- Added explicit mouse wheel and trackpad scrolling on the main app page while preserving nested scroll regions.
 
 ## Verification
 
@@ -27,6 +30,8 @@ Sequential build number: `117`
 - `npm run tauri -- build`
 - In-app browser UI check verified the Live TV add-profile validation behavior.
 - Playwright/Chrome payload check verified successful profile save sends `serverUrl` and does not send `server_url`.
+- In-app browser UI check verified the Library A-Z selector renders in RC2 Build 1.
+- Playwright/Chrome UI check verified mouse wheel scrolling moves the Library page and selecting `B` shows only `Blade Runner` and `Breaking Bad`.
 
 ## Artifacts
 
@@ -35,5 +40,5 @@ Sequential build number: `117`
 
 ## SHA256
 
-- EXE: `1B0CE30B8BB650AF7B80C3236259E22118A056BE8EC89C275AE3F81BFF69BF6C`
-- MSI: `5B00D0AB1C17C62AA727E3F76F9F2255FBD78B10AA8172D8636F2F4758CCC21F`
+- EXE: `45EE6B9DB950E9FCE3479758A558F5A1B38E8DA39290D18AB9B2464919F8EB28`
+- MSI: `FBBC101BE7EE4C74B9AA5D0D74793FBA5EA282099333ED7E247D2CAB3899B199`

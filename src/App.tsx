@@ -20,6 +20,7 @@ import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import { pluginEngine } from "./data/pluginAdapter";
+import { getWheelDeltaPixels, getWheelScrolledTop } from "./utils/pageWheelScroll";
 
 const TAB_COMPONENTS: Record<TabId, React.FC> = {
   home: HomeTab,
@@ -35,6 +36,28 @@ const TAB_COMPONENTS: Record<TabId, React.FC> = {
   ai: AIDiagnosticsTab,
   settings: SettingsTab,
 };
+
+function findScrollableAncestor(target: Element, root: HTMLElement): HTMLElement {
+  let node: HTMLElement | null = target instanceof HTMLElement ? target : target.parentElement;
+  while (node && node !== root) {
+    const style = window.getComputedStyle(node);
+    if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return root;
+}
+
+function canScrollInDirection(element: HTMLElement, deltaPixels: number): boolean {
+  if (deltaPixels > 0) {
+    return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+  }
+  if (deltaPixels < 0) {
+    return element.scrollTop > 0;
+  }
+  return false;
+}
 
 // ── Save all settings to Tauri backend ──
 async function saveAllSettingsToBackend(state: Record<string, string>) {
@@ -57,6 +80,7 @@ export default function App() {
   } = useAppStore();
 
   const isSaving = useRef(false);
+  const mainScrollRef = useRef<HTMLElement | null>(null);
 
   // ── Persist: Save all settings on demand ──
   const saveState = useCallback(async () => {
@@ -156,6 +180,32 @@ export default function App() {
 
   const ActiveComponent = TAB_COMPONENTS[activeTab] || HomeTab;
 
+  const handlePageWheel = useCallback((event: WheelEvent) => {
+    const main = mainScrollRef.current;
+    if (!main) return;
+    const deltaPixels = getWheelDeltaPixels(event.deltaY, event.deltaMode, main.clientHeight);
+    if (deltaPixels === 0) return;
+
+    const target = event.target instanceof Element ? event.target : main;
+    const scrollTarget = findScrollableAncestor(target, main);
+    if (scrollTarget !== main && canScrollInDirection(scrollTarget, deltaPixels)) {
+      return;
+    }
+
+    const nextTop = getWheelScrolledTop(main.scrollTop, deltaPixels, main.scrollHeight, main.clientHeight);
+    if (nextTop !== main.scrollTop) {
+      event.preventDefault();
+      main.scrollTop = nextTop;
+    }
+  }, []);
+
+  useEffect(() => {
+    const main = mainScrollRef.current;
+    if (!main) return;
+    main.addEventListener("wheel", handlePageWheel, { passive: false });
+    return () => main.removeEventListener("wheel", handlePageWheel);
+  }, [handlePageWheel]);
+
   return (
     <div className="app-shell flex h-screen w-screen overflow-hidden" style={{ background: "var(--cv-bg)" }}>
       <div className="app-shell-orb app-shell-orb-a" />
@@ -171,7 +221,7 @@ export default function App() {
         <Header />
 
         {/* Tab Content */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <main ref={mainScrollRef} className="app-main-scroll flex-1 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
