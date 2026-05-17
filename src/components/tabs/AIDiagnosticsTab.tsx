@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
-import { LibraryEnrichmentResult, useAppStore } from "../../store/appStore";
+import { LibraryEnrichmentResult, MediaItem, useAppStore } from "../../store/appStore";
 import AIVisualizer from "../effects/AIVisualizer";
 import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -46,7 +46,7 @@ function formatResultSummary(result: any) {
 }
 
 export default function AIDiagnosticsTab() {
-  const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage } = useAppStore();
+  const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage, setMediaItems } = useAppStore();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [hfToken, setHfToken] = useState("");
@@ -116,8 +116,14 @@ export default function AIDiagnosticsTab() {
       setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       if (isLibraryEnrichmentResult(result)) {
         addStatusMessage(`${action.label}: ${result.metadata_items_enriched || 0} items enriched, ${result.files_renamed || 0} files renamed`);
+        const items = await invoke<MediaItem[]>("get_media_items");
+        setMediaItems(items);
       } else {
         addStatusMessage(`${action.label} complete`);
+        if (action.label === "Apply Embedded Titles") {
+          const items = await invoke<MediaItem[]>("get_media_items");
+          setMediaItems(items);
+        }
       }
     } catch (e) {
       addStatusMessage(`${action.label} failed: ${e}`);
@@ -135,6 +141,12 @@ export default function AIDiagnosticsTab() {
       icon: Sparkles,
       q: "Enrich Library Metadata",
       runNow: () => invoke("run_library_enrichment", { renameFiles: false }),
+    },
+    {
+      label: "Apply Embedded Titles",
+      icon: Tag,
+      q: "Apply embedded titles to existing library",
+      runNow: () => invoke("apply_embedded_titles"),
     },
     {
       label: "Enrich + Normalize Filenames",

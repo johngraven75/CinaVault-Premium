@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
 import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
 import ParticleField from "../effects/ParticleField";
+import MeteorShower from "../effects/MeteorShower";
 import {
   Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Heart, RefreshCw, Sparkles,
   Disc3, RectangleHorizontal, PanelTop, RotateCw
@@ -107,7 +108,7 @@ export default function HomeTab() {
           animate={{ opacity: 1, y: 0 }}
           className="glass-panel p-0 relative overflow-hidden"
         >
-          <ParticleField particleCount={34} />
+          <MeteorShower meteorCount={50} />
           <div
             className="absolute inset-0 opacity-35"
             style={{

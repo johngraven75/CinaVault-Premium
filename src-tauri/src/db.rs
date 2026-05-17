@@ -1,10 +1,14 @@
-// CinaVault Premium — SQLite Database Layer (rusqlite) — Build 113
+// CinaVault Premium — SQLite Database Layer (rusqlite) — Build 115
 // Premium defaults: all features ON, full persistence support
 
 use rusqlite::{Connection, params, Result as SqlResult};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tauri::State;
 use crate::AppState;
+use crate::library_artifacts::{
+    is_generated_chapter_image_path, is_sidecar_artwork_image, sidecar_poster_path_for_video,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaItem {
@@ -254,13 +258,59 @@ impl Database {
             )?;
         }
 
-        // Generated chapter thumbnails belong to media cards, not the main library index.
-        self.conn.execute(
-            "DELETE FROM media_items
-             WHERE media_type = 'photo'
-               AND (lower(replace(file_path, '/', '\\')) LIKE '%_chapters\\chapter_%')",
-            [],
-        )?;
+        self.cleanup_non_library_photo_artifacts()?;
+
+        Ok(())
+    }
+
+    fn cleanup_non_library_photo_artifacts(&self) -> SqlResult<()> {
+        self.sync_sidecar_artwork_for_video_rows()?;
+
+        let rows = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, file_path FROM media_items WHERE media_type = 'photo'")?;
+            let iter = stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            iter.collect::<Result<Vec<_>, _>>()?
+        };
+
+        for (id, file_path) in rows {
+            let path = Path::new(&file_path);
+            if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
+                self.conn
+                    .execute("DELETE FROM media_items WHERE id = ?1", params![id])?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn sync_sidecar_artwork_for_video_rows(&self) -> SqlResult<()> {
+        let rows = {
+            let mut stmt = self.conn.prepare(
+                "SELECT file_path
+                 FROM media_items
+                 WHERE media_type IN ('adult', 'movie', 'episode', 'video')
+                   AND (poster_path IS NULL OR trim(poster_path) = '')",
+            )?;
+            let iter = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            iter.collect::<Result<Vec<_>, _>>()?
+        };
+
+        for file_path in rows {
+            let Some(poster_path) = sidecar_poster_path_for_video(Path::new(&file_path)) else {
+                continue;
+            };
+            self.conn.execute(
+                "UPDATE media_items
+                 SET poster_path = ?1
+                 WHERE file_path = ?2
+                   AND (poster_path IS NULL OR trim(poster_path) = '')",
+                params![poster_path.to_string_lossy().to_string(), file_path],
+            )?;
+        }
 
         Ok(())
     }
@@ -400,9 +450,21 @@ impl Database {
                      SET title = ?1,
                          media_type = ?2,
                          file_size = ?3,
-                         source_id = ?4
-                     WHERE id = ?5",
-                    params![item.title, item.media_type, item.file_size, item.source_id, id],
+                         source_id = ?4,
+                         poster_path = CASE
+                             WHEN ?5 IS NOT NULL AND (poster_path IS NULL OR trim(poster_path) = '')
+                             THEN ?5
+                             ELSE poster_path
+                         END
+                     WHERE id = ?6",
+                    params![
+                        item.title,
+                        item.media_type,
+                        item.file_size,
+                        item.source_id,
+                        item.poster_path,
+                        id
+                    ],
                 )?;
                 Ok(false)
             }
@@ -869,6 +931,70 @@ mod tests {
 
         drop(db);
         let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn cleanup_removes_sidecar_artwork_photo_rows_and_backfills_video_posters() {
+        let db_path = test_db_path("sidecar-artwork-cleanup");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-sidecar-db-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        let db = Database::new(&db_path).expect("db should open");
+
+        let video = sample_item("Movie", &video_path.to_string_lossy());
+        let mut poster = sample_item("poster", &poster_path.to_string_lossy());
+        poster.media_type = "photo".to_string();
+        let mut backdrop = sample_item("scene-poster", r"E:\Videos\Movie\scene-poster.webp");
+        backdrop.media_type = "photo".to_string();
+        let mut real_photo = sample_item("beach-day", r"E:\Photos\Vacation\beach-day.jpg");
+        real_photo.media_type = "photo".to_string();
+
+        db.add_media_item_data(&video)
+            .expect("video row should insert");
+        db.add_media_item_data(&poster)
+            .expect("poster row should insert");
+        db.add_media_item_data(&backdrop)
+            .expect("poster suffix row should insert");
+        db.add_media_item_data(&real_photo)
+            .expect("real photo row should insert");
+
+        db.cleanup_non_library_photo_artifacts()
+            .expect("cleanup should succeed");
+
+        let remaining = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
+            .expect("count should load");
+        assert_eq!(remaining, 2);
+
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video.file_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster.as_deref(), Some(poster.file_path.as_str()));
+
+        let real_photo_exists = db
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
+                params![real_photo.file_path],
+                |row| row.get::<_, bool>(0),
+            )
+            .expect("real photo lookup should load");
+        assert!(real_photo_exists);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
     }
 
     #[test]
