@@ -1,5 +1,6 @@
 // CinaVault Premium — Remote Access Management (Unified layout)
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import {
@@ -12,9 +13,47 @@ import {
   PlugZap,
   SlidersHorizontal,
   Lock,
+  UserPlus,
+  LogIn,
+  KeyRound,
+  Copy,
+  RotateCw,
+  Power,
 } from "lucide-react";
 
 type SecureMode = "required" | "preferred" | "disabled";
+
+type RemoteAccessUser = {
+  id: number;
+  email: string;
+  display_name?: string | null;
+  access_key_preview: string;
+  enabled: boolean;
+  permissions: string[];
+  created_at: string;
+  updated_at: string;
+  last_login?: string | null;
+};
+
+type RemoteProvision = RemoteAccessUser & {
+  access_key: string;
+};
+
+type RemotePrincipal = {
+  id: number;
+  email: string;
+  display_name?: string | null;
+  auth_method: "password" | "access_key";
+  session_token: string;
+  expires_at: string;
+  permissions: string[];
+};
+
+type RemoteKeyRotation = {
+  email: string;
+  access_key: string;
+  access_key_preview: string;
+};
 
 const secureOptions: { value: SecureMode; label: string; desc: string }[] = [
   { value: "required", label: "Required", desc: "Only encrypted remote connections are allowed." },
@@ -38,6 +77,13 @@ export default function RemoteAccessTab() {
   const [testing, setTesting] = useState(false);
   const [publicIp, setPublicIp] = useState<string>("");
   const [lastTestAt, setLastTestAt] = useState<string>("");
+  const [accounts, setAccounts] = useState<RemoteAccessUser[]>([]);
+  const [accountForm, setAccountForm] = useState({ displayName: "", email: "", password: "" });
+  const [passwordLogin, setPasswordLogin] = useState({ email: "", password: "" });
+  const [keyLogin, setKeyLogin] = useState("");
+  const [latestKey, setLatestKey] = useState<RemoteKeyRotation | RemoteProvision | null>(null);
+  const [lastPrincipal, setLastPrincipal] = useState<RemotePrincipal | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const remoteEnabled = settings.remote_access_enabled !== "false";
   const manualPort = settings.remote_manually_specify_port === "true";
@@ -55,6 +101,19 @@ export default function RemoteAccessTab() {
     [remoteEnabled, publicPort, manualPort],
   );
 
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  const loadAccounts = async () => {
+    try {
+      const rows = await invoke<RemoteAccessUser[]>("list_remote_access_users");
+      setAccounts(rows);
+    } catch (error) {
+      addStatusMessage(`Remote accounts unavailable: ${error}`);
+    }
+  };
+
   const runConnectionTest = async () => {
     setTesting(true);
     try {
@@ -67,6 +126,93 @@ export default function RemoteAccessTab() {
       addStatusMessage("Remote access test failed");
     }
     setTesting(false);
+  };
+
+  const createAccount = async () => {
+    setBusy("create");
+    try {
+      const provision = await invoke<RemoteProvision>("create_remote_access_user", {
+        email: accountForm.email,
+        password: accountForm.password,
+        displayName: accountForm.displayName || null,
+      });
+      setLatestKey(provision);
+      setAccountForm({ displayName: "", email: "", password: "" });
+      addStatusMessage(`Remote account ready: ${provision.email}`);
+      await loadAccounts();
+    } catch (error) {
+      addStatusMessage(`Remote account setup failed: ${error}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const loginWithPassword = async () => {
+    setBusy("password");
+    try {
+      const principal = await invoke<RemotePrincipal | null>("authenticate_remote_password", passwordLogin);
+      setLastPrincipal(principal);
+      addStatusMessage(principal ? `Password access accepted for ${principal.email}` : "Password access denied");
+      await loadAccounts();
+    } catch (error) {
+      addStatusMessage(`Password access failed: ${error}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const loginWithKey = async () => {
+    setBusy("key");
+    try {
+      const principal = await invoke<RemotePrincipal | null>("authenticate_remote_access_key", {
+        accessKey: keyLogin,
+      });
+      setLastPrincipal(principal);
+      addStatusMessage(principal ? `Access key accepted for ${principal.email}` : "Access key denied");
+      await loadAccounts();
+    } catch (error) {
+      addStatusMessage(`Access key check failed: ${error}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const rotateKey = async (email: string) => {
+    setBusy(`rotate:${email}`);
+    try {
+      const rotated = await invoke<RemoteKeyRotation | null>("rotate_remote_access_key", { email });
+      if (rotated) {
+        setLatestKey(rotated);
+        addStatusMessage(`Access key rotated for ${email}`);
+      }
+      await loadAccounts();
+    } catch (error) {
+      addStatusMessage(`Key rotation failed: ${error}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleAccount = async (account: RemoteAccessUser) => {
+    setBusy(`toggle:${account.email}`);
+    try {
+      await invoke("set_remote_access_user_enabled", {
+        email: account.email,
+        enabled: !account.enabled,
+      });
+      addStatusMessage(`${account.email} ${account.enabled ? "disabled" : "enabled"}`);
+      await loadAccounts();
+    } catch (error) {
+      addStatusMessage(`Remote account update failed: ${error}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copyLatestKey = async () => {
+    if (!latestKey?.access_key) return;
+    await navigator.clipboard?.writeText(latestKey.access_key);
+    addStatusMessage("Remote access key copied");
   };
 
   return (
@@ -92,6 +238,7 @@ export default function RemoteAccessTab() {
             <div className="text-xs text-cv-subtext">Server URL: {serverUrl}</div>
             <div className="text-xs text-cv-subtext">Public IP: {publicIp || "Not tested yet"}</div>
             <div className="text-xs text-cv-subtext">Last check: {lastTestAt || "Never"}</div>
+            <div className="text-xs text-cv-subtext">Remote users: {accounts.length}</div>
           </div>
 
           <div className="glass-panel-2 p-4 rounded-lg">
@@ -132,6 +279,104 @@ export default function RemoteAccessTab() {
               <input type="checkbox" checked={fallback} onChange={(e) => setSetting("remote_allow_fallback", String(e.target.checked))} />
             </label>
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
+        <div className="glass-panel p-5">
+          <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+            <UserPlus size={16} className="text-cv-accent" /> Remote Account
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="section-label">Display Name</label>
+              <input className="cv-input" value={accountForm.displayName} onChange={(e) => setAccountForm({ ...accountForm, displayName: e.target.value })} />
+            </div>
+            <div>
+              <label className="section-label">Email</label>
+              <input className="cv-input" value={accountForm.email} onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })} />
+            </div>
+            <div>
+              <label className="section-label">Password</label>
+              <input type="password" className="cv-input" value={accountForm.password} onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })} />
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={createAccount} disabled={busy === "create"} className="cv-btn cv-btn-primary text-xs">
+              <UserPlus size={12} /> {busy === "create" ? "Saving..." : "Save Account"}
+            </button>
+            {latestKey?.access_key && (
+              <button onClick={copyLatestKey} className="cv-btn cv-btn-secondary text-xs">
+                <Copy size={12} /> Copy New Access Key
+              </button>
+            )}
+          </div>
+          {latestKey?.access_key && (
+            <div className="mt-4 rounded-lg border border-cv-accent/30 bg-cv-accent/10 p-3">
+              <div className="text-[11px] text-cv-subtext mb-1">New access key for {latestKey.email}</div>
+              <code className="block text-xs text-cv-text break-all">{latestKey.access_key}</code>
+            </div>
+          )}
+        </div>
+
+        <div className="glass-panel p-5">
+          <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+            <LogIn size={16} className="text-cv-accent" /> Access Check
+          </h3>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input className="cv-input" placeholder="email" value={passwordLogin.email} onChange={(e) => setPasswordLogin({ ...passwordLogin, email: e.target.value })} />
+              <input type="password" className="cv-input" placeholder="password" value={passwordLogin.password} onChange={(e) => setPasswordLogin({ ...passwordLogin, password: e.target.value })} />
+            </div>
+            <button onClick={loginWithPassword} disabled={busy === "password"} className="cv-btn cv-btn-secondary text-xs w-full justify-center">
+              <LogIn size={12} /> {busy === "password" ? "Checking..." : "Check Email Password"}
+            </button>
+            <div className="flex gap-2">
+              <input className="cv-input flex-1" placeholder="cvra_..." value={keyLogin} onChange={(e) => setKeyLogin(e.target.value)} />
+              <button onClick={loginWithKey} disabled={busy === "key"} className="cv-btn cv-btn-secondary text-xs">
+                <KeyRound size={12} /> Key
+              </button>
+            </div>
+            <div className="text-xs text-cv-subtext">
+              Last accepted: {lastPrincipal ? `${lastPrincipal.email} via ${lastPrincipal.auth_method}` : "None"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-panel p-5">
+        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+          <ShieldCheck size={16} className="text-cv-accent" /> Authorized Remote Users
+        </h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {accounts.map((account) => (
+            <div key={account.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">{account.display_name || account.email}</div>
+                  <div className="text-xs text-cv-subtext truncate">{account.email}</div>
+                  <div className="text-[11px] text-cv-subtext">Key: ...{account.access_key_preview}</div>
+                  <div className="text-[11px] text-cv-subtext">Last login: {account.last_login || "Never"}</div>
+                </div>
+                <div className={`text-[11px] px-2 py-1 rounded ${account.enabled ? "bg-green-500/15 text-green-300" : "bg-cv-danger/15 text-cv-danger"}`}>
+                  {account.enabled ? "Enabled" : "Disabled"}
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={() => rotateKey(account.email)} disabled={busy === `rotate:${account.email}`} className="cv-btn cv-btn-secondary text-xs">
+                  <RotateCw size={12} /> Rotate Key
+                </button>
+                <button onClick={() => toggleAccount(account)} disabled={busy === `toggle:${account.email}`} className="cv-btn cv-btn-secondary text-xs">
+                  <Power size={12} /> {account.enabled ? "Disable" : "Enable"}
+                </button>
+              </div>
+            </div>
+          ))}
+          {accounts.length === 0 && (
+            <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-xs text-cv-subtext">
+              No remote users saved.
+            </div>
+          )}
         </div>
       </div>
 
