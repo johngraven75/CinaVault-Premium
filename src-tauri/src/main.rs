@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 115)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 116)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -52,7 +52,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 115 initialized successfully");
+            log::info!("CinaVault Premium Build 116 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -326,8 +326,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-2",
-        "build_tag": "Build 115 (Premium Edition)",
+        "version": "1.0.0-3",
+        "build_tag": "Build 116 (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
