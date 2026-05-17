@@ -118,13 +118,38 @@ html, body, #root {
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--cv-accent-3);
-  border-radius: 3px;
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--cv-accent) rgba(1, 8, 18, 0.72);
 }
-::-webkit-scrollbar-thumb:hover { background: var(--cv-accent); }
+
+::-webkit-scrollbar { width: 14px; height: 14px; }
+::-webkit-scrollbar-track {
+  background: rgba(1, 8, 18, 0.72);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+::-webkit-scrollbar-thumb {
+  min-height: 72px;
+  background: linear-gradient(180deg, var(--cv-neon-1), var(--cv-accent) 48%, var(--cv-accent-3));
+  border: 3px solid rgba(1, 8, 18, 0.86);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72),
+    0 0 14px rgba(76, 228, 255, 0.7);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ffffff, var(--cv-accent) 46%, var(--cv-accent-2));
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.72),
+    0 0 18px rgba(255, 255, 255, 0.55);
+}
+::-webkit-scrollbar-corner { background: rgba(1, 8, 18, 0.72); }
+
+.app-main-scroll {
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
 
 /* ====== Glassmorphism Panels ====== */
 .glass-panel {
@@ -177,6 +202,50 @@ html, body, #root {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(120, 170, 220, 0.12);
   border-radius: 8px;
+}
+
+.alphabet-filter {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 6px;
+  border: 1px solid rgba(175, 228, 255, 0.26);
+  border-radius: 8px;
+  background: rgba(1, 8, 18, 0.28);
+  scrollbar-gutter: stable;
+}
+
+.alphabet-filter-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(181, 211, 238, 0.26);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cv-subtext);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.alphabet-filter-button:hover,
+.alphabet-filter-button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--cv-text);
+  outline: none;
+}
+
+.alphabet-filter-button.active {
+  border-color: rgba(255, 255, 255, 0.92);
+  background: var(--cv-accent);
+  color: #03101e;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 16px rgba(76, 228, 255, 0.52);
+}
+
+.alphabet-filter-button:first-child {
+  width: 48px;
 }
 
 /* ====== Premium Input Styles ====== */

@@ -4,6 +4,11 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
 import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
+import {
+  filterItemsByTitleInitial,
+  TITLE_LETTERS,
+  type TitleInitialFilter,
+} from "../../utils/libraryAlphabetFilter";
 import ParticleField from "../effects/ParticleField";
 import {
   Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Heart, RefreshCw, Sparkles,
@@ -36,6 +41,7 @@ export default function HomeTab() {
   const [iconSize, setIconSize] = useState(148);
   const [cardStyle, setCardStyle] = useState<CardStyle>("poster");
   const [detailFlipped, setDetailFlipped] = useState(false);
+  const [titleInitialFilter, setTitleInitialFilter] = useState<TitleInitialFilter>("all");
 
   const loadMedia = useCallback(async () => {
     setLoading(true);
@@ -64,8 +70,9 @@ export default function HomeTab() {
       case "unverified": items = items.filter(m => !m.verified); break;
       case "favorites": items = items.filter(m => m.favorite); break;
     }
+    items = filterItemsByTitleInitial(items, titleInitialFilter);
     setFilteredItems(items);
-  }, [mediaItems, searchQuery, typeFilter, activeShelf]);
+  }, [mediaItems, searchQuery, typeFilter, activeShelf, titleInitialFilter]);
 
   useEffect(() => {
     setDetailFlipped(false);
@@ -285,6 +292,22 @@ export default function HomeTab() {
             </div>
           </div>
         )}
+
+        <div className="mt-3 alphabet-filter" role="tablist" aria-label="Filter library by title initial">
+          {(["all", ...TITLE_LETTERS, "#"] as TitleInitialFilter[]).map(letter => (
+            <button
+              key={letter}
+              type="button"
+              role="tab"
+              aria-selected={titleInitialFilter === letter}
+              onClick={() => setTitleInitialFilter(letter)}
+              className={`alphabet-filter-button ${titleInitialFilter === letter ? "active" : ""}`}
+              title={letter === "all" ? "Show all titles" : `Show ${letter} titles`}
+            >
+              {letter === "all" ? "All" : letter}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Library Content */}
