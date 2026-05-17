@@ -26,10 +26,62 @@ function isGeneratedChapterImagePath(filePath: string): boolean {
   return filePath.includes("\\_chapters\\") || filePath.includes("_chapters\\chapter_");
 }
 
+function fileStem(filePath: string): string {
+  const name = filePath.split("\\").pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+function isSidecarArtworkImagePath(filePath: string): boolean {
+  if (!/\.(jpe?g|png|gif|bmp|webp|tiff|svg)$/.test(filePath)) {
+    return false;
+  }
+
+  const stem = fileStem(filePath);
+  const exact = new Set([
+    "poster",
+    "cover",
+    "folder",
+    "default",
+    "fanart",
+    "backdrop",
+    "landscape",
+    "banner",
+  ]);
+  if (exact.has(stem)) {
+    return true;
+  }
+
+  return [
+    "-poster",
+    "_poster",
+    ".poster",
+    "-cover",
+    "_cover",
+    ".cover",
+    "-folder",
+    "_folder",
+    ".folder",
+    "-fanart",
+    "_fanart",
+    ".fanart",
+    "-backdrop",
+    "_backdrop",
+    ".backdrop",
+    "-landscape",
+    "_landscape",
+    ".landscape",
+    "-banner",
+    "_banner",
+    ".banner",
+  ].some((suffix) => stem.endsWith(suffix));
+}
+
 export function isLibraryDisplayableMediaItem(item: Pick<MediaItem, "file_path" | "media_type">): boolean {
   const filePath = normalizePath(item.file_path);
   if (!filePath) return false;
   if (isGeneratedChapterImagePath(filePath)) return false;
+  if (item.media_type?.toLowerCase() === "photo" && isSidecarArtworkImagePath(filePath)) return false;
   return true;
 }
 

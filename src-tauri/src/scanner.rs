@@ -6,6 +6,9 @@ use tauri::State;
 use walkdir::WalkDir;
 use crate::AppState;
 use crate::db::{MediaItem, MediaSource};
+use crate::library_artifacts::{
+    is_generated_chapter_image_path, is_sidecar_artwork_image, sidecar_poster_path_for_video,
+};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -49,13 +52,8 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
     }
 }
 
-fn is_generated_chapter_image(path: &Path) -> bool {
-    let path_lower = path.to_string_lossy().replace('/', "\\").to_lowercase();
-    path_lower.contains("_chapters\\chapter_")
-}
-
 fn should_index_path(path: &Path) -> bool {
-    !is_generated_chapter_image(path)
+    !is_generated_chapter_image_path(path) && !is_sidecar_artwork_image(path)
 }
 
 fn title_from_filename(path: &Path) -> String {
@@ -240,25 +238,15 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
 
-        let is_new_item = !db
-            .conn
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
-                rusqlite::params![file_path],
-                |row| row.get::<_, bool>(0),
-            )
-            .unwrap_or(false);
-
         let title = if prefer_embedded_titles {
             extract_embedded_title(file_path).unwrap_or_else(|| title_from_filename(Path::new(file_path)))
         } else {
             title_from_filename(Path::new(file_path))
         };
-        let poster_path = if is_new_item {
-            extract_embedded_poster(file_path)
-        } else {
-            None
-        };
+        let poster_path = extract_embedded_poster(file_path).or_else(|| {
+            sidecar_poster_path_for_video(Path::new(file_path))
+                .map(|path| path.to_string_lossy().to_string())
+        });
 
         let item = MediaItem {
             id: None,
@@ -315,8 +303,18 @@ mod tests {
     }
 
     #[test]
+    fn skips_sidecar_artwork_images() {
+        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\poster.jpg")));
+        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\backdrop.jpg")));
+        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\folder.jpg")));
+        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\cover.png")));
+        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\scene-poster.webp")));
+    }
+
+    #[test]
     fn keeps_real_media_files() {
         assert!(should_index_path(Path::new(r"E:\Videos\sample.mp4")));
+        assert!(should_index_path(Path::new(r"E:\Photos\Vacation\beach-day.jpg")));
     }
 
     #[test]

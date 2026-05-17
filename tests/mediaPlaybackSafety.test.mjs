@@ -40,3 +40,27 @@ test("isLibraryDisplayableMediaItem hides generated chapter images from the libr
     true,
   );
 });
+
+test("isLibraryDisplayableMediaItem hides sidecar artwork photo rows from the library", () => {
+  for (const filePath of [
+    "E:\\Videos\\Movie\\poster.jpg",
+    "E:\\Videos\\Movie\\backdrop.jpg",
+    "E:\\Videos\\Movie\\folder.jpg",
+    "E:\\Videos\\Movie\\cover.png",
+    "E:\\Videos\\Movie\\scene-poster.webp",
+  ]) {
+    assert.equal(
+      isLibraryDisplayableMediaItem({ media_type: "photo", file_path: filePath }),
+      false,
+      filePath,
+    );
+  }
+
+  assert.equal(
+    isLibraryDisplayableMediaItem({
+      media_type: "photo",
+      file_path: "E:\\Photos\\Vacation\\beach-day.jpg",
+    }),
+    true,
+  );
+});

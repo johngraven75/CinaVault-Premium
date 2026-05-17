@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::library_artifacts::sidecar_poster_path_for_video;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -410,15 +411,21 @@ pub async fn run_library_enrichment(
         let embedded_title = extract_embedded_title(&item.file_path);
         let source_kind = classify_library_item(&item);
         let queries = build_query_candidates(&item, embedded_title.clone());
-        let provider = resolve_provider_match(
+        let remote_provider = resolve_provider_match(
             &client,
             &provider_keys,
             source_kind.clone(),
             &queries,
             &mut report.provider_errors,
         )
-        .await
-        .or_else(|| local_display_title_match(&item));
+        .await;
+        let local_title_provider = local_embedded_title_match(embedded_title.as_deref())
+            .or_else(|| local_display_title_match(&item));
+        let local_artwork_provider = local_sidecar_artwork_match(&item);
+        let provider = [remote_provider, local_title_provider, local_artwork_provider]
+            .into_iter()
+            .flatten()
+            .reduce(merge_provider_matches);
 
         let Some(provider) = provider else {
             report.low_confidence_metadata_only += 1;
@@ -845,6 +852,24 @@ fn local_display_title_match(item: &LibraryItemRecord) -> Option<ProviderMatch> 
     })
 }
 
+fn local_embedded_title_match(embedded_title: Option<&str>) -> Option<ProviderMatch> {
+    let title = embedded_title.and_then(clean_title_for_display)?;
+
+    Some(ProviderMatch {
+        title: Some(title),
+        ..ProviderMatch::default()
+    })
+}
+
+fn local_sidecar_artwork_match(item: &LibraryItemRecord) -> Option<ProviderMatch> {
+    let poster_path = sidecar_poster_path_for_video(Path::new(&item.file_path))?;
+
+    Some(ProviderMatch {
+        poster_path: Some(poster_path.to_string_lossy().to_string()),
+        ..ProviderMatch::default()
+    })
+}
+
 fn build_metadata_update(
     item: &LibraryItemRecord,
     provider: &ProviderMatch,
@@ -1135,6 +1160,9 @@ fn should_update_title(current_title: &str, normalized_title: &str, file_path: &
     if titles_match(current, normalized_title) {
         return false;
     }
+    if is_low_quality_title(current) {
+        return true;
+    }
     let filename_title = Path::new(file_path)
         .file_stem()
         .map(|stem| stem.to_string_lossy().replace(['.', '_', '-'], " "))
@@ -1171,9 +1199,10 @@ fn push_sample(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_query_candidates, classify_library_item, normalize_filename_title, rename_confidence,
-        safe_rename_target, EnrichmentMode, LibraryItemRecord, ProviderMatch, RenameTarget,
-        SourceKind,
+        build_metadata_update, build_query_candidates, classify_library_item,
+        local_embedded_title_match, local_sidecar_artwork_match, normalize_filename_title,
+        rename_confidence, safe_rename_target, EnrichmentMode, LibraryItemRecord, ProviderMatch,
+        RenameTarget, SourceKind,
     };
     use std::fs;
 
@@ -1233,6 +1262,51 @@ mod tests {
             queries.first().map(String::as_str),
             Some("Actual Scene Title")
         );
+    }
+
+    #[test]
+    fn embedded_title_fallback_enriches_metadata_when_provider_lookup_misses() {
+        let item = sample_item(
+            "2024-08-31 141904",
+            r"E:\Videos\2024-08-31_141904.mp4",
+            Some("General Video"),
+        );
+
+        let provider = local_embedded_title_match(Some("Actual Scene Title"))
+            .expect("embedded title should produce a local metadata match");
+        let update = build_metadata_update(&item, &provider, &SourceKind::StandardVideo);
+
+        assert_eq!(provider.title.as_deref(), Some("Actual Scene Title"));
+        assert_eq!(update.title.as_deref(), Some("Actual Scene Title"));
+        assert_eq!(update.changed_fields, 1);
+    }
+
+    #[test]
+    fn sidecar_artwork_fallback_populates_missing_posters() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-sidecar-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Actual Scene Title.mp4");
+        let poster = dir.join("Actual Scene Title-poster.jpg");
+        fs::write(&video, b"video").expect("video should be created");
+        fs::write(&poster, b"poster").expect("poster should be created");
+
+        let item = sample_item(
+            "Actual Scene Title",
+            &video.to_string_lossy(),
+            Some("General Video"),
+        );
+
+        let provider =
+            local_sidecar_artwork_match(&item).expect("sidecar artwork should produce a match");
+        let update = build_metadata_update(&item, &provider, &SourceKind::StandardVideo);
+
+        assert_eq!(
+            update.poster_path.as_deref(),
+            Some(poster.to_string_lossy().as_ref())
+        );
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
