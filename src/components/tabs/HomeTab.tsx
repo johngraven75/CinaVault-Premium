@@ -3,11 +3,16 @@ import React, { useState, useEffect, useCallback } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
+import {
+  buildLibraryPageRequest,
+  hasMoreLibraryPages,
+  LIBRARY_PAGE_SIZE,
+  mergeLibraryPage,
+} from "../../utils/libraryLoadPolicy";
 import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
-import ParticleField from "../effects/ParticleField";
 import MeteorShower from "../effects/MeteorShower";
 import {
-  Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Heart, RefreshCw, Sparkles,
+  ChevronDown, Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Heart, RefreshCw, Sparkles,
   Disc3, RectangleHorizontal, PanelTop, RotateCw
 } from "lucide-react";
 
@@ -34,24 +39,64 @@ export default function HomeTab() {
   const [filteredItems, setFilteredItems] = useState<MediaItem[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [libraryOffset, setLibraryOffset] = useState(0);
+  const [libraryHasMore, setLibraryHasMore] = useState(false);
   const [iconSize, setIconSize] = useState(148);
   const [cardStyle, setCardStyle] = useState<CardStyle>("poster");
   const [detailFlipped, setDetailFlipped] = useState(false);
 
+  const requestMediaPage = useCallback((offset: number) => {
+    return invoke<MediaItem[]>(
+      "get_media_items",
+      buildLibraryPageRequest({ mediaType: typeFilter, offset }),
+    );
+  }, [typeFilter]);
+
   const loadMedia = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await invoke<MediaItem[]>("get_media_items");
+      const items = await requestMediaPage(0);
       setMediaItems(items);
-      addStatusMessage(`Library loaded: ${items.length} items (full library)`);
+      setLibraryOffset(items.length);
+      setLibraryHasMore(hasMoreLibraryPages(items));
+      addStatusMessage(`Library loaded: ${items.length} newest items (paged for performance)`);
     } catch {
       // Dev mode — use demo data
       setMediaItems(DEMO_ITEMS);
+      setLibraryOffset(DEMO_ITEMS.length);
+      setLibraryHasMore(false);
     }
     setLoading(false);
-  }, []);
+  }, [addStatusMessage, requestMediaPage, setMediaItems]);
 
-  useEffect(() => { loadMedia(); }, []);
+  const loadMoreMedia = useCallback(async () => {
+    if (loading || loadingMore || !libraryHasMore) return;
+    setLoadingMore(true);
+    try {
+      const items = await requestMediaPage(libraryOffset);
+      const mergedItems = mergeLibraryPage(mediaItems, items);
+      setMediaItems(mergedItems);
+      setLibraryOffset(libraryOffset + items.length);
+      setLibraryHasMore(hasMoreLibraryPages(items));
+      addStatusMessage(`Loaded ${items.length} more library items (${mergedItems.length} loaded)`);
+    } catch (e) {
+      addStatusMessage(`Load more failed: ${e}`);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [
+    addStatusMessage,
+    libraryHasMore,
+    libraryOffset,
+    loading,
+    loadingMore,
+    mediaItems,
+    requestMediaPage,
+    setMediaItems,
+  ]);
+
+  useEffect(() => { loadMedia(); }, [loadMedia]);
 
   useEffect(() => {
     let items = mediaItems.filter(isLibraryDisplayableMediaItem);
@@ -87,7 +132,7 @@ export default function HomeTab() {
     try {
       await invoke("verify_media_item", { id: item.id });
       addStatusMessage(`Verified: ${item.title}`);
-      loadMedia();
+      await loadMedia();
     } catch {}
   };
 
@@ -368,9 +413,27 @@ export default function HomeTab() {
         </div>
       )}
 
+      {libraryHasMore && !loading && (
+        <div className="flex justify-center">
+          <button
+            onClick={() => void loadMoreMedia()}
+            disabled={loadingMore}
+            className="cv-btn cv-btn-secondary"
+          >
+            {loadingMore ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : (
+              <ChevronDown size={14} />
+            )}
+            {loadingMore ? "Loading More" : `Load Next ${LIBRARY_PAGE_SIZE}`}
+          </button>
+        </div>
+      )}
+
       {/* Stats bar */}
       <div className="flex items-center gap-4 text-[11px] text-cv-subtext">
-        <span>{filteredItems.length} items</span>
+        <span>{filteredItems.length} visible</span>
+        <span>{mediaItems.length} loaded</span>
         <span>{filteredItems.filter(m => m.verified).length} verified</span>
         <span>{filteredItems.filter(m => m.media_type === "movie").length} movies</span>
         <span>{filteredItems.filter(m => m.media_type === "music").length} music</span>

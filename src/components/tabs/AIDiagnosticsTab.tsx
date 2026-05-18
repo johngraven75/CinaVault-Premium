@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { LibraryEnrichmentResult, MediaItem, useAppStore } from "../../store/appStore";
+import { buildLibraryPageRequest } from "../../utils/libraryLoadPolicy";
 import AIVisualizer from "../effects/AIVisualizer";
 import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -108,6 +109,11 @@ export default function AIDiagnosticsTab() {
     setPrompt(action.q);
     if (!action.runNow) return;
 
+    const refreshLoadedLibraryPage = async () => {
+      const items = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({}));
+      setMediaItems(items);
+    };
+
     setAiProcessing(true);
     addStatusMessage(`Running: ${action.label}...`);
     try {
@@ -116,13 +122,11 @@ export default function AIDiagnosticsTab() {
       setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       if (isLibraryEnrichmentResult(result)) {
         addStatusMessage(`${action.label}: ${result.metadata_items_enriched || 0} items enriched, ${result.files_renamed || 0} files renamed`);
-        const items = await invoke<MediaItem[]>("get_media_items");
-        setMediaItems(items);
+        await refreshLoadedLibraryPage();
       } else {
         addStatusMessage(`${action.label} complete`);
         if (action.label === "Apply Embedded Titles") {
-          const items = await invoke<MediaItem[]>("get_media_items");
-          setMediaItems(items);
+          await refreshLoadedLibraryPage();
         }
       }
     } catch (e) {
