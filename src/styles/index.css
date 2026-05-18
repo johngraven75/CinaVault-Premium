@@ -34,6 +34,12 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.app-main-scroll {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 .app-shell {
   position: relative;
   isolation: isolate;
@@ -213,6 +219,7 @@ html, body, #root {
   border-radius: 8px;
   background: rgba(1, 8, 18, 0.28);
   scrollbar-gutter: stable;
+  touch-action: pan-x;
 }
 
 .alphabet-filter-button {
