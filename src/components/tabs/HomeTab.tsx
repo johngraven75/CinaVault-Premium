@@ -1,5 +1,5 @@
 // CinaVault Premium — Home / Library Tab (Flagship Vidhub-style UI)
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
@@ -42,6 +42,7 @@ export default function HomeTab() {
   const [cardStyle, setCardStyle] = useState<CardStyle>("poster");
   const [detailFlipped, setDetailFlipped] = useState(false);
   const [titleInitialFilter, setTitleInitialFilter] = useState<TitleInitialFilter>("all");
+  const filterListRef = useRef<HTMLDivElement | null>(null);
 
   const loadMedia = useCallback(async () => {
     setLoading(true);
@@ -77,6 +78,11 @@ export default function HomeTab() {
   useEffect(() => {
     setDetailFlipped(false);
   }, [selectedMedia?.id, selectedMedia?.title]);
+
+  useEffect(() => {
+    const activeTabButton = filterListRef.current?.querySelector<HTMLButtonElement>(".alphabet-filter-button.active");
+    activeTabButton?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [titleInitialFilter]);
 
   const handlePlay = async (item: MediaItem) => {
     if (!canPlayMediaItem(item)) {
@@ -293,7 +299,7 @@ export default function HomeTab() {
           </div>
         )}
 
-        <div className="mt-3 alphabet-filter" role="tablist" aria-label="Filter library by title initial">
+        <div ref={filterListRef} className="mt-3 alphabet-filter" role="tablist" aria-label="Filter library by title initial" tabIndex={0}>
           {(["all", ...TITLE_LETTERS, "#"] as TitleInitialFilter[]).map(letter => (
             <button
               key={letter}
