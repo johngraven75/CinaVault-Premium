@@ -2,7 +2,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
-import { useAppStore } from "../../store/appStore";
+import { LibraryEnrichmentResult, MediaItem, useAppStore } from "../../store/appStore";
+import { buildLibraryPageRequest } from "../../utils/libraryLoadPolicy";
 import AIVisualizer from "../effects/AIVisualizer";
 import {
   formatMetadataTaskProgress,
@@ -10,9 +11,49 @@ import {
   MetadataTaskProgress,
 } from "../../utils/metadataTaskProgress";
 import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+type QuickAction = {
+  label: string;
+  icon: LucideIcon;
+  q: string;
+  progressTask?: string;
+  runNow?: () => Promise<any>;
+};
+
+function isLibraryEnrichmentResult(result: any): result is LibraryEnrichmentResult {
+  return result?.type === "library_enrichment";
+}
+
+function formatResultSummary(result: any) {
+  if (!isLibraryEnrichmentResult(result)) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return JSON.stringify(
+    {
+      status: result.status,
+      mode: result.mode,
+      items_scanned: result.items_scanned,
+      metadata_items_enriched: result.metadata_items_enriched,
+      metadata_fields_updated: result.metadata_fields_updated,
+      titles_improved: result.titles_improved,
+      items_reclassified_as_adult: result.items_reclassified_as_adult,
+      files_renamed: result.files_renamed,
+      rename_collisions_skipped: result.rename_collisions_skipped,
+      rename_failures: result.rename_failures,
+      low_confidence_metadata_only: result.low_confidence_metadata_only,
+      skipped_missing_files: result.skipped_missing_files,
+      skipped_non_video_items: result.skipped_non_video_items,
+      provider_errors: result.provider_errors,
+    },
+    null,
+    2,
+  );
+}
 
 export default function AIDiagnosticsTab() {
-  const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage } = useAppStore();
+  const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage, setMediaItems } = useAppStore();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [hfToken, setHfToken] = useState("");
@@ -135,7 +176,7 @@ export default function AIDiagnosticsTab() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const runQuickAction = async (action: { label: string; q: string; progressTask?: string; runNow?: () => Promise<any> }) => {
+  const runQuickAction = async (action: QuickAction) => {
     if (aiProcessing) return;
     setPrompt(action.q);
     if (!action.runNow) return;
@@ -143,16 +184,26 @@ export default function AIDiagnosticsTab() {
     if (action.progressTask) {
       showStartingProgress(action.label, action.progressTask);
     }
+
+    const refreshLoadedLibraryPage = async () => {
+      const items = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({}));
+      setMediaItems(items);
+    };
+
     setAiProcessing(true);
     addStatusMessage(`Running: ${action.label}...`);
     try {
       const result = await action.runNow();
       setAiResult(result);
       setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
-      if (result?.type === "library_enrichment") {
-        addStatusMessage(`${action.label}: ${result.metadata_updated || 0} metadata updates, ${result.files_renamed || 0} files renamed`);
+      if (isLibraryEnrichmentResult(result)) {
+        addStatusMessage(`${action.label}: ${result.metadata_items_enriched || 0} items enriched, ${result.files_renamed || 0} files renamed`);
+        await refreshLoadedLibraryPage();
       } else {
         addStatusMessage(`${action.label} complete`);
+        if (action.label === "Apply Embedded Titles") {
+          await refreshLoadedLibraryPage();
+        }
       }
       if (action.progressTask) {
         showFinishedProgress(action.label);
@@ -167,19 +218,25 @@ export default function AIDiagnosticsTab() {
     }
   };
 
-  const quickActions: { label: string; icon: any; q: string; progressTask?: string; runNow?: () => Promise<any> }[] = [
+  const quickActions: QuickAction[] = [
     { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
     { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
     { label: "Check Providers", icon: Database, q: "Check metadata providers" },
     {
-      label: "Enrich Metadata",
-      icon: Database,
+      label: "Enrich Library Metadata",
+      icon: Sparkles,
       q: "Enrich Library Metadata",
       progressTask: "library_enrichment",
       runNow: () => invoke("run_library_enrichment", { renameFiles: false }),
     },
     {
-      label: "Normalize Filenames",
+      label: "Apply Embedded Titles",
+      icon: Tag,
+      q: "Apply embedded titles to existing library",
+      runNow: () => invoke("apply_embedded_titles"),
+    },
+    {
+      label: "Enrich + Normalize Filenames",
       icon: Tag,
       q: "Enrich + Normalize Filenames",
       progressTask: "library_enrichment",
@@ -272,7 +329,7 @@ export default function AIDiagnosticsTab() {
           </div>
 
           {/* Quick Actions */}
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3">
             {quickActions.map(action => (
               <button
                 key={action.label}
@@ -333,7 +390,7 @@ export default function AIDiagnosticsTab() {
             >
               <div className="text-xs font-semibold mb-2 text-cv-accent">Latest Result</div>
               <pre className="text-xs text-cv-subtext whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
-                {JSON.stringify(aiResult, null, 2)}
+                {formatResultSummary(aiResult)}
               </pre>
             </motion.div>
           )}

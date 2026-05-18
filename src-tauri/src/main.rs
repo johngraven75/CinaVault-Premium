@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 113)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 119)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -17,6 +17,7 @@ mod downloads;
 mod ai;
 mod enrichment;
 mod task_progress;
+mod library_artifacts;
 
 use db::Database;
 use std::sync::Mutex;
@@ -52,7 +53,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 113 initialized successfully");
+            log::info!("CinaVault Premium Build 119 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -62,6 +63,13 @@ fn main() {
             db::set_setting,
             db::get_feature_settings,
             db::set_feature_setting,
+            db::create_remote_access_user,
+            db::authenticate_remote_password,
+            db::authenticate_remote_access_key,
+            db::rotate_remote_access_key,
+            db::set_remote_access_user_enabled,
+            db::list_remote_access_users,
+            db::get_remote_access_security_status,
             // Media Library
             db::get_media_items,
             db::get_media_item,
@@ -327,8 +335,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-rc.2+1",
-        "build_tag": "RC2 Build 1 (Premium Edition)",
+        "version": "1.0.0-6",
+        "build_tag": "Build 119 Cumulative Feature Carryover (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

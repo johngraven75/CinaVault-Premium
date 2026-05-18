@@ -1,34 +1,41 @@
 # CinaVault Premium Build 116
 
-Date: 2026-05-16
-Branch: beta-4
+Date: 2026-05-17
+Branch: codex/library-enrichment-normalization
+App version: 1.0.0-3
 
-## Fix
+## Included installers
 
-- Fixed the Live TV Xtream Codes profile save flow that could show a generic `invalid argument` error when entering provider details.
-- Root cause: the React form passed `server_url` directly to the Tauri command, but the Tauri JavaScript bridge expects the Rust `server_url` parameter as `serverUrl`.
-- Added a tested Xtream profile argument builder so the UI now sends `serverUrl`, trims profile fields, and normalizes common provider URLs.
-- Provider URLs pasted as full Xtream endpoints such as `player_api.php?...` or `get.php?...` are reduced to the server base URL before saving.
-- Added frontend validation for unusable schemes such as `ftp://`, producing a clear status message instead of a bridge-level invalid argument.
-- Hardened Xtream sync URL generation so usernames and passwords with special characters are percent-encoded for API, EPG, and live stream URLs.
+- CinaVault-Premium-Build116-Installer.msi
+- CinaVault-Premium-Build116-Setup.exe
+
+## Corrective fix
+
+- Fixed the installed app hanging on launch after Build 115.
+- Root cause: startup database initialization was probing sidecar poster candidates for thousands of existing media rows on the live library before the UI could become responsive.
+- Fix: startup cleanup now only removes generated chapter/sidecar artwork photo rows and does not perform filesystem poster backfill on launch.
+- Added a regression test proving reopening an existing database does not backfill video posters from the filesystem during startup.
+
+## Included Build 115 changes
+
+- Home tab meteor shower animation.
+- Built-in Live TV IPTV player UI.
+- Library enrichment cleanup for poster handling, sidecar artwork filtering, embedded-title fallback, and post-enrichment refresh.
 
 ## Verification
 
-- `node --test tests\xtreamProfile.test.mjs`
-- `cargo test --manifest-path src-tauri\Cargo.toml xtream_`
-- `cargo test --manifest-path src-tauri\Cargo.toml`
-- `node --test tests\*.test.mjs`
-- `npm run build`
-- `npm run tauri -- build`
-- In-app browser UI check at `http://127.0.0.1:1420/` verified the Live TV add-profile form shows a friendly invalid URL message and no Vite overlay or app console errors.
-- Playwright/Chrome UI check verified successful profile save sends `add_xtream_profile` with `serverUrl: "https://provider.example.com:8443"` and does not send `server_url`.
+- npm run build: passed
+- cargo check: passed clean
+- cargo test -- --nocapture: passed, 36 tests
+- node --test tests\mediaPlaybackSafety.test.mjs tests\pluginUiSafety.test.mjs: passed, 10 tests
+- npm run tauri -- build: passed
+- Broken Build 115 MSI uninstall: passed, exit code 0
+- Build 116 per-user MSI install: passed, exit code 0
+- Installed executable verified: %LOCALAPPDATA%\Programs\CinaVault Premium\cinavault-premium.exe, version 1.0.0-3
+- Launch check: passed, process remained responsive after 12 seconds
 
-## Artifacts
+## Build output
 
-- `CinaVault-Premium-Build116-Installer.exe`
-- `CinaVault-Premium-Build116-Installer.msi`
-
-## SHA256
-
-- EXE: `B1B3693F8B4F0CB6C347F2211C7AC4F0A6DC2458DE7598A8B23866BEF97C366A`
-- MSI: `82B189E2A108DB9F83178246AF365DB45FA7822A98EF10EC8577F6848637CDCF`
+- MSI source: src-tauri\target\release\bundle\msi\CinaVault Premium_1.0.0-3_x64_en-US.msi
+- NSIS source: src-tauri\target\release\bundle\nsis\CinaVault Premium_1.0.0-3_x64-setup.exe
+- Install log copy: C:\Users\johng\OneDrive\Documents\Desktop\John\cinavault builds\build-116\Build116-msi-install.log

@@ -229,5 +229,7 @@ android/
 assets/
 cinavault/
 data/
+!src/data/
+!src/data/**
 installer/
 plugins/

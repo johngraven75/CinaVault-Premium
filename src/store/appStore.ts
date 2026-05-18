@@ -59,6 +59,25 @@ export interface ScheduledTaskConfig {
   match_unmatch: TaskFrequency;
 }
 
+export interface LibraryEnrichmentResult {
+  type: "library_enrichment";
+  status: string;
+  mode: string;
+  items_scanned: number;
+  metadata_items_enriched: number;
+  metadata_fields_updated: number;
+  metadata_updated?: number;
+  titles_improved: number;
+  items_reclassified_as_adult: number;
+  files_renamed: number;
+  rename_collisions_skipped: number;
+  rename_failures: number;
+  low_confidence_metadata_only: number;
+  skipped_missing_files: number;
+  skipped_non_video_items: number;
+  provider_errors: string[];
+}
+
 // ── Cloud Service State ──
 export type CloudServiceStatus = "connected" | "disconnected" | "connecting" | "error";
 

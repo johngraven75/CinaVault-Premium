@@ -1,10 +1,15 @@
-// CinaVault Premium — SQLite Database Layer (rusqlite) — Build 113
+// CinaVault Premium — SQLite Database Layer (rusqlite) — Build 115
 // Premium defaults: all features ON, full persistence support
 
-use rusqlite::{Connection, params, Result as SqlResult};
+use rusqlite::{Connection, OptionalExtension, params, Result as SqlResult};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::path::Path;
 use tauri::State;
 use crate::AppState;
+use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
+#[cfg(test)]
+use crate::library_artifacts::sidecar_poster_path_for_video;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaItem {
@@ -41,6 +46,48 @@ pub struct MediaSource {
     pub enabled: bool,
     pub last_scanned: Option<String>,
     pub item_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RemoteAccessUserProvision {
+    pub id: i64,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub access_key: String,
+    pub access_key_preview: String,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RemoteAccessUserSummary {
+    pub id: i64,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub access_key_preview: String,
+    pub enabled: bool,
+    pub permissions: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_login: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RemoteAccessPrincipal {
+    pub id: i64,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub auth_method: String,
+    pub session_token: String,
+    pub expires_at: String,
+    pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RemoteAccessKeyRotation {
+    pub email: String,
+    pub access_key: String,
+    pub access_key_preview: String,
 }
 
 pub struct Database {
@@ -179,11 +226,41 @@ impl Database {
                 FOREIGN KEY (media_id) REFERENCES media_items(id)
             );
 
+            CREATE TABLE IF NOT EXISTS remote_access_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                display_name TEXT,
+                password_salt TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                access_key_salt TEXT NOT NULL,
+                access_key_hash TEXT NOT NULL,
+                access_key_preview TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1,
+                permissions TEXT NOT NULL DEFAULT 'server:read,library:read,stream:play',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_login TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS remote_access_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_salt TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                auth_method TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked INTEGER DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES remote_access_users(id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_media_title ON media_items(title);
             CREATE INDEX IF NOT EXISTS idx_media_type ON media_items(media_type);
             CREATE INDEX IF NOT EXISTS idx_media_source ON media_items(source_id);
             CREATE INDEX IF NOT EXISTS idx_media_verified ON media_items(verified);
             CREATE INDEX IF NOT EXISTS idx_media_date ON media_items(date_added);
+            CREATE INDEX IF NOT EXISTS idx_remote_access_users_email ON remote_access_users(email);
+            CREATE INDEX IF NOT EXISTS idx_remote_access_sessions_user ON remote_access_sessions(user_id);
         ")?;
         self.ensure_column("plugins", "plugin_key", "TEXT")?;
         self.ensure_column("plugins", "platform", "TEXT")?;
@@ -254,13 +331,58 @@ impl Database {
             )?;
         }
 
-        // Generated chapter thumbnails belong to media cards, not the main library index.
-        self.conn.execute(
-            "DELETE FROM media_items
-             WHERE media_type = 'photo'
-               AND (lower(replace(file_path, '/', '\\')) LIKE '%_chapters\\chapter_%')",
-            [],
-        )?;
+        self.cleanup_non_library_photo_artifacts()?;
+
+        Ok(())
+    }
+
+    fn cleanup_non_library_photo_artifacts(&self) -> SqlResult<()> {
+        let rows = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, file_path FROM media_items WHERE media_type = 'photo'")?;
+            let iter = stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            iter.collect::<Result<Vec<_>, _>>()?
+        };
+
+        for (id, file_path) in rows {
+            let path = Path::new(&file_path);
+            if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
+                self.conn
+                    .execute("DELETE FROM media_items WHERE id = ?1", params![id])?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn sync_sidecar_artwork_for_video_rows(&self) -> SqlResult<()> {
+        let rows = {
+            let mut stmt = self.conn.prepare(
+                "SELECT file_path
+                 FROM media_items
+                 WHERE media_type IN ('adult', 'movie', 'episode', 'video')
+                   AND (poster_path IS NULL OR trim(poster_path) = '')",
+            )?;
+            let iter = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            iter.collect::<Result<Vec<_>, _>>()?
+        };
+
+        for file_path in rows {
+            let Some(poster_path) = sidecar_poster_path_for_video(Path::new(&file_path)) else {
+                continue;
+            };
+            self.conn.execute(
+                "UPDATE media_items
+                 SET poster_path = ?1
+                 WHERE file_path = ?2
+                   AND (poster_path IS NULL OR trim(poster_path) = '')",
+                params![poster_path.to_string_lossy().to_string(), file_path],
+            )?;
+        }
 
         Ok(())
     }
@@ -409,7 +531,14 @@ impl Database {
                              ELSE poster_path
                          END
                      WHERE id = ?6",
-                    params![item.title, item.media_type, item.file_size, item.source_id, item.poster_path, id],
+                    params![
+                        item.title,
+                        item.media_type,
+                        item.file_size,
+                        item.source_id,
+                        item.poster_path,
+                        id
+                    ],
                 )?;
                 Ok(false)
             }
@@ -419,6 +548,63 @@ impl Database {
             }
             Err(err) => Err(err),
         }
+    }
+
+    pub fn update_media_metadata_data(
+        &self,
+        file_path: &str,
+        title: Option<&str>,
+        overview: Option<&str>,
+        poster_path: Option<&str>,
+        year: Option<i32>,
+        rating: Option<f64>,
+        genre: Option<&str>,
+        tmdb_id: Option<&str>,
+        imdb_id: Option<&str>,
+        media_type: Option<&str>,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE media_items
+             SET title = COALESCE(?1, title),
+                 overview = COALESCE(?2, overview),
+                 poster_path = COALESCE(?3, poster_path),
+                 year = COALESCE(?4, year),
+                 rating = COALESCE(?5, rating),
+                 genre = COALESCE(?6, genre),
+                 tmdb_id = COALESCE(?7, tmdb_id),
+                 imdb_id = COALESCE(?8, imdb_id),
+                 media_type = COALESCE(?9, media_type)
+             WHERE file_path = ?10",
+            params![
+                title,
+                overview,
+                poster_path,
+                year,
+                rating,
+                genre,
+                tmdb_id,
+                imdb_id,
+                media_type,
+                file_path,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_media_file_path_data(
+        &self,
+        old_file_path: &str,
+        new_file_path: &str,
+        new_title: &str,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE media_items
+             SET file_path = ?1,
+                 title = ?2
+             WHERE file_path = ?3",
+            params![new_file_path, new_title, old_file_path],
+        )?;
+        Ok(())
     }
 
     pub fn search_media_data(&self, query: &str) -> SqlResult<Vec<MediaItem>> {
@@ -477,6 +663,300 @@ impl Database {
         Ok(())
     }
 
+    pub fn create_remote_access_user(
+        &self,
+        email: &str,
+        password: &str,
+        display_name: Option<&str>,
+    ) -> Result<RemoteAccessUserProvision, String> {
+        let email = normalize_remote_email(email)?;
+        validate_remote_password(password)?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let password_salt = new_secret_salt();
+        let password_hash = hash_secret(&password_salt, password);
+        let access_key = generate_remote_access_key();
+        let access_key_salt = new_secret_salt();
+        let access_key_hash = hash_secret(&access_key_salt, &access_key);
+        let access_key_preview = preview_secret(&access_key);
+        let display_name = display_name
+            .and_then(|value| non_empty_trimmed(value))
+            .or_else(|| Some(email.clone()));
+
+        self.conn
+            .execute(
+                "INSERT INTO remote_access_users
+                 (email, display_name, password_salt, password_hash, access_key_salt,
+                  access_key_hash, access_key_preview, enabled, permissions, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'server:read,library:read,stream:play', ?8, ?8)
+                 ON CONFLICT(email) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   password_salt = excluded.password_salt,
+                   password_hash = excluded.password_hash,
+                   access_key_salt = excluded.access_key_salt,
+                   access_key_hash = excluded.access_key_hash,
+                   access_key_preview = excluded.access_key_preview,
+                   enabled = 1,
+                   updated_at = excluded.updated_at",
+                params![
+                    email,
+                    display_name,
+                    password_salt,
+                    password_hash,
+                    access_key_salt,
+                    access_key_hash,
+                    access_key_preview,
+                    now,
+                ],
+            )
+            .map_err(|err| err.to_string())?;
+
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, email, display_name, enabled, created_at
+                 FROM remote_access_users
+                 WHERE email = ?1",
+                params![email],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, bool>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .map_err(|err| err.to_string())?;
+
+        Ok(RemoteAccessUserProvision {
+            id: row.0,
+            email: row.1,
+            display_name: row.2,
+            access_key: access_key.clone(),
+            access_key_preview: preview_secret(&access_key),
+            enabled: row.3,
+            created_at: row.4,
+        })
+    }
+
+    pub fn authenticate_remote_password(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> Result<Option<RemoteAccessPrincipal>, String> {
+        let email = normalize_remote_email(email)?;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, email, display_name, password_salt, password_hash, enabled, permissions
+                 FROM remote_access_users
+                 WHERE email = ?1",
+                params![email],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, bool>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| err.to_string())?;
+
+        let Some((id, email, display_name, salt, expected_hash, enabled, permissions)) = row else {
+            return Ok(None);
+        };
+        if !enabled {
+            return Ok(None);
+        }
+        let actual_hash = hash_secret(&salt, password);
+        if !constant_time_eq(&actual_hash, &expected_hash) {
+            return Ok(None);
+        }
+
+        self.create_remote_access_session(id, email, display_name, "password", &permissions)
+    }
+
+    pub fn authenticate_remote_access_key(
+        &self,
+        access_key: &str,
+    ) -> Result<Option<RemoteAccessPrincipal>, String> {
+        let access_key = access_key.trim();
+        if access_key.is_empty() {
+            return Ok(None);
+        }
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, email, display_name, access_key_salt, access_key_hash, enabled, permissions
+                 FROM remote_access_users",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, bool>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })
+            .map_err(|err| err.to_string())?;
+
+        for row in rows {
+            let (id, email, display_name, salt, expected_hash, enabled, permissions) =
+                row.map_err(|err| err.to_string())?;
+            if !enabled {
+                continue;
+            }
+            let actual_hash = hash_secret(&salt, access_key);
+            if constant_time_eq(&actual_hash, &expected_hash) {
+                return self.create_remote_access_session(
+                    id,
+                    email,
+                    display_name,
+                    "access_key",
+                    &permissions,
+                );
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn rotate_remote_access_key(
+        &self,
+        email: &str,
+    ) -> Result<Option<RemoteAccessKeyRotation>, String> {
+        let email = normalize_remote_email(email)?;
+        let access_key = generate_remote_access_key();
+        let access_key_salt = new_secret_salt();
+        let access_key_hash = hash_secret(&access_key_salt, &access_key);
+        let access_key_preview = preview_secret(&access_key);
+        let updated_at = chrono::Utc::now().to_rfc3339();
+
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE remote_access_users
+                 SET access_key_salt = ?1,
+                     access_key_hash = ?2,
+                     access_key_preview = ?3,
+                     updated_at = ?4
+                 WHERE email = ?5",
+                params![access_key_salt, access_key_hash, access_key_preview, updated_at, email],
+            )
+            .map_err(|err| err.to_string())?;
+        if changed == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(RemoteAccessKeyRotation {
+            email,
+            access_key: access_key.clone(),
+            access_key_preview: preview_secret(&access_key),
+        }))
+    }
+
+    pub fn set_remote_access_user_enabled(
+        &self,
+        email: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let email = normalize_remote_email(email)?;
+        self.conn
+            .execute(
+                "UPDATE remote_access_users
+                 SET enabled = ?1, updated_at = ?2
+                 WHERE email = ?3",
+                params![enabled, chrono::Utc::now().to_rfc3339(), email],
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_remote_access_users(&self) -> Result<Vec<RemoteAccessUserSummary>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, email, display_name, access_key_preview, enabled, permissions,
+                        created_at, updated_at, last_login
+                 FROM remote_access_users
+                 ORDER BY email",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                let permissions: String = row.get(5)?;
+                Ok(RemoteAccessUserSummary {
+                    id: row.get(0)?,
+                    email: row.get(1)?,
+                    display_name: row.get(2)?,
+                    access_key_preview: row.get(3)?,
+                    enabled: row.get(4)?,
+                    permissions: parse_permissions(&permissions),
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    last_login: row.get(8)?,
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())
+    }
+
+    fn create_remote_access_session(
+        &self,
+        user_id: i64,
+        email: String,
+        display_name: Option<String>,
+        auth_method: &str,
+        permissions: &str,
+    ) -> Result<Option<RemoteAccessPrincipal>, String> {
+        let session_token = generate_remote_session_token();
+        let token_salt = new_secret_salt();
+        let token_hash = hash_secret(&token_salt, &session_token);
+        let created_at = chrono::Utc::now();
+        let expires_at = created_at + chrono::Duration::hours(12);
+        let created_at = created_at.to_rfc3339();
+        let expires_at_string = expires_at.to_rfc3339();
+
+        self.conn
+            .execute(
+                "INSERT INTO remote_access_sessions
+                 (user_id, token_salt, token_hash, auth_method, created_at, expires_at, revoked)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+                params![user_id, token_salt, token_hash, auth_method, created_at, expires_at_string],
+            )
+            .map_err(|err| err.to_string())?;
+        self.conn
+            .execute(
+                "UPDATE remote_access_users SET last_login = ?1 WHERE id = ?2",
+                params![created_at, user_id],
+            )
+            .map_err(|err| err.to_string())?;
+
+        Ok(Some(RemoteAccessPrincipal {
+            id: user_id,
+            email,
+            display_name,
+            auth_method: auth_method.to_string(),
+            session_token,
+            expires_at: expires_at_string,
+            permissions: parse_permissions(permissions),
+        }))
+    }
+
     fn row_to_media(row: &rusqlite::Row) -> rusqlite::Result<MediaItem> {
         Ok(MediaItem {
             id: Some(row.get(0)?),
@@ -503,6 +983,95 @@ impl Database {
             source_id: row.get(21)?,
         })
     }
+}
+
+fn normalize_remote_email(email: &str) -> Result<String, String> {
+    let email = email.trim().to_ascii_lowercase();
+    if email.len() < 5 || !email.contains('@') {
+        return Err("A valid email address is required.".to_string());
+    }
+    let Some((local, domain)) = email.split_once('@') else {
+        return Err("A valid email address is required.".to_string());
+    };
+    if local.trim().is_empty() || !domain.contains('.') || domain.ends_with('.') {
+        return Err("A valid email address is required.".to_string());
+    }
+    Ok(email)
+}
+
+fn validate_remote_password(password: &str) -> Result<(), String> {
+    if password.len() < 8 {
+        return Err("Remote access passwords must be at least 8 characters.".to_string());
+    }
+    Ok(())
+}
+
+fn non_empty_trimmed(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn new_secret_salt() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn generate_remote_access_key() -> String {
+    format!(
+        "cvra_{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+fn generate_remote_session_token() -> String {
+    format!(
+        "cvrs_{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+fn preview_secret(secret: &str) -> String {
+    let chars = secret.chars().collect::<Vec<_>>();
+    let start = chars.len().saturating_sub(8);
+    chars[start..].iter().collect()
+}
+
+fn hash_secret(salt: &str, secret: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(salt.as_bytes());
+    hasher.update(b":cinavault-remote-access:");
+    hasher.update(secret.as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right.iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
+fn parse_permissions(permissions: &str) -> Vec<String> {
+    permissions
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 // ════════════════════════════════════════════════════════════
@@ -542,6 +1111,90 @@ pub fn get_feature_settings(state: State<AppState>) -> Result<Vec<serde_json::Va
 pub fn set_feature_setting(state: State<AppState>, key: String, enabled: bool, config: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.set_feature_setting_data(&key, enabled, &config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_remote_access_user(
+    state: State<AppState>,
+    email: String,
+    password: String,
+    display_name: Option<String>,
+) -> Result<RemoteAccessUserProvision, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.create_remote_access_user(&email, &password, display_name.as_deref())
+}
+
+#[tauri::command]
+pub fn authenticate_remote_password(
+    state: State<AppState>,
+    email: String,
+    password: String,
+) -> Result<Option<RemoteAccessPrincipal>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.authenticate_remote_password(&email, &password)
+}
+
+#[tauri::command]
+pub fn authenticate_remote_access_key(
+    state: State<AppState>,
+    access_key: String,
+) -> Result<Option<RemoteAccessPrincipal>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.authenticate_remote_access_key(&access_key)
+}
+
+#[tauri::command]
+pub fn rotate_remote_access_key(
+    state: State<AppState>,
+    email: String,
+) -> Result<Option<RemoteAccessKeyRotation>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.rotate_remote_access_key(&email)
+}
+
+#[tauri::command]
+pub fn set_remote_access_user_enabled(
+    state: State<AppState>,
+    email: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_remote_access_user_enabled(&email, enabled)
+}
+
+#[tauri::command]
+pub fn list_remote_access_users(state: State<AppState>) -> Result<Vec<RemoteAccessUserSummary>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.list_remote_access_users()
+}
+
+#[tauri::command]
+pub fn get_remote_access_security_status(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let user_count = db.list_remote_access_users()?.len();
+    let remote_enabled = db
+        .get_setting_data("remote_access_enabled")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "true".to_string());
+    let secure_mode = db
+        .get_setting_data("remote_secure_connections")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "preferred".to_string());
+    let public_port = db
+        .get_setting_data("remote_public_port")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "32400".to_string());
+
+    Ok(serde_json::json!({
+        "remote_enabled": remote_enabled != "false",
+        "secure_mode": secure_mode,
+        "public_port": public_port,
+        "account_count": user_count,
+        "password_auth": true,
+        "access_key_auth": true,
+        "session_hours": 12,
+        "permissions": ["server:read", "library:read", "stream:play"],
+    }))
 }
 
 #[tauri::command]
@@ -798,6 +1451,285 @@ mod tests {
 
         let matches = db.search_media_data("Match").expect("search should succeed");
         assert_eq!(matches.len(), 230);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn enrichment_update_preserves_user_flags() {
+        let db_path = test_db_path("enrichment-update");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let item = sample_item("Old Title", r"C:\media\old-title.mp4");
+        db.add_media_item_data(&item).expect("insert should succeed");
+        db.conn.execute(
+            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+            params![&item.file_path],
+        ).expect("flag update should succeed");
+
+        db.update_media_metadata_data(
+            &item.file_path,
+            Some("Better Title"),
+            Some("Overview text"),
+            Some("https://poster"),
+            Some(2024),
+            Some(8.1),
+            Some("Drama"),
+            Some("123"),
+            Some("tt123"),
+            Some("adult"),
+        ).expect("metadata update should succeed");
+
+        let row = db.conn.query_row(
+            "SELECT title, overview, watched, favorite, media_type FROM media_items WHERE file_path = ?1",
+            params![&item.file_path],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, bool>(2)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, String>(4)?,
+            )),
+        ).expect("row should exist");
+
+        assert_eq!(row.0, "Better Title");
+        assert_eq!(row.1.as_deref(), Some("Overview text"));
+        assert!(row.2);
+        assert!(row.3);
+        assert_eq!(row.4, "adult");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn cleanup_removes_sidecar_artwork_photo_rows_without_backfilling_video_posters() {
+        let db_path = test_db_path("sidecar-artwork-cleanup");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-sidecar-db-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        let db = Database::new(&db_path).expect("db should open");
+
+        let video = sample_item("Movie", &video_path.to_string_lossy());
+        let mut poster = sample_item("poster", &poster_path.to_string_lossy());
+        poster.media_type = "photo".to_string();
+        let mut backdrop = sample_item("scene-poster", r"E:\Videos\Movie\scene-poster.webp");
+        backdrop.media_type = "photo".to_string();
+        let mut real_photo = sample_item("beach-day", r"E:\Photos\Vacation\beach-day.jpg");
+        real_photo.media_type = "photo".to_string();
+
+        db.add_media_item_data(&video)
+            .expect("video row should insert");
+        db.add_media_item_data(&poster)
+            .expect("poster row should insert");
+        db.add_media_item_data(&backdrop)
+            .expect("poster suffix row should insert");
+        db.add_media_item_data(&real_photo)
+            .expect("real photo row should insert");
+
+        db.cleanup_non_library_photo_artifacts()
+            .expect("cleanup should succeed");
+
+        let remaining = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
+            .expect("count should load");
+        assert_eq!(remaining, 2);
+
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video.file_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster, None);
+
+        let real_photo_exists = db
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
+                params![real_photo.file_path],
+                |row| row.get::<_, bool>(0),
+            )
+            .expect("real photo lookup should load");
+        assert!(real_photo_exists);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn manual_sidecar_artwork_backfill_populates_video_posters() {
+        let db_path = test_db_path("manual-sidecar-backfill");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-manual-backfill-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        let db = Database::new(&db_path).expect("db should open");
+        let video = sample_item("Movie", &video_path.to_string_lossy());
+        db.add_media_item_data(&video)
+            .expect("video row should insert");
+
+        db.sync_sidecar_artwork_for_video_rows()
+            .expect("manual backfill should succeed");
+
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video.file_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster.as_deref(), Some(poster_path.to_string_lossy().as_ref()));
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn database_startup_does_not_backfill_video_posters_from_filesystem() {
+        let db_path = test_db_path("startup-does-not-backfill-posters");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-startup-db-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        {
+            let db = Database::new(&db_path).expect("db should open");
+            let video = sample_item("Movie", &video_path.to_string_lossy());
+            db.add_media_item_data(&video)
+                .expect("video row should insert");
+        }
+
+        let db = Database::new(&db_path).expect("db should reopen quickly");
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video_path.to_string_lossy().as_ref()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster, None);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn rename_update_changes_file_path_only_after_success() {
+        let db_path = test_db_path("rename-update");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let item = sample_item("Old Title", r"C:\media\old-title.mp4");
+        db.add_media_item_data(&item).expect("insert should succeed");
+
+        db.update_media_file_path_data(&item.file_path, r"C:\media\New Title.mp4", "New Title")
+            .expect("rename update should succeed");
+
+        let row = db.conn.query_row(
+            "SELECT title, file_path FROM media_items WHERE file_path = ?1",
+            params![r"C:\media\New Title.mp4"],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ).expect("renamed row should exist");
+
+        assert_eq!(row.0, "New Title");
+        assert_eq!(row.1, r"C:\media\New Title.mp4");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn remote_access_user_authenticates_with_email_password_or_access_key() {
+        let db_path = test_db_path("remote-access-auth");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let created = db
+            .create_remote_access_user(" Owner@Example.COM ", "CorrectHorse42!", Some("Owner"))
+            .expect("remote user should be created");
+
+        assert_eq!(created.email, "owner@example.com");
+        assert_eq!(created.display_name.as_deref(), Some("Owner"));
+        assert!(created.access_key.starts_with("cvra_"));
+        assert_eq!(created.access_key_preview.len(), 8);
+
+        let stored_secret = db
+            .conn
+            .query_row(
+                "SELECT password_hash, access_key_hash FROM remote_access_users WHERE email = ?1",
+                params!["owner@example.com"],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("stored secrets should load");
+        assert!(!stored_secret.0.contains("CorrectHorse42!"));
+        assert!(!stored_secret.1.contains(&created.access_key));
+
+        let password_auth = db
+            .authenticate_remote_password("owner@example.com", "CorrectHorse42!")
+            .expect("password auth should run")
+            .expect("correct password should authenticate");
+        assert_eq!(password_auth.email, "owner@example.com");
+        assert_eq!(password_auth.auth_method, "password");
+
+        assert!(db
+            .authenticate_remote_password("owner@example.com", "wrong-password")
+            .expect("wrong password auth should run")
+            .is_none());
+
+        let key_auth = db
+            .authenticate_remote_access_key(&created.access_key)
+            .expect("access-key auth should run")
+            .expect("correct key should authenticate");
+        assert_eq!(key_auth.email, "owner@example.com");
+        assert_eq!(key_auth.auth_method, "access_key");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn disabled_remote_access_user_cannot_authenticate() {
+        let db_path = test_db_path("remote-access-disabled");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let created = db
+            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", None)
+            .expect("remote user should be created");
+        db.conn
+            .execute(
+                "UPDATE remote_access_users SET enabled = 0 WHERE email = ?1",
+                params!["viewer@example.com"],
+            )
+            .expect("disable should succeed");
+
+        assert!(db
+            .authenticate_remote_password("viewer@example.com", "CorrectHorse42!")
+            .expect("password auth should run")
+            .is_none());
+        assert!(db
+            .authenticate_remote_access_key(&created.access_key)
+            .expect("access-key auth should run")
+            .is_none());
 
         drop(db);
         let _ = fs::remove_file(db_path);

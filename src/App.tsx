@@ -266,7 +266,7 @@ function StatusTicker() {
       <div className="flex-1 overflow-hidden">
         <div className="truncate text-cv-subtext/60">{latest}</div>
       </div>
-      <div className="shrink-0 text-cv-subtext/40">CinaVault Premium RC2 Build 1</div>
+      <div className="shrink-0 text-cv-subtext/40">CinaVault Premium Build 119</div>
     </div>
   );
 }
