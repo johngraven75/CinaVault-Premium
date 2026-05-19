@@ -9,10 +9,12 @@ Build 120 packages version `1.0.0-7` as the cumulative carry-forward build.
 - Changed the Home top graphic into a real-looking animated comet shower canvas and made it visible even when no media item is selected.
 - Refreshed the forward-facing UI appearance with higher contrast, sharper engineered controls, stronger input/button focus transitions, styled selects, checkboxes, tabs, alphabet controls, cards, panels, and navigation.
 - Confirmed Remote Access account/authentication/access-key work is present.
+- Updated repository dependencies for the GitHub moderate-risk alerts: Vite/esbuild and Tauri were moved to patched lines before final packaging.
 
 ## Verification
 
 - Frontend policy tests: 12 passed.
+- npm audit: 0 vulnerabilities.
 - Production frontend build: passed.
 - Rust check: passed.
 - Rust tests: 44 passed.
@@ -28,5 +30,5 @@ Build 120 packages version `1.0.0-7` as the cumulative carry-forward build.
 
 ## SHA256
 
-- MSI: `A9F0D03B410B9E9D8034723477559700E0957C8EC97A0EC4EE8932010C52C4A2`
-- Setup EXE: `587579B4275BDE8D6B83E38C2D1A39B78BABF3A47C33DA88830872790B9DE3BC`
+- MSI: `FC1B4ACD84DF40D00407B31DD13A073D6BB80B9C6E55B4C7FCE9A7C7BF7AFBE8`
+- Setup EXE: `12A490092C0DAFD05F9055C24ADBE6DA8D928D0F50DD9AE69DAFBD9E1B99DCD8`
