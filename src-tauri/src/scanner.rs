@@ -8,7 +8,8 @@ use crate::AppState;
 use crate::db::{MediaItem, MediaSource};
 use rusqlite::OptionalExtension;
 use crate::library_artifacts::{
-    is_generated_chapter_image_path, is_sidecar_artwork_image, sidecar_poster_path_for_video,
+    available_poster_path_for_media, is_artwork_image_for_nearby_media,
+    is_generated_chapter_image_path, is_sidecar_artwork_image,
 };
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -54,7 +55,9 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
 }
 
 fn should_index_path(path: &Path) -> bool {
-    !is_generated_chapter_image_path(path) && !is_sidecar_artwork_image(path)
+    !is_generated_chapter_image_path(path)
+        && !is_sidecar_artwork_image(path)
+        && !is_artwork_image_for_nearby_media(path)
 }
 
 fn title_from_filename(path: &Path) -> String {
@@ -261,10 +264,8 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
             title_from_filename(Path::new(file_path))
         };
         let poster_path = if should_extract_poster_for_scan(existing_poster_path.as_deref()) {
-            extract_embedded_poster(file_path).or_else(|| {
-                sidecar_poster_path_for_video(Path::new(file_path))
-                    .map(|path| path.to_string_lossy().to_string())
-            })
+            available_poster_path_for_media(Path::new(file_path))
+                .or_else(|| extract_embedded_poster(file_path))
         } else {
             None
         };

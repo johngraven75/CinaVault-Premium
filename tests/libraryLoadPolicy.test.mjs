@@ -48,7 +48,7 @@ test("hasMoreLibraryPages only continues when a full page was returned", () => {
   assert.equal(hasMoreLibraryPages(Array.from({ length: 239 })), false);
 });
 
-test("shouldAutoLoadNextLibraryPage keeps full-library loading moving after a full page", () => {
-  assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 240 })), true);
+test("shouldAutoLoadNextLibraryPage does not pull the whole library into the UI automatically", () => {
+  assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 240 })), false);
   assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 120 })), false);
 });

@@ -1,5 +1,5 @@
 use crate::{task_progress, AppState};
-use crate::library_artifacts::sidecar_poster_path_for_video;
+use crate::library_artifacts::available_poster_path_for_media;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -880,10 +880,10 @@ fn local_embedded_title_match(embedded_title: Option<&str>) -> Option<ProviderMa
 }
 
 fn local_sidecar_artwork_match(item: &LibraryItemRecord) -> Option<ProviderMatch> {
-    let poster_path = sidecar_poster_path_for_video(Path::new(&item.file_path))?;
+    let poster_path = available_poster_path_for_media(Path::new(&item.file_path))?;
 
     Some(ProviderMatch {
-        poster_path: Some(poster_path.to_string_lossy().to_string()),
+        poster_path: Some(poster_path),
         ..ProviderMatch::default()
     })
 }

@@ -40,7 +40,9 @@ export function hasMoreLibraryPages<T>(page: T[], pageSize = LIBRARY_PAGE_SIZE):
 }
 
 export function shouldAutoLoadNextLibraryPage<T>(page: T[], pageSize = LIBRARY_PAGE_SIZE): boolean {
-  return hasMoreLibraryPages(page, pageSize);
+  void page;
+  void pageSize;
+  return false;
 }
 
 export function mergeLibraryPage<T extends MediaIdentity>(current: T[], next: T[]): T[] {

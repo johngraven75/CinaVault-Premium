@@ -15,6 +15,7 @@ import {
   mergeLibraryPage,
   shouldAutoLoadNextLibraryPage,
 } from "../../utils/libraryLoadPolicy";
+import { pickBackdropImagePath, pickPosterImagePath } from "../../utils/mediaArtwork";
 import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
 import MeteorShower from "../effects/MeteorShower";
 import {
@@ -78,7 +79,7 @@ export default function HomeTab() {
       setAutoLoadingLibrary(shouldAutoLoadNextLibraryPage(items));
       addStatusMessage(
         hasMore
-          ? `Library opened quickly with ${items.length} newest items; loading the full library in the background`
+          ? `Library opened quickly with ${items.length} newest items; use Load Next ${LIBRARY_PAGE_SIZE} for more`
           : `Library loaded: ${items.length} items`,
       );
     } catch {
@@ -199,11 +200,11 @@ export default function HomeTab() {
         className="glass-panel p-0 relative overflow-hidden min-h-[270px]"
       >
         <MeteorShower meteorCount={28} />
-        {selectedMedia?.backdrop_path && (
+        {pickBackdropImagePath(selectedMedia) && (
           <div
             className="absolute inset-0 z-0 opacity-25"
             style={{
-              backgroundImage: `url(${resolveMediaImageSrc(selectedMedia.backdrop_path)})`,
+              backgroundImage: `url(${resolveMediaImageSrc(pickBackdropImagePath(selectedMedia))})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
             }}
@@ -225,8 +226,8 @@ export default function HomeTab() {
                 transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
               >
                 <div className="detail-face detail-face-front border border-cyan-300/20 bg-gradient-to-br from-cv-panel-2/95 to-black/80">
-                  {resolveMediaImageSrc(selectedMedia.poster_path) ? (
-                    <img src={resolveMediaImageSrc(selectedMedia.poster_path)} alt={selectedMedia.title} className="w-full h-full object-cover opacity-90" />
+                  {resolveMediaImageSrc(pickPosterImagePath(selectedMedia)) ? (
+                    <img src={resolveMediaImageSrc(pickPosterImagePath(selectedMedia))} alt={selectedMedia.title} className="w-full h-full object-cover opacity-90" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <Film size={46} className="text-cv-accent/60" />
@@ -541,11 +542,14 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 }
 
 function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle }) {
+  const posterSrc = resolveMediaImageSrc(pickPosterImagePath(item));
+  const backdropSrc = resolveMediaImageSrc(pickBackdropImagePath(item));
+
   if (styleMode === "disc") {
     return (
       <div className="w-full flex items-center justify-center py-2">
         <div className="relative w-full aspect-square max-w-[220px] rounded-full border border-cyan-300/20 bg-gradient-to-br from-cv-accent/20 to-cv-neon-3/10 overflow-hidden">
-          {resolveMediaImageSrc(item.backdrop_path) && <img src={resolveMediaImageSrc(item.backdrop_path)} alt={item.title} className="w-full h-full object-cover opacity-65" />}
+          {backdropSrc && <img src={backdropSrc} alt={item.title} className="w-full h-full object-cover opacity-65" />}
           <div className="absolute inset-0 bg-black/30" />
           <div className="absolute inset-[18%] rounded-full border border-white/20" />
           <div className="absolute inset-[40%] rounded-full bg-black/65 border border-white/20" />
@@ -560,8 +564,8 @@ function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle
   if (styleMode === "banner") {
     return (
       <div className="aspect-[16/9] relative bg-gradient-to-br from-cv-accent/10 to-cv-neon-3/10 flex items-center justify-center">
-        {resolveMediaImageSrc(item.backdrop_path) ? (
-          <img src={resolveMediaImageSrc(item.backdrop_path)} alt={item.title} className="w-full h-full object-cover" />
+        {backdropSrc ? (
+          <img src={backdropSrc} alt={item.title} className="w-full h-full object-cover" />
         ) : (
           <Film size={30} className="text-cv-subtext/20" />
         )}
@@ -577,8 +581,8 @@ function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle
 
   return (
     <div className="aspect-[2/3] relative bg-gradient-to-br from-cv-accent/10 to-cv-neon-3/10 flex items-center justify-center">
-      {resolveMediaImageSrc(item.poster_path) ? (
-        <img src={resolveMediaImageSrc(item.poster_path)} alt={item.title} className="w-full h-full object-cover" />
+      {posterSrc ? (
+        <img src={posterSrc} alt={item.title} className="w-full h-full object-cover" />
       ) : (
         <Film size={32} className="text-cv-subtext/20" />
       )}

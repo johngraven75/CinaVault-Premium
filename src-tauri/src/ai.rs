@@ -3,6 +3,7 @@ use tauri::State;
 use rusqlite::params;
 use crate::{task_progress, AppState};
 use crate::enrichment::{classify_library_item, LibraryItemRecord, SourceKind};
+use crate::library_artifacts::available_poster_path_for_media;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -342,21 +343,7 @@ async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value
 }
 
 fn detect_local_poster(file_path: &str) -> Option<String> {
-    let media = std::path::Path::new(file_path);
-    let parent = media.parent()?;
-    let stem = media.file_stem()?.to_string_lossy();
-    let candidates = [
-        parent.join("poster.jpg"),
-        parent.join("folder.jpg"),
-        parent.join("cover.jpg"),
-        parent.join(format!("{stem}.jpg")),
-        parent.join(format!("{stem}.png")),
-        parent.join(format!("{stem}-poster.jpg")),
-    ];
-    candidates
-        .iter()
-        .find(|p| p.exists())
-        .map(|p| p.to_string_lossy().to_string())
+    available_poster_path_for_media(std::path::Path::new(file_path))
 }
 
 fn chapter_dir_for(file_path: &str) -> Option<String> {

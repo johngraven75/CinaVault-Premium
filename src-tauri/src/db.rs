@@ -9,7 +9,7 @@ use tauri::State;
 use crate::AppState;
 use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
 #[cfg(test)]
-use crate::library_artifacts::sidecar_poster_path_for_video;
+use crate::library_artifacts::available_poster_path_for_media;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaItem {
@@ -372,7 +372,7 @@ impl Database {
         };
 
         for file_path in rows {
-            let Some(poster_path) = sidecar_poster_path_for_video(Path::new(&file_path)) else {
+            let Some(poster_path) = available_poster_path_for_media(Path::new(&file_path)) else {
                 continue;
             };
             self.conn.execute(
@@ -380,7 +380,7 @@ impl Database {
                  SET poster_path = ?1
                  WHERE file_path = ?2
                    AND (poster_path IS NULL OR trim(poster_path) = '')",
-                params![poster_path.to_string_lossy().to_string(), file_path],
+                params![poster_path, file_path],
             )?;
         }
 
@@ -1575,6 +1575,40 @@ mod tests {
         fs::create_dir_all(&media_dir).expect("media dir should be created");
         let video_path = media_dir.join("Movie.mp4");
         let poster_path = media_dir.join("Movie-poster.jpg");
+        fs::write(&video_path, b"video").expect("video should exist");
+        fs::write(&poster_path, b"poster").expect("poster should exist");
+
+        let db = Database::new(&db_path).expect("db should open");
+        let video = sample_item("Movie", &video_path.to_string_lossy());
+        db.add_media_item_data(&video)
+            .expect("video row should insert");
+
+        db.sync_sidecar_artwork_for_video_rows()
+            .expect("manual backfill should succeed");
+
+        let attached_poster = db
+            .conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                params![video.file_path],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("video row should load");
+        assert_eq!(attached_poster.as_deref(), Some(poster_path.to_string_lossy().as_ref()));
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn manual_available_poster_backfill_supports_same_stem_artwork() {
+        let db_path = test_db_path("manual-same-stem-backfill");
+        let media_dir =
+            std::env::temp_dir().join(format!("cinavault-manual-same-stem-db-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&media_dir).expect("media dir should be created");
+        let video_path = media_dir.join("Movie.mp4");
+        let poster_path = media_dir.join("Movie.jpg");
         fs::write(&video_path, b"video").expect("video should exist");
         fs::write(&poster_path, b"poster").expect("poster should exist");
 
