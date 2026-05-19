@@ -39,6 +39,10 @@ export function hasMoreLibraryPages<T>(page: T[], pageSize = LIBRARY_PAGE_SIZE):
   return page.length >= pageSize;
 }
 
+export function shouldAutoLoadNextLibraryPage<T>(page: T[], pageSize = LIBRARY_PAGE_SIZE): boolean {
+  return hasMoreLibraryPages(page, pageSize);
+}
+
 export function mergeLibraryPage<T extends MediaIdentity>(current: T[], next: T[]): T[] {
   const seen = new Set<string>();
   const merged: T[] = [];

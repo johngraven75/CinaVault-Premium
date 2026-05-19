@@ -13,6 +13,7 @@ import {
   hasMoreLibraryPages,
   LIBRARY_PAGE_SIZE,
   mergeLibraryPage,
+  shouldAutoLoadNextLibraryPage,
 } from "../../utils/libraryLoadPolicy";
 import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
 import MeteorShower from "../effects/MeteorShower";
@@ -45,6 +46,7 @@ export default function HomeTab() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [autoLoadingLibrary, setAutoLoadingLibrary] = useState(false);
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryHasMore, setLibraryHasMore] = useState(false);
   const [iconSize, setIconSize] = useState(148);
@@ -52,6 +54,7 @@ export default function HomeTab() {
   const [detailFlipped, setDetailFlipped] = useState(false);
   const [titleInitialFilter, setTitleInitialFilter] = useState<TitleInitialFilter>("all");
   const filterListRef = useRef<HTMLDivElement | null>(null);
+  const libraryLoadGenerationRef = useRef(0);
 
   const requestMediaPage = useCallback((offset: number) => {
     return invoke<MediaItem[]>(
@@ -61,33 +64,57 @@ export default function HomeTab() {
   }, [typeFilter]);
 
   const loadMedia = useCallback(async () => {
+    const generation = libraryLoadGenerationRef.current + 1;
+    libraryLoadGenerationRef.current = generation;
     setLoading(true);
+    setAutoLoadingLibrary(false);
     try {
       const items = await requestMediaPage(0);
+      if (generation !== libraryLoadGenerationRef.current) return;
+      const hasMore = hasMoreLibraryPages(items);
       setMediaItems(items);
       setLibraryOffset(items.length);
-      setLibraryHasMore(hasMoreLibraryPages(items));
-      addStatusMessage(`Library loaded: ${items.length} newest items (paged for performance)`);
+      setLibraryHasMore(hasMore);
+      setAutoLoadingLibrary(shouldAutoLoadNextLibraryPage(items));
+      addStatusMessage(
+        hasMore
+          ? `Library opened quickly with ${items.length} newest items; loading the full library in the background`
+          : `Library loaded: ${items.length} items`,
+      );
     } catch {
       // Dev mode — use demo data
+      if (generation !== libraryLoadGenerationRef.current) return;
       setMediaItems(DEMO_ITEMS);
       setLibraryOffset(DEMO_ITEMS.length);
       setLibraryHasMore(false);
+      setAutoLoadingLibrary(false);
+    } finally {
+      if (generation === libraryLoadGenerationRef.current) {
+        setLoading(false);
+      }
     }
-    setLoading(false);
   }, [addStatusMessage, requestMediaPage, setMediaItems]);
 
-  const loadMoreMedia = useCallback(async () => {
+  const loadMoreMedia = useCallback(async (automatic = false) => {
     if (loading || loadingMore || !libraryHasMore) return;
+    const generation = libraryLoadGenerationRef.current;
     setLoadingMore(true);
     try {
       const items = await requestMediaPage(libraryOffset);
+      if (generation !== libraryLoadGenerationRef.current) return;
       const mergedItems = mergeLibraryPage(mediaItems, items);
+      const hasMore = hasMoreLibraryPages(items);
       setMediaItems(mergedItems);
       setLibraryOffset(libraryOffset + items.length);
-      setLibraryHasMore(hasMoreLibraryPages(items));
-      addStatusMessage(`Loaded ${items.length} more library items (${mergedItems.length} loaded)`);
+      setLibraryHasMore(hasMore);
+      setAutoLoadingLibrary(automatic && shouldAutoLoadNextLibraryPage(items));
+      if (!hasMore) {
+        addStatusMessage(`Library fully loaded: ${mergedItems.length} items available`);
+      } else if (!automatic) {
+        addStatusMessage(`Loaded ${items.length} more library items (${mergedItems.length} loaded)`);
+      }
     } catch (e) {
+      setAutoLoadingLibrary(false);
       addStatusMessage(`Load more failed: ${e}`);
     } finally {
       setLoadingMore(false);
@@ -104,6 +131,12 @@ export default function HomeTab() {
   ]);
 
   useEffect(() => { loadMedia(); }, [loadMedia]);
+
+  useEffect(() => {
+    if (!autoLoadingLibrary || loading || loadingMore || !libraryHasMore) return;
+    const timer = window.setTimeout(() => void loadMoreMedia(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [autoLoadingLibrary, libraryHasMore, loading, loadingMore, loadMoreMedia]);
 
   useEffect(() => {
     let items = mediaItems.filter(isLibraryDisplayableMediaItem);
@@ -160,24 +193,27 @@ export default function HomeTab() {
   return (
     <div className="space-y-5 h-full">
       {/* Spotlight / Hero Section */}
-      {selectedMedia && (
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-panel p-0 relative overflow-hidden"
-        >
-          <MeteorShower meteorCount={50} />
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-panel p-0 relative overflow-hidden min-h-[270px]"
+      >
+        <MeteorShower meteorCount={28} />
+        {selectedMedia?.backdrop_path && (
           <div
-            className="absolute inset-0 opacity-35"
+            className="absolute inset-0 z-0 opacity-25"
             style={{
-              backgroundImage: selectedMedia.backdrop_path ? `url(${selectedMedia.backdrop_path})` : undefined,
+              backgroundImage: `url(${resolveMediaImageSrc(selectedMedia.backdrop_path)})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
             }}
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/75 via-black/55 to-black/80" />
+        )}
+        <div className="absolute inset-0 z-[2] bg-gradient-to-r from-black/55 via-black/5 to-black/55" />
 
-          <div className="relative z-10 p-5 flex flex-col lg:flex-row gap-6">
+        <div className="relative z-10 p-5 flex min-h-[270px] flex-col lg:flex-row gap-6">
+          {selectedMedia ? (
+            <>
             <button
               onClick={() => setDetailFlipped(v => !v)}
               className="detail-card-stage shrink-0 text-left"
@@ -245,9 +281,24 @@ export default function HomeTab() {
                 </button>
               </div>
             </div>
-          </div>
-        </motion.div>
-      )}
+            </>
+          ) : (
+            <div className="flex min-h-[230px] w-full flex-col justify-end gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="max-w-xl">
+                <div className="mb-2 text-sm font-semibold text-cv-accent/90">CinaVault Premium</div>
+                <h2 className="mb-2 text-3xl font-bold text-white lg:text-4xl">Library</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-cv-subtext">
+                <span className="rounded bg-black/45 px-3 py-1.5">{mediaItems.length} loaded</span>
+                <span className="rounded bg-black/45 px-3 py-1.5">{filteredItems.length} visible</span>
+                {autoLoadingLibrary && (
+                  <span className="rounded bg-cv-accent/15 px-3 py-1.5 text-cv-accent">Still loading</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
 
       {/* Shelf Tabs + Controls */}
       <div className="glass-panel p-3">
@@ -442,7 +493,16 @@ export default function HomeTab() {
         </div>
       )}
 
-      {libraryHasMore && !loading && (
+      {autoLoadingLibrary && !loading && (
+        <div className="flex justify-center">
+          <div className="cv-btn cv-btn-secondary pointer-events-none">
+            <RefreshCw size={14} className="animate-spin" />
+            Loading full library in background ({mediaItems.length} loaded)
+          </div>
+        </div>
+      )}
+
+      {libraryHasMore && !loading && !autoLoadingLibrary && (
         <div className="flex justify-center">
           <button
             onClick={() => void loadMoreMedia()}

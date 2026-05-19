@@ -6,6 +6,7 @@ import {
   hasMoreLibraryPages,
   LIBRARY_PAGE_SIZE,
   mergeLibraryPage,
+  shouldAutoLoadNextLibraryPage,
 } from "../src/utils/libraryLoadPolicy.ts";
 
 test("buildLibraryPageRequest bounds the initial all-media library load", () => {
@@ -45,4 +46,9 @@ test("mergeLibraryPage appends unique media rows across pages", () => {
 test("hasMoreLibraryPages only continues when a full page was returned", () => {
   assert.equal(hasMoreLibraryPages(Array.from({ length: 240 })), true);
   assert.equal(hasMoreLibraryPages(Array.from({ length: 239 })), false);
+});
+
+test("shouldAutoLoadNextLibraryPage keeps full-library loading moving after a full page", () => {
+  assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 240 })), true);
+  assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 120 })), false);
 });

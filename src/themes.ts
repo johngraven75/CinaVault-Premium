@@ -9,13 +9,13 @@ export interface ThemePreset {
 export const THEME_PRESETS: ThemePreset[] = [
   {
     id: "vidhub_flagship",
-    name: "Vidhub Flagship",
+    name: "CinaVault Quantum",
     colors: {
-      bg: "#04070f", panel: "rgba(11, 20, 34, 0.86)", "panel-2": "rgba(16, 28, 46, 0.78)",
-      "panel-3": "rgba(24, 36, 58, 0.66)", text: "#eaf2ff", subtext: "#89a1bd",
-      accent: "#00d4ff", "accent-2": "#00a8d6", "accent-3": "#007ea6",
-      gold: "#ffb547", "row-a": "rgba(12, 22, 36, 0.65)", "row-b": "rgba(15, 27, 43, 0.65)",
-      danger: "#ff4d6d", "neon-1": "#46f6ff", "neon-2": "#00d4ff", "neon-3": "#00a8d6",
+      bg: "#050711", panel: "rgba(8, 18, 31, 0.9)", "panel-2": "rgba(13, 27, 43, 0.82)",
+      "panel-3": "rgba(19, 36, 56, 0.72)", text: "#f4fbff", subtext: "#a7c8db",
+      accent: "#00eaff", "accent-2": "#ff7a3d", "accent-3": "#92ff68",
+      gold: "#ffe66d", "row-a": "rgba(6, 18, 32, 0.72)", "row-b": "rgba(12, 30, 48, 0.68)",
+      danger: "#ff355f", "neon-1": "#f7fbff", "neon-2": "#00eaff", "neon-3": "#ff4db8",
     },
   },
   {
