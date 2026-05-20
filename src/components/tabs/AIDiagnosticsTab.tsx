@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { LibraryEnrichmentResult, MediaItem, useAppStore } from "../../store/appStore";
 import { buildLibraryPageRequest } from "../../utils/libraryLoadPolicy";
+import { shouldRefreshLibraryAfterMetadataResult } from "../../utils/metadataResults";
 import AIVisualizer from "../effects/AIVisualizer";
 import {
   formatMetadataTaskProgress,
@@ -198,12 +199,16 @@ export default function AIDiagnosticsTab() {
       setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       if (isLibraryEnrichmentResult(result)) {
         addStatusMessage(`${action.label}: ${result.metadata_items_enriched || 0} items enriched, ${result.files_renamed || 0} files renamed`);
-        await refreshLoadedLibraryPage();
+      } else if (result?.type === "adult_metadata_gather") {
+        const providerErrors = Array.isArray(result.provider_errors) ? result.provider_errors.length : 0;
+        addStatusMessage(`${action.label}: ${result.metadata_items_enriched || 0} items enriched, ${result.posters_updated || 0} posters updated${providerErrors ? `, ${providerErrors} provider errors` : ""}`);
       } else {
         addStatusMessage(`${action.label} complete`);
-        if (action.label === "Apply Embedded Titles") {
-          await refreshLoadedLibraryPage();
-        }
+      }
+      if (shouldRefreshLibraryAfterMetadataResult(result)) {
+        await refreshLoadedLibraryPage();
+      } else if (action.label === "Apply Embedded Titles") {
+        await refreshLoadedLibraryPage();
       }
       if (action.progressTask) {
         showFinishedProgress(action.label);

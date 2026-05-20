@@ -327,18 +327,130 @@ async fn check_sources(state: State<'_, AppState>) -> Result<serde_json::Value, 
     }))
 }
 
+fn provider_live_check_supported(provider: &str) -> bool {
+    matches!(normalize_provider_key(provider).as_str(), "tmdb" | "omdb" | "stashdb" | "tpdb")
+}
+
+async fn check_single_provider_key(
+    client: &reqwest::Client,
+    provider: &str,
+    api_key: &str,
+) -> (bool, String) {
+    match normalize_provider_key(provider).as_str() {
+        "tmdb" => {
+            let url = format!("https://api.themoviedb.org/3/configuration?api_key={api_key}");
+            match client.get(url).send().await {
+                Ok(resp) => (resp.status().is_success(), format!("http_{}", resp.status().as_u16())),
+                Err(err) => (false, err.to_string()),
+            }
+        }
+        "omdb" => {
+            let url = format!("https://www.omdbapi.com/?apikey={api_key}&s=test");
+            match client.get(url).send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let data = resp.json::<serde_json::Value>().await.unwrap_or_default();
+                    let invalid_key = data
+                        .get("Error")
+                        .and_then(|v| v.as_str())
+                        .map(|v| v.to_lowercase().contains("invalid api key"))
+                        .unwrap_or(false);
+                    (status.is_success() && !invalid_key, format!("http_{}", status.as_u16()))
+                }
+                Err(err) => (false, err.to_string()),
+            }
+        }
+        "stashdb" => {
+            let body = serde_json::json!({ "query": "{ __typename }" });
+            match client
+                .post("https://stashdb.org/graphql")
+                .header("Content-Type", "application/json")
+                .header("ApiKey", api_key)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let data = resp.json::<serde_json::Value>().await.unwrap_or_default();
+                    (status.is_success() && data.get("errors").is_none(), format!("http_{}", status.as_u16()))
+                }
+                Err(err) => (false, err.to_string()),
+            }
+        }
+        "tpdb" => {
+            match client
+                .get("https://api.theporndb.net/scenes?parse=test&hash=&year=")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Accept", "application/json")
+                .header("User-Agent", "CinaVault/1.0")
+                .send()
+                .await
+            {
+                Ok(resp) => (resp.status().is_success(), format!("http_{}", resp.status().as_u16())),
+                Err(err) => (false, err.to_string()),
+            }
+        }
+        _ => (false, "provider_integration_pending".to_string()),
+    }
+}
+
 async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db.conn.prepare("SELECT provider FROM api_keys").map_err(|e| e.to_string())?;
-    let providers: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+    let provider_rows: Vec<(String, String)> = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let mut stmt = db.conn.prepare("SELECT provider, api_key FROM api_keys").map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut providers = Vec::new();
+    let mut valid = 0usize;
+    let mut invalid = 0usize;
+    let mut unsupported = 0usize;
+
+    for (provider, key) in provider_rows {
+        let normalized = normalize_provider_key(&provider);
+        let key_present = !key.trim().is_empty();
+        let live_supported = provider_live_check_supported(&normalized);
+        let (is_valid, status) = if key_present && live_supported {
+            check_single_provider_key(&client, &normalized, &key).await
+        } else if key_present {
+            (false, "provider_integration_pending".to_string())
+        } else {
+            (false, "missing_api_key".to_string())
+        };
+
+        if is_valid {
+            valid += 1;
+        } else if live_supported {
+            invalid += 1;
+        } else {
+            unsupported += 1;
+        }
+
+        providers.push(serde_json::json!({
+            "provider": normalized,
+            "saved_as": provider,
+            "key_present": key_present,
+            "live_check_supported": live_supported,
+            "valid": is_valid,
+            "status": status,
+        }));
+    }
 
     Ok(serde_json::json!({
         "type": "provider_check",
         "configured_providers": providers,
         "total_configured": providers.len(),
+        "valid": valid,
+        "invalid": invalid,
+        "unsupported": unsupported,
     }))
 }
 
@@ -435,6 +547,45 @@ fn parse_year_prefix(value: Option<&str>) -> Option<i32> {
     text[..4].parse::<i32>().ok()
 }
 
+fn tpdb_search_url(query: &str) -> String {
+    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
+    format!("https://api.theporndb.net/scenes?parse={encoded}&hash=&year=")
+}
+
+fn tpdb_scene_to_remote_metadata(scene: &serde_json::Value) -> Option<RemoteMetadata> {
+    let title = non_empty_string(scene.get("title").and_then(|v| v.as_str()));
+    let overview = non_empty_string(scene.get("description").and_then(|v| v.as_str()));
+    let poster_path = non_empty_string(scene.get("poster").and_then(|v| v.as_str()));
+    let year = parse_year_prefix(scene.get("date").and_then(|v| v.as_str()));
+    let genre = scene
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| tag.get("name").and_then(|v| v.as_str()))
+                .filter(|name| !name.trim().is_empty())
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|g| !g.trim().is_empty());
+
+    if title.is_none() && overview.is_none() && poster_path.is_none() {
+        return None;
+    }
+
+    Some(RemoteMetadata {
+        title,
+        overview,
+        poster_path,
+        year,
+        rating: None,
+        genre,
+        tmdb_id: None,
+        imdb_id: None,
+    })
+}
+
 fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
     match current_poster.map(str::trim).filter(|v| !v.is_empty()) {
         None => true,
@@ -450,6 +601,32 @@ fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
                 || lower.ends_with("\\folder.jpg")
         }
     }
+}
+
+async fn fetch_tpdb_metadata(
+    client: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+) -> Result<Option<RemoteMetadata>, String> {
+    let data = client
+        .get(tpdb_search_url(query))
+        .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("User-Agent", "CinaVault/1.0")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())?;
+    let first = data
+        .get("data")
+        .and_then(|v| v.as_array())
+        .and_then(|items| items.first());
+
+    Ok(first.and_then(tpdb_scene_to_remote_metadata))
 }
 
 async fn fetch_tmdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
@@ -621,7 +798,7 @@ async fn gather_adult_metadata_assets(state: State<'_, AppState>) -> Result<serd
 }
 
 async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let configured_adult_providers: Vec<String> = {
+    let (configured_adult_providers, unsupported_adult_providers): (Vec<String>, Vec<String>) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db.conn.prepare("SELECT provider FROM api_keys")
             .map_err(|e| e.to_string())?;
@@ -637,7 +814,17 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             }
         }
 
-        providers.into_iter().collect()
+        let mut configured = Vec::new();
+        let mut unsupported = Vec::new();
+        for provider in providers {
+            if matches!(provider.as_str(), "tpdb" | "stashdb") {
+                configured.push(provider);
+            } else {
+                unsupported.push(provider);
+            }
+        }
+
+        (configured, unsupported)
     };
 
     let provider_keys: HashMap<String, String> = {
@@ -662,6 +849,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     let tmdb_key = provider_keys.get("tmdb").cloned();
     let omdb_key = provider_keys.get("omdb").cloned();
     let stashdb_key = provider_keys.get("stashdb").cloned();
+    let tpdb_key = provider_keys.get("tpdb").cloned();
 
     let media_items: Vec<(
         i64,
@@ -742,6 +930,8 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     let mut skipped_missing_files = 0usize;
     let mut skipped_non_video_items = 0usize;
     let mut errors: Vec<String> = Vec::new();
+    let mut provider_errors: Vec<String> = Vec::new();
+    let mut disabled_providers: BTreeSet<String> = BTreeSet::new();
     let client = reqwest::Client::new();
     let mut progress = task_progress::MetadataTaskGuard::start(
         "adult_metadata_gather",
@@ -841,11 +1031,23 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             || final_tmdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true)
             || final_imdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true);
 
-        if needs_remote_metadata && (stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some()) {
+        if needs_remote_metadata && (tpdb_key.is_some() || stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some()) {
             let query_title = extract_embedded_title(file_path)
                 .filter(|embedded| !embedded.trim().is_empty())
                 .unwrap_or_else(|| final_title.clone());
 
+            let tpdb_meta = if let Some(key) = tpdb_key.as_deref().filter(|_| !disabled_providers.contains("tpdb")) {
+                match fetch_tpdb_metadata(&client, key, &query_title).await {
+                    Ok(result) => result,
+                    Err(err) => {
+                        provider_errors.push(format!("tpdb: disabled for this run after provider error: {err}"));
+                        disabled_providers.insert("tpdb".to_string());
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             let stashdb_meta = if let Some(key) = stashdb_key.as_deref() {
                 fetch_stashdb_metadata(&client, key, &query_title).await
             } else {
@@ -861,8 +1063,9 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             } else {
                 None
             };
-            let stash_then_tmdb = merge_remote_metadata(stashdb_meta, tmdb_meta);
-            let remote_meta = merge_remote_metadata(stash_then_tmdb, omdb_meta);
+            let tpdb_then_stash = merge_remote_metadata(tpdb_meta, stashdb_meta);
+            let adult_then_tmdb = merge_remote_metadata(tpdb_then_stash, tmdb_meta);
+            let remote_meta = merge_remote_metadata(adult_then_tmdb, omdb_meta);
 
             if let Some(meta) = remote_meta {
                 let mut changed_fields = 0usize;
@@ -990,6 +1193,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "type": "adult_metadata_gather",
         "status": "success",
         "configured_adult_providers": configured_adult_providers,
+        "unsupported_adult_providers": unsupported_adult_providers,
         "provider_count": configured_adult_providers.len(),
         "items_scanned": media_items.len(),
         "items_reclassified_as_adult": items_reclassified_as_adult,
@@ -1004,7 +1208,8 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "items_needing_metadata": items_needing_metadata,
         "skipped_missing_files": skipped_missing_files,
         "skipped_non_video_items": skipped_non_video_items,
-        "note": "Adult metadata gather now supports legacy provider-key aliases, uses StashDB/TMDb/OMDb metadata when available, upgrades local poster placeholders to remote posters, writes sidecar files, and generates chapter images without a hard item cap.",
+        "provider_errors": provider_errors,
+        "note": "Adult metadata gather now supports legacy provider-key aliases, uses ThePornDB/StashDB/TMDb/OMDb metadata when available, reports provider errors, upgrades local poster placeholders to remote posters, writes sidecar files, and generates chapter images without a hard item cap.",
         "errors": errors,
     }))
 }
@@ -1018,6 +1223,8 @@ mod tests {
         metadata_sidecar_path,
         normalize_adult_provider_key,
         normalize_provider_key,
+        provider_live_check_supported,
+        tpdb_scene_to_remote_metadata,
         AiQueryRoute,
         should_prefer_remote_poster,
     };
@@ -1078,6 +1285,35 @@ mod tests {
         assert_eq!(normalize_provider_key("themoviedb_images"), "tmdb");
         assert_eq!(normalize_provider_key("tmdb_images"), "tmdb");
         assert_eq!(normalize_provider_key("theporndb"), "tpdb");
+    }
+
+    #[test]
+    fn live_provider_checks_cover_real_metadata_fetchers_only() {
+        assert!(provider_live_check_supported("theporndb"));
+        assert!(provider_live_check_supported("stashdb"));
+        assert!(!provider_live_check_supported("phoenixadult"));
+    }
+
+    #[test]
+    fn parses_theporndb_scene_metadata_with_poster() {
+        let scene = serde_json::json!({
+            "title": "Sample Scene",
+            "description": "Scene overview",
+            "poster": "https://img.example/poster.jpg",
+            "date": "2024-03-14",
+            "tags": [
+                { "name": "Featured" },
+                { "name": "HD" }
+            ]
+        });
+
+        let metadata = tpdb_scene_to_remote_metadata(&scene).expect("scene should parse");
+
+        assert_eq!(metadata.title.as_deref(), Some("Sample Scene"));
+        assert_eq!(metadata.overview.as_deref(), Some("Scene overview"));
+        assert_eq!(metadata.poster_path.as_deref(), Some("https://img.example/poster.jpg"));
+        assert_eq!(metadata.year, Some(2024));
+        assert_eq!(metadata.genre.as_deref(), Some("Featured, HD"));
     }
 
     #[test]

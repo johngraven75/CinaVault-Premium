@@ -201,7 +201,7 @@ fn is_known_provider(provider: &str) -> bool {
 }
 
 fn provider_has_live_key_check(provider: &str) -> bool {
-    matches!(provider, "tmdb" | "omdb")
+    matches!(provider, "tmdb" | "omdb" | "stashdb" | "tpdb")
 }
 
 fn should_assume_key_validity(provider: &str) -> bool {
@@ -251,6 +251,25 @@ pub async fn fetch_metadata(
                 percent_encoding::utf8_percent_encode(&query, percent_encoding::NON_ALPHANUMERIC)
             );
             let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+            let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            Ok(data)
+        }
+        "tpdb" => {
+            let key = api_key.ok_or("ThePornDB API key required")?;
+            let url = format!(
+                "https://api.theporndb.net/scenes?parse={}&hash=&year=",
+                percent_encoding::utf8_percent_encode(&query, percent_encoding::NON_ALPHANUMERIC)
+            );
+            let resp = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {key}"))
+                .header("Accept", "application/json")
+                .header("User-Agent", "CinaVault/1.0")
+                .send()
+                .await
+                .map_err(|e| e.to_string())?
+                .error_for_status()
+                .map_err(|e| e.to_string())?;
             let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             Ok(data)
         }
@@ -349,7 +368,39 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
+            let status = resp.status();
+            let data = resp.json::<serde_json::Value>().await.unwrap_or_default();
+            let invalid_key = data
+                .get("Error")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_lowercase().contains("invalid api key"))
+                .unwrap_or(false);
+            status.is_success() && !invalid_key
+        }
+        "tpdb" => {
+            let resp = client
+                .get("https://api.theporndb.net/scenes?parse=test&hash=&year=")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Accept", "application/json")
+                .header("User-Agent", "CinaVault/1.0")
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
             resp.status().is_success()
+        }
+        "stashdb" => {
+            let body = serde_json::json!({ "query": "{ __typename }" });
+            let resp = client
+                .post("https://stashdb.org/graphql")
+                .header("Content-Type", "application/json")
+                .header("ApiKey", api_key)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            let status = resp.status();
+            let data = resp.json::<serde_json::Value>().await.unwrap_or_default();
+            status.is_success() && data.get("errors").is_none()
         }
         _ => should_assume_key_validity(provider.as_str()),
     };
@@ -362,7 +413,7 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
 
 #[cfg(test)]
 mod tests {
-    use super::{is_known_provider, normalize_provider_key, should_assume_key_validity};
+    use super::{is_known_provider, normalize_provider_key, provider_has_live_key_check, should_assume_key_validity};
 
     #[test]
     fn known_provider_is_detected() {
@@ -392,6 +443,10 @@ mod tests {
     #[test]
     fn known_provider_with_live_check_is_not_assumed_valid() {
         assert!(!should_assume_key_validity("tmdb"));
+        assert!(provider_has_live_key_check("stashdb"));
+        assert!(!should_assume_key_validity("stashdb"));
+        assert!(provider_has_live_key_check("tpdb"));
+        assert!(!should_assume_key_validity("tpdb"));
     }
 }
 
