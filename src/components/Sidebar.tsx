@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import {
   Home, FolderOpen, Download, Tv, Server, Shield, Sliders,
-  Cloud, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Router
+  Cloud, Copy, Puzzle, Brain, Settings, ChevronLeft, ChevronRight, Router
 } from "lucide-react";
 
 interface NavItem {
@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "remote", label: "Remote Access", icon: Router },
   { id: "advanced", label: "Advanced", icon: Sliders },
   { id: "cloud", label: "Cloud & NAS", icon: Cloud },
+  { id: "duplicates", label: "Duplicate Finder", icon: Copy },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "ai", label: "AI Diagnostics", icon: Brain },
   { id: "settings", label: "Settings", icon: Settings },

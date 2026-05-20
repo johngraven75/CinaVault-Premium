@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
+import { VirtuosoGrid } from "react-virtuoso";
 import { useAppStore, MediaItem } from "../../store/appStore";
 import {
   filterItemsByTitleInitial,
@@ -79,7 +80,7 @@ export default function HomeTab() {
       setAutoLoadingLibrary(shouldAutoLoadNextLibraryPage(items));
       addStatusMessage(
         hasMore
-          ? `Library opened quickly with ${items.length} newest items; use Load Next ${LIBRARY_PAGE_SIZE} for more`
+          ? `Library opened quickly with ${items.length} newest items; loading the rest in the background`
           : `Library loaded: ${items.length} items`,
       );
     } catch {
@@ -428,47 +429,49 @@ export default function HomeTab() {
           <p className="text-sm text-cv-subtext">Add media sources and scan to populate your library</p>
         </div>
       ) : libraryView === "card" ? (
-        <div
-          className="grid gap-3"
-          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))` }}
-        >
-          {filteredItems.map((item, i) => {
-            const className = `media-card glass-panel-2 rounded-xl overflow-hidden group ${cardStyle === "disc" ? "p-3" : ""}`;
-            if (filteredItems.length > 500) {
-              return (
-                <div key={item.id || i} onClick={() => void handleMediaClick(item)} className={className}>
-                  <CardVisual item={item} styleMode={cardStyle} />
-                  <div className="p-2.5">
-                    <h4 className="text-xs font-semibold truncate">{item.title}</h4>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
-                      {item.year && <span>{item.year}</span>}
-                      <span className="capitalize">{item.media_type}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-            return (
-              <motion.div
-                key={item.id || i}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(i * 0.03, 0.5) }}
-                onClick={() => void handleMediaClick(item)}
-                className={className}
-              >
-                <CardVisual item={item} styleMode={cardStyle} />
-                <div className="p-2.5">
-                  <h4 className="text-xs font-semibold truncate">{item.title}</h4>
-                  <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
-                    {item.year && <span>{item.year}</span>}
-                    <span className="capitalize">{item.media_type}</span>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+        filteredItems.length > 700 ? (
+          <div
+            className="library-virtual-grid-shell"
+            style={{
+              height: "calc(100vh - 330px)",
+              minHeight: 520,
+              "--library-card-min-width": `${cardMinWidth}px`,
+            } as React.CSSProperties}
+          >
+            <VirtuosoGrid
+              style={{ height: "100%" }}
+              totalCount={filteredItems.length}
+              overscan={600}
+              listClassName="library-virtual-grid-list"
+              itemClassName="library-virtual-grid-item"
+              itemContent={(i) => (
+                <LibraryCard
+                  item={filteredItems[i]}
+                  index={i}
+                  styleMode={cardStyle}
+                  animated={false}
+                  onSelect={handleMediaClick}
+                />
+              )}
+            />
+          </div>
+        ) : (
+          <div
+            className="grid gap-3"
+            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))` }}
+          >
+            {filteredItems.map((item, i) => (
+              <LibraryCard
+                key={item.id || item.file_path || i}
+                item={item}
+                index={i}
+                styleMode={cardStyle}
+                animated={true}
+                onSelect={handleMediaClick}
+              />
+            ))}
+          </div>
+        )
       ) : (
         <div className="glass-panel rounded-xl overflow-hidden">
           <div className="grid grid-cols-[1fr_100px_80px_80px_80px] gap-2 px-4 py-2 border-b border-white/5 text-[10px] font-semibold text-cv-subtext uppercase tracking-wider">
@@ -538,6 +541,54 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
       <span className="text-cv-subtext">{label}</span>
       <span className="text-cv-text">{value}</span>
     </div>
+  );
+}
+
+function LibraryCard({
+  item,
+  index,
+  styleMode,
+  animated,
+  onSelect,
+}: {
+  item: MediaItem;
+  index: number;
+  styleMode: CardStyle;
+  animated: boolean;
+  onSelect: (item: MediaItem) => Promise<void>;
+}) {
+  const className = `media-card glass-panel-2 rounded-xl overflow-hidden group ${styleMode === "disc" ? "p-3" : ""}`;
+  const body = (
+    <>
+      <CardVisual item={item} styleMode={styleMode} />
+      <div className="p-2.5">
+        <h4 className="text-xs font-semibold truncate">{item.title}</h4>
+        <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
+          {item.year && <span>{item.year}</span>}
+          <span className="capitalize">{item.media_type}</span>
+        </div>
+      </div>
+    </>
+  );
+
+  if (!animated) {
+    return (
+      <div onClick={() => void onSelect(item)} className={className}>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: Math.min(index * 0.03, 0.5) }}
+      onClick={() => void onSelect(item)}
+      className={className}
+    >
+      {body}
+    </motion.div>
   );
 }
 

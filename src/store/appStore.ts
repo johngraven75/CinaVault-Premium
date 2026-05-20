@@ -4,7 +4,8 @@ import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 
 export type TabId =
   | "home" | "sources" | "downloads" | "livetv" | "server"
-  | "security" | "remote" | "advanced" | "cloud" | "plugins" | "ai" | "settings";
+  | "security" | "remote" | "advanced" | "cloud" | "duplicates"
+  | "plugins" | "ai" | "settings";
 
 export interface MediaItem {
   id?: number;

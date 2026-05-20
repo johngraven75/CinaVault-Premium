@@ -16,6 +16,7 @@ import SecurityTab from "./components/tabs/SecurityTab";
 import RemoteAccessTab from "./components/tabs/RemoteAccessTab";
 import AdvancedTab from "./components/tabs/AdvancedTab";
 import CloudNASTab from "./components/tabs/CloudNASTab";
+import DuplicateToolsTab from "./components/tabs/DuplicateToolsTab";
 import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
@@ -32,6 +33,7 @@ const TAB_COMPONENTS: Record<TabId, React.FC> = {
   remote: RemoteAccessTab,
   advanced: AdvancedTab,
   cloud: CloudNASTab,
+  duplicates: DuplicateToolsTab,
   plugins: PluginsTab,
   ai: AIDiagnosticsTab,
   settings: SettingsTab,
@@ -266,7 +268,7 @@ function StatusTicker() {
       <div className="flex-1 overflow-hidden">
         <div className="truncate text-cv-subtext/60">{latest}</div>
       </div>
-      <div className="shrink-0 text-cv-subtext/40">CinaVault Premium Build 121</div>
+      <div className="shrink-0 text-cv-subtext/40">CinaVault Premium Build 123</div>
     </div>
   );
 }

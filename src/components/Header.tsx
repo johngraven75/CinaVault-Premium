@@ -9,7 +9,7 @@ const TAB_LABELS: Record<TabId, string> = {
   home: "Library", sources: "Media Sources", downloads: "Downloads",
   livetv: "Live TV", server: "Server", security: "Security",
   remote: "Remote Access",
-  advanced: "Advanced", cloud: "Cloud & NAS", plugins: "Plugins & Metadata",
+  advanced: "Advanced", cloud: "Cloud & NAS", duplicates: "Duplicate Finder", plugins: "Plugins & Metadata",
   ai: "AI Diagnostics", settings: "Settings",
 };
 

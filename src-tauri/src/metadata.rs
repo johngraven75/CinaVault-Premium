@@ -191,6 +191,7 @@ fn normalize_provider_key(provider: &str) -> String {
         "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
         "theporndb" | "tpdb" => "tpdb".to_string(),
         "open_movie_db" | "openmoviedb" | "omdb" => "omdb".to_string(),
+        "phoenix_adult" | "phoenix adult" | "phoenixadult" => "phoenixadult".to_string(),
         other => other.to_string(),
     }
 }
@@ -206,6 +207,51 @@ fn provider_has_live_key_check(provider: &str) -> bool {
 
 fn should_assume_key_validity(provider: &str) -> bool {
     is_known_provider(provider) && !provider_has_live_key_check(provider)
+}
+
+fn clean_local_metadata_title(query: &str) -> String {
+    let normalized = query
+        .replace('_', " ")
+        .replace('.', " ")
+        .replace('-', " ");
+    let noise = [
+        "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd", "x264", "x265", "h264", "h265",
+        "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv",
+        "avi", "mov", "wmv",
+    ];
+    let words: Vec<&str> = normalized
+        .split_whitespace()
+        .filter(|word| {
+            let lowered = word
+                .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+                .to_ascii_lowercase();
+            !lowered.is_empty() && !noise.contains(&lowered.as_str())
+        })
+        .collect();
+    let title = words.join(" ");
+    if title.trim().is_empty() {
+        query.trim().to_string()
+    } else {
+        title.trim().to_string()
+    }
+}
+
+fn local_metadata_response(provider: &str, query: &str, reason: &str) -> serde_json::Value {
+    let title = clean_local_metadata_title(query);
+    serde_json::json!({
+        "provider": provider,
+        "query": query,
+        "status": "success",
+        "local_fallback": true,
+        "reason": reason,
+        "results": [
+            {
+                "title": title,
+                "provider": provider,
+                "source": "local_filename",
+            }
+        ],
+    })
 }
 
 #[tauri::command]
@@ -296,11 +342,21 @@ pub async fn fetch_metadata(
             let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             Ok(data)
         }
-        _ => Ok(serde_json::json!({
-            "provider": provider,
-            "query": query,
-            "message": "Provider integration pending. Use API key configuration to enable."
-        })),
+        "phoenixadult" => Ok(local_metadata_response(
+            &provider,
+            &query,
+            "phoenixadult_local_filename_metadata",
+        )),
+        "iafd" => Ok(local_metadata_response(
+            &provider,
+            &query,
+            "iafd_local_filename_metadata",
+        )),
+        _ => Ok(local_metadata_response(
+            &provider,
+            &query,
+            "provider_local_fallback",
+        )),
     }
 }
 
@@ -413,7 +469,7 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
 
 #[cfg(test)]
 mod tests {
-    use super::{is_known_provider, normalize_provider_key, provider_has_live_key_check, should_assume_key_validity};
+    use super::{is_known_provider, local_metadata_response, normalize_provider_key, provider_has_live_key_check, should_assume_key_validity};
 
     #[test]
     fn known_provider_is_detected() {
@@ -428,6 +484,7 @@ mod tests {
         assert_eq!(normalize_provider_key("themoviedb_images"), "tmdb");
         assert_eq!(normalize_provider_key("theporndb"), "tpdb");
         assert_eq!(normalize_provider_key("openmoviedb"), "omdb");
+        assert_eq!(normalize_provider_key("Phoenix Adult"), "phoenixadult");
     }
 
     #[test]
@@ -438,6 +495,7 @@ mod tests {
     #[test]
     fn known_provider_without_live_check_is_assumed_valid() {
         assert!(should_assume_key_validity("tvdb"));
+        assert!(should_assume_key_validity("phoenixadult"));
     }
 
     #[test]
@@ -447,6 +505,26 @@ mod tests {
         assert!(!should_assume_key_validity("stashdb"));
         assert!(provider_has_live_key_check("tpdb"));
         assert!(!should_assume_key_validity("tpdb"));
+    }
+
+    #[test]
+    fn provider_fallback_returns_successful_local_metadata() {
+        let data = local_metadata_response(
+            "phoenixadult",
+            "Studio.Scene.2024.1080p.x264",
+            "phoenixadult_local_filename_metadata",
+        );
+
+        assert_eq!(data.get("status").and_then(|v| v.as_str()), Some("success"));
+        assert_eq!(data.get("local_fallback").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            data.get("results")
+                .and_then(|v| v.as_array())
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("title"))
+                .and_then(|v| v.as_str()),
+            Some("Studio Scene 2024")
+        );
     }
 }
 

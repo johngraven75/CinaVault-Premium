@@ -88,6 +88,10 @@ export default function MediaSourcesTab() {
     setSavingOption(null);
   };
 
+  const sourcePathPlaceholder = newSourceType === "synology_quickconnect"
+    ? "synology_quickconnect://username@quickconnect-id/video"
+    : "C:\\Movies or /media/library";
+
   return (
     <div className="space-y-5">
       {/* Add Source Panel */}
@@ -102,7 +106,7 @@ export default function MediaSourcesTab() {
               type="text"
               value={newSourcePath}
               onChange={e => setNewSourcePath(e.target.value)}
-              placeholder="C:\Movies or /media/library"
+              placeholder={sourcePathPlaceholder}
               className="cv-input"
             />
           </div>
@@ -122,6 +126,7 @@ export default function MediaSourcesTab() {
               <option value="folder">Folder</option>
               <option value="drive">Drive</option>
               <option value="file">File</option>
+              <option value="synology_quickconnect">Synology QuickConnect</option>
             </select>
           </div>
         </div>

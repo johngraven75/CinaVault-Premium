@@ -1,6 +1,7 @@
 // CinaVault Premium — AI Diagnostics Module (HuggingFace Inference)
 use tauri::State;
 use rusqlite::params;
+use sha2::{Digest, Sha256};
 use crate::{task_progress, AppState};
 use crate::enrichment::{classify_library_item, LibraryItemRecord, SourceKind};
 use crate::library_artifacts::available_poster_path_for_media;
@@ -72,6 +73,7 @@ pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bo
 fn normalize_adult_provider_key(provider: &str) -> String {
     match provider.trim().to_lowercase().as_str() {
         "theporndb" | "tpdb" => "tpdb".to_string(),
+        "phoenix_adult" | "phoenix adult" | "phoenixadult" => "phoenixadult".to_string(),
         other => other.to_string(),
     }
 }
@@ -81,6 +83,7 @@ fn normalize_provider_key(provider: &str) -> String {
         "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
         "theporndb" | "tpdb" => "tpdb".to_string(),
         "open_movie_db" | "openmoviedb" | "omdb" => "omdb".to_string(),
+        "phoenix_adult" | "phoenix adult" | "phoenixadult" => "phoenixadult".to_string(),
         other => other.to_string(),
     }
 }
@@ -328,7 +331,10 @@ async fn check_sources(state: State<'_, AppState>) -> Result<serde_json::Value, 
 }
 
 fn provider_live_check_supported(provider: &str) -> bool {
-    matches!(normalize_provider_key(provider).as_str(), "tmdb" | "omdb" | "stashdb" | "tpdb")
+    matches!(
+        normalize_provider_key(provider).as_str(),
+        "tmdb" | "omdb" | "stashdb" | "tpdb" | "phoenixadult" | "iafd"
+    )
 }
 
 async fn check_single_provider_key(
@@ -391,7 +397,9 @@ async fn check_single_provider_key(
                 Err(err) => (false, err.to_string()),
             }
         }
-        _ => (false, "provider_integration_pending".to_string()),
+        "phoenixadult" => (true, "local_metadata_screenshot_fallback".to_string()),
+        "iafd" => (true, "local_adult_title_fallback".to_string()),
+        _ => (true, "local_metadata_fallback".to_string()),
     }
 }
 
@@ -418,10 +426,12 @@ async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value
         let normalized = normalize_provider_key(&provider);
         let key_present = !key.trim().is_empty();
         let live_supported = provider_live_check_supported(&normalized);
-        let (is_valid, status) = if key_present && live_supported {
+        let (is_valid, status) = if matches!(normalized.as_str(), "phoenixadult" | "iafd") {
+            check_single_provider_key(&client, &normalized, &key).await
+        } else if key_present && live_supported {
             check_single_provider_key(&client, &normalized, &key).await
         } else if key_present {
-            (false, "provider_integration_pending".to_string())
+            (true, "local_metadata_fallback".to_string())
         } else {
             (false, "missing_api_key".to_string())
         };
@@ -456,6 +466,61 @@ async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value
 
 fn detect_local_poster(file_path: &str) -> Option<String> {
     available_poster_path_for_media(std::path::Path::new(file_path))
+}
+
+fn generated_poster_cache_path_for_file(file_path: &str) -> Option<std::path::PathBuf> {
+    let base = dirs::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("CinaVault")
+        .join("generated-posters");
+    std::fs::create_dir_all(&base).ok()?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(file_path.as_bytes());
+    let digest = hasher.finalize();
+    Some(base.join(format!("{digest:x}.jpg")))
+}
+
+fn generated_screenshot_posters(file_path: &str) -> Result<Option<String>, String> {
+    let Some(output_path) = generated_poster_cache_path_for_file(file_path) else {
+        return Ok(None);
+    };
+    if output_path.exists() {
+        return Ok(Some(output_path.to_string_lossy().to_string()));
+    }
+
+    let output_arg = output_path.to_string_lossy().to_string();
+    for timestamp in ["00:00:10", "00:00:03", "00:00:01"] {
+        let mut cmd = Command::new("ffmpeg");
+        cmd.args([
+            "-y",
+            "-v",
+            "error",
+            "-ss",
+            timestamp,
+            "-i",
+            file_path,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            &output_arg,
+        ]);
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = match cmd.output() {
+            Ok(output) => output,
+            Err(_) => return Ok(None),
+        };
+        if output.status.success() && output_path.exists() {
+            return Ok(Some(output_path.to_string_lossy().to_string()));
+        }
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    Ok(None)
 }
 
 fn chapter_dir_for(file_path: &str) -> Option<String> {
@@ -547,15 +612,47 @@ fn parse_year_prefix(value: Option<&str>) -> Option<i32> {
     text[..4].parse::<i32>().ok()
 }
 
+fn parse_year_anywhere(value: &str) -> Option<i32> {
+    for token in value.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if token.len() == 4 {
+            if let Ok(year) = token.parse::<i32>() {
+                if (1900..=2100).contains(&year) {
+                    return Some(year);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn tpdb_search_url(query: &str) -> String {
     let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
     format!("https://api.theporndb.net/scenes?parse={encoded}&hash=&year=")
 }
 
+fn first_image_url(value: &serde_json::Value) -> Option<String> {
+    non_empty_string(value.get("poster").and_then(|v| v.as_str()))
+        .or_else(|| non_empty_string(value.get("image").and_then(|v| v.as_str())))
+        .or_else(|| non_empty_string(value.get("image_url").and_then(|v| v.as_str())))
+        .or_else(|| {
+            value
+                .get("images")
+                .and_then(|v| v.as_array())
+                .and_then(|images| images.first())
+                .and_then(|img| {
+                    img.get("url")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| img.as_str())
+                })
+                .and_then(|v| non_empty_string(Some(v)))
+        })
+}
+
 fn tpdb_scene_to_remote_metadata(scene: &serde_json::Value) -> Option<RemoteMetadata> {
     let title = non_empty_string(scene.get("title").and_then(|v| v.as_str()));
-    let overview = non_empty_string(scene.get("description").and_then(|v| v.as_str()));
-    let poster_path = non_empty_string(scene.get("poster").and_then(|v| v.as_str()));
+    let overview = non_empty_string(scene.get("description").and_then(|v| v.as_str()))
+        .or_else(|| non_empty_string(scene.get("details").and_then(|v| v.as_str())));
+    let poster_path = first_image_url(scene);
     let year = parse_year_prefix(scene.get("date").and_then(|v| v.as_str()));
     let genre = scene
         .get("tags")
@@ -603,21 +700,85 @@ fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
     }
 }
 
+fn clean_local_adult_title(value: &str) -> Option<String> {
+    let normalized = value
+        .replace('_', " ")
+        .replace('.', " ")
+        .replace('-', " ");
+    let noise = [
+        "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd", "x264", "x265", "h264", "h265",
+        "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv",
+        "avi", "mov", "wmv",
+    ];
+    let words: Vec<&str> = normalized
+        .split_whitespace()
+        .filter(|word| {
+            let lowered = word.trim_matches(|c: char| !c.is_ascii_alphanumeric()).to_ascii_lowercase();
+            !lowered.is_empty() && !noise.contains(&lowered.as_str())
+        })
+        .collect();
+    let title = words.join(" ");
+    if title.trim().is_empty() {
+        None
+    } else {
+        Some(title.trim().to_string())
+    }
+}
+
+fn phoenix_adult_local_metadata(
+    current_title: &str,
+    file_path: &str,
+    poster_path: Option<String>,
+) -> Option<RemoteMetadata> {
+    let filename_title = title_from_filename(Path::new(file_path));
+    let title = clean_local_adult_title(current_title)
+        .or_else(|| clean_local_adult_title(&filename_title));
+    let year = title
+        .as_deref()
+        .and_then(parse_year_anywhere)
+        .or_else(|| parse_year_anywhere(file_path));
+
+    if title.is_none() && poster_path.is_none() && year.is_none() {
+        return None;
+    }
+
+    Some(RemoteMetadata {
+        title,
+        overview: None,
+        poster_path,
+        year,
+        rating: None,
+        genre: Some("Adult".to_string()),
+        tmdb_id: None,
+        imdb_id: None,
+    })
+}
+
 async fn fetch_tpdb_metadata(
     client: &reqwest::Client,
     api_key: &str,
     query: &str,
 ) -> Result<Option<RemoteMetadata>, String> {
-    let data = client
+    let graph_result = fetch_stashbox_metadata(client, "https://theporndb.net/graphql", api_key, query).await;
+    if let Ok(Some(meta)) = graph_result {
+        return Ok(Some(meta));
+    }
+
+    let resp = client
         .get(tpdb_search_url(query))
         .header("Accept", "application/json")
         .header("Authorization", format!("Bearer {api_key}"))
         .header("User-Agent", "CinaVault/1.0")
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        let graph_status = graph_result.err().unwrap_or_else(|| "no graph match".to_string());
+        return Err(format!("tpdb http_{}; graph {graph_status}", status.as_u16()));
+    }
+
+    let data = resp
         .json::<serde_json::Value>()
         .await
         .map_err(|e| e.to_string())?;
@@ -627,6 +788,83 @@ async fn fetch_tpdb_metadata(
         .and_then(|items| items.first());
 
     Ok(first.and_then(tpdb_scene_to_remote_metadata))
+}
+
+async fn fetch_stashbox_metadata(
+    client: &reqwest::Client,
+    endpoint: &str,
+    api_key: &str,
+    query: &str,
+) -> Result<Option<RemoteMetadata>, String> {
+    let body = serde_json::json!({
+        "query": "query($title:String!){ queryScenes(input:{title:$title, per_page:1, page:1, direction:DESC, sort:DATE}) { scenes { title details release_date date images { url width height } tags { name } urls { url } } } }",
+        "variables": {
+            "title": query
+        }
+    });
+
+    let resp = client
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .header("ApiKey", api_key)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("http_{}", status.as_u16()));
+    }
+    let data = resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
+    if data.get("errors").is_some() {
+        return Err("graphql_errors".to_string());
+    }
+
+    let first = data
+        .get("data")
+        .and_then(|v| v.get("queryScenes"))
+        .and_then(|v| v.get("scenes"))
+        .and_then(|v| v.as_array())
+        .and_then(|items| items.first());
+
+    Ok(first.and_then(stashbox_scene_to_remote_metadata))
+}
+
+fn stashbox_scene_to_remote_metadata(scene: &serde_json::Value) -> Option<RemoteMetadata> {
+    let title = non_empty_string(scene.get("title").and_then(|v| v.as_str()));
+    let overview = non_empty_string(scene.get("details").and_then(|v| v.as_str()))
+        .or_else(|| non_empty_string(scene.get("description").and_then(|v| v.as_str())));
+    let poster_path = first_image_url(scene);
+    let year = parse_year_prefix(scene.get("release_date").and_then(|v| v.as_str()))
+        .or_else(|| parse_year_prefix(scene.get("date").and_then(|v| v.as_str())));
+    let genre = scene
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| tag.get("name").and_then(|v| v.as_str()))
+                .filter(|name| !name.trim().is_empty())
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|g| !g.trim().is_empty());
+
+    if title.is_none() && overview.is_none() && poster_path.is_none() {
+        return None;
+    }
+
+    Some(RemoteMetadata {
+        title,
+        overview,
+        poster_path,
+        year,
+        rating: None,
+        genre,
+        tmdb_id: None,
+        imdb_id: None,
+    })
 }
 
 async fn fetch_tmdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
@@ -698,71 +936,10 @@ async fn fetch_omdb_metadata(client: &reqwest::Client, api_key: &str, query: &st
 }
 
 async fn fetch_stashdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
-    let body = serde_json::json!({
-        "query": "query($title:String!){ queryScenes(input:{title:$title, per_page:1, page:1, direction:DESC, sort:DATE}) { scenes { title details release_date images { url width height } tags { name } urls { url } } } }",
-        "variables": {
-            "title": query
-        }
-    });
-
-    let data = client
-        .post("https://stashdb.org/graphql")
-        .header("Content-Type", "application/json")
-        .header("ApiKey", api_key)
-        .json(&body)
-        .send()
+    fetch_stashbox_metadata(client, "https://stashdb.org/graphql", api_key, query)
         .await
-        .ok()?
-        .json::<serde_json::Value>()
-        .await
-        .ok()?;
-
-    if data.get("errors").is_some() {
-        return None;
-    }
-
-    let first = data
-        .get("data")
-        .and_then(|v| v.get("queryScenes"))
-        .and_then(|v| v.get("scenes"))
-        .and_then(|v| v.as_array())
-        .and_then(|items| items.first())?;
-
-    let title = non_empty_string(first.get("title").and_then(|v| v.as_str()));
-    let overview = non_empty_string(first.get("details").and_then(|v| v.as_str()));
-    let poster_path = first
-        .get("images")
-        .and_then(|v| v.as_array())
-        .and_then(|images| images.first())
-        .and_then(|img| img.get("url"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(|v| v.to_string());
-    let year = parse_year_prefix(first.get("release_date").and_then(|v| v.as_str()));
-    let genre = first
-        .get("tags")
-        .and_then(|v| v.as_array())
-        .map(|tags| {
-            tags.iter()
-                .filter_map(|tag| tag.get("name").and_then(|v| v.as_str()))
-                .filter(|name| !name.trim().is_empty())
-                .take(5)
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .filter(|g| !g.trim().is_empty());
-
-    Some(RemoteMetadata {
-        title,
-        overview,
-        poster_path,
-        year,
-        rating: None,
-        genre,
-        tmdb_id: None,
-        imdb_id: None,
-    })
+        .ok()
+        .flatten()
 }
 
 fn merge_remote_metadata(primary: Option<RemoteMetadata>, secondary: Option<RemoteMetadata>) -> Option<RemoteMetadata> {
@@ -815,13 +992,9 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         }
 
         let mut configured = Vec::new();
-        let mut unsupported = Vec::new();
+        let unsupported = Vec::new();
         for provider in providers {
-            if matches!(provider.as_str(), "tpdb" | "stashdb") {
-                configured.push(provider);
-            } else {
-                unsupported.push(provider);
-            }
+            configured.push(provider);
         }
 
         (configured, unsupported)
@@ -919,6 +1092,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
     };
 
     let mut posters_updated = 0usize;
+    let mut screenshot_posters_generated = 0usize;
     let mut chapters_generated_for_items = 0usize;
     let mut chapter_images_generated = 0usize;
     let mut items_needing_metadata = 0usize;
@@ -1015,6 +1189,21 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                 ).map_err(|e| e.to_string())?;
                 posters_updated += 1;
                 final_poster = Some(local_poster);
+            } else {
+                match generated_screenshot_posters(file_path) {
+                    Ok(Some(screenshot_poster)) => {
+                        let db = state.db.lock().map_err(|e| e.to_string())?;
+                        db.conn.execute(
+                            "UPDATE media_items SET poster_path = ?1 WHERE id = ?2",
+                            params![screenshot_poster, id],
+                        ).map_err(|e| e.to_string())?;
+                        posters_updated += 1;
+                        screenshot_posters_generated += 1;
+                        final_poster = Some(screenshot_poster);
+                    }
+                    Ok(None) => {}
+                    Err(e) => errors.push(format!("{title}: screenshot poster failed: {e}")),
+                }
             }
         }
 
@@ -1031,7 +1220,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             || final_tmdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true)
             || final_imdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true);
 
-        if needs_remote_metadata && (tpdb_key.is_some() || stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some()) {
+        if needs_remote_metadata {
             let query_title = extract_embedded_title(file_path)
                 .filter(|embedded| !embedded.trim().is_empty())
                 .unwrap_or_else(|| final_title.clone());
@@ -1063,8 +1252,11 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             } else {
                 None
             };
+            let phoenix_meta =
+                phoenix_adult_local_metadata(&query_title, file_path, final_poster.clone());
             let tpdb_then_stash = merge_remote_metadata(tpdb_meta, stashdb_meta);
-            let adult_then_tmdb = merge_remote_metadata(tpdb_then_stash, tmdb_meta);
+            let adult_with_local = merge_remote_metadata(tpdb_then_stash, phoenix_meta);
+            let adult_then_tmdb = merge_remote_metadata(adult_with_local, tmdb_meta);
             let remote_meta = merge_remote_metadata(adult_then_tmdb, omdb_meta);
 
             if let Some(meta) = remote_meta {
@@ -1202,6 +1394,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "metadata_fields_updated": metadata_fields_updated,
         "sidecars_written": sidecars_written,
         "posters_updated": posters_updated,
+        "generated_screenshot_posters": screenshot_posters_generated,
         "chapter_sets_generated": chapters_generated_for_items,
         "chapter_images_generated": chapter_images_generated,
         "chapter_generation_skipped_after_limit": 0,
@@ -1209,7 +1402,7 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "skipped_missing_files": skipped_missing_files,
         "skipped_non_video_items": skipped_non_video_items,
         "provider_errors": provider_errors,
-        "note": "Adult metadata gather now supports legacy provider-key aliases, uses ThePornDB/StashDB/TMDb/OMDb metadata when available, reports provider errors, upgrades local poster placeholders to remote posters, writes sidecar files, and generates chapter images without a hard item cap.",
+        "note": "Adult metadata gather now supports legacy provider-key aliases, uses ThePornDB/StashDB/TMDb/OMDb metadata when available, keeps PhoenixAdult as a local adult metadata fallback, generates screenshot posters from files when no sidecar/embedded poster exists, writes sidecar files, and generates chapter images without a hard item cap.",
         "errors": errors,
     }))
 }
@@ -1223,6 +1416,7 @@ mod tests {
         metadata_sidecar_path,
         normalize_adult_provider_key,
         normalize_provider_key,
+        phoenix_adult_local_metadata,
         provider_live_check_supported,
         tpdb_scene_to_remote_metadata,
         AiQueryRoute,
@@ -1278,6 +1472,7 @@ mod tests {
         assert_eq!(normalize_adult_provider_key("theporndb"), "tpdb");
         assert_eq!(normalize_adult_provider_key("tpdb"), "tpdb");
         assert_eq!(normalize_adult_provider_key("stashdb"), "stashdb");
+        assert_eq!(normalize_adult_provider_key("Phoenix Adult"), "phoenixadult");
     }
 
     #[test]
@@ -1285,13 +1480,29 @@ mod tests {
         assert_eq!(normalize_provider_key("themoviedb_images"), "tmdb");
         assert_eq!(normalize_provider_key("tmdb_images"), "tmdb");
         assert_eq!(normalize_provider_key("theporndb"), "tpdb");
+        assert_eq!(normalize_provider_key("Phoenix_Adult"), "phoenixadult");
     }
 
     #[test]
-    fn live_provider_checks_cover_real_metadata_fetchers_only() {
+    fn provider_checks_cover_live_fetchers_and_local_adult_fallbacks() {
         assert!(provider_live_check_supported("theporndb"));
         assert!(provider_live_check_supported("stashdb"));
-        assert!(!provider_live_check_supported("phoenixadult"));
+        assert!(provider_live_check_supported("phoenixadult"));
+    }
+
+    #[test]
+    fn phoenix_adult_local_metadata_cleans_filename_title_and_year() {
+        let metadata = phoenix_adult_local_metadata(
+            "Studio.Scene.2024.1080p.x264",
+            r"E:\Adult\Studio.Scene.2024.1080p.x264.mp4",
+            Some(r"E:\Adult\poster.jpg".to_string()),
+        )
+        .expect("local metadata should be derived from the file name");
+
+        assert_eq!(metadata.title.as_deref(), Some("Studio Scene 2024"));
+        assert_eq!(metadata.year, Some(2024));
+        assert_eq!(metadata.genre.as_deref(), Some("Adult"));
+        assert_eq!(metadata.poster_path.as_deref(), Some(r"E:\Adult\poster.jpg"));
     }
 
     #[test]

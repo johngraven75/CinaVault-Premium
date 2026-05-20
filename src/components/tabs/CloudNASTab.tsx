@@ -47,6 +47,12 @@ export default function CloudNASTab() {
   const [nasProfiles, setNasProfiles] = useState<NASProfile[]>([]);
   const [showAddNas, setShowAddNas] = useState(false);
   const [nasForm, setNasForm] = useState({ name: "", protocol: "smb", host: "", port: 445, path: "", username: "", password: "" });
+  const [quickConnectForm, setQuickConnectForm] = useState({
+    name: "Synology Media",
+    quickConnectId: "",
+    username: "",
+    sharePath: "/video",
+  });
 
   // ════════════════════════════════════════════════════════════
   //  OneDrive — Real OAuth flow via Tauri shell + local server
@@ -241,6 +247,47 @@ export default function CloudNASTab() {
     addStatusMessage(`NAS added: ${profile.name}`);
   };
 
+  const addSynologyQuickConnect = async () => {
+    const quickConnectId = quickConnectForm.quickConnectId.trim();
+    if (!quickConnectId) {
+      addStatusMessage("Synology QuickConnect: enter a QuickConnect ID");
+      return;
+    }
+    const sharePath = quickConnectForm.sharePath.trim().startsWith("/")
+      ? quickConnectForm.sharePath.trim()
+      : `/${quickConnectForm.sharePath.trim() || "video"}`;
+    const account = quickConnectForm.username.trim()
+      ? `${encodeURIComponent(quickConnectForm.username.trim())}@`
+      : "";
+    const sourcePath = `synology_quickconnect://${account}${quickConnectId}${sharePath}`;
+    const name = quickConnectForm.name.trim() || `Synology ${quickConnectId}`;
+
+    try {
+      await invoke("add_source", {
+        path: sourcePath,
+        sourceType: "synology_quickconnect",
+        name,
+      });
+      addStatusMessage(`Synology QuickConnect source added: ${name}`);
+      setQuickConnectForm({ name: "Synology Media", quickConnectId: "", username: "", sharePath: "/video" });
+    } catch (e) {
+      addStatusMessage(`Synology QuickConnect source failed: ${e}`);
+    }
+  };
+
+  const openSynologyQuickConnect = async () => {
+    const quickConnectId = quickConnectForm.quickConnectId.trim();
+    if (!quickConnectId) {
+      addStatusMessage("Synology QuickConnect: enter a QuickConnect ID");
+      return;
+    }
+    try {
+      await invoke("open_external_url", { url: `https://quickconnect.to/${encodeURIComponent(quickConnectId)}` });
+    } catch (e) {
+      addStatusMessage(`Synology QuickConnect login failed to open: ${e}`);
+    }
+  };
+
   const CLOUD_SERVICES: { id: CloudId; name: string; icon: string; desc: string; connect: () => void }[] = [
     { id: "onedrive", name: "Microsoft OneDrive", icon: "☁️", desc: "Connect your OneDrive for cloud media access and backup", connect: connectOneDrive },
     { id: "gdrive", name: "Google Drive", icon: "📁", desc: "Stream and manage media from your Google Drive storage", connect: connectGDrive },
@@ -321,6 +368,65 @@ export default function CloudNASTab() {
               </motion.div>
             );
           })}
+        </div>
+      </div>
+
+      {/* ── Synology QuickConnect ── */}
+      <div className="cv-card p-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div className="flex items-center gap-2">
+            <Link2 size={18} style={{ color: "var(--cv-accent)" }} />
+            <h3 className="text-base font-bold" style={{ color: "var(--cv-text)" }}>Synology QuickConnect</h3>
+          </div>
+          <button onClick={openSynologyQuickConnect} className="cv-btn text-xs flex items-center gap-1">
+            <ExternalLink size={12} /> Open Login
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--cv-subtext)" }}>Source Name</label>
+            <input
+              value={quickConnectForm.name}
+              onChange={e => setQuickConnectForm(p => ({ ...p, name: e.target.value }))}
+              className="cv-input text-xs w-full"
+              placeholder="Synology Media"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--cv-subtext)" }}>QuickConnect ID</label>
+            <input
+              value={quickConnectForm.quickConnectId}
+              onChange={e => setQuickConnectForm(p => ({ ...p, quickConnectId: e.target.value }))}
+              className="cv-input text-xs w-full"
+              placeholder="my-synology-id"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--cv-subtext)" }}>Username</label>
+            <input
+              value={quickConnectForm.username}
+              onChange={e => setQuickConnectForm(p => ({ ...p, username: e.target.value }))}
+              className="cv-input text-xs w-full"
+              placeholder="account"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--cv-subtext)" }}>Share Path</label>
+            <input
+              value={quickConnectForm.sharePath}
+              onChange={e => setQuickConnectForm(p => ({ ...p, sharePath: e.target.value }))}
+              className="cv-input text-xs w-full"
+              placeholder="/video"
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={addSynologyQuickConnect} className="cv-btn text-xs flex items-center gap-1">
+            <Plus size={12} /> Add QuickConnect Source
+          </button>
+          <span className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>
+            Saved as synology_quickconnect media source so it remains present across builds.
+          </span>
         </div>
       </div>
 
