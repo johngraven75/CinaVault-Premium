@@ -66,13 +66,13 @@ export default function HomeTab() {
 
   const applyUpdatedMediaItem = useCallback((updated: Partial<MediaItem> & { id?: number }) => {
     if (!updated.id) return;
-    setMediaItems(current => current.map(item =>
+    setMediaItems(mediaItems.map(item =>
       item.id === updated.id ? { ...item, ...updated } : item
     ));
-    setSelectedMedia(current => (
-      current?.id === updated.id ? { ...current, ...updated } : current
-    ));
-  }, [setMediaItems, setSelectedMedia]);
+    if (selectedMedia?.id === updated.id) {
+      setSelectedMedia({ ...selectedMedia, ...updated });
+    }
+  }, [mediaItems, selectedMedia, setMediaItems, setSelectedMedia]);
 
   const loadMedia = useCallback(async () => {
     const generation = libraryLoadGenerationRef.current + 1;
