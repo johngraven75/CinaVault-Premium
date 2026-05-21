@@ -26,6 +26,11 @@ function isGeneratedChapterImagePath(filePath: string): boolean {
   return filePath.includes("\\_chapters\\") || filePath.includes("_chapters\\chapter_");
 }
 
+function isInternalArtworkCachePath(filePath: string): boolean {
+  return filePath.includes("\\.cinavault-trash\\")
+    || filePath.includes("\\cinavault\\generated-posters\\");
+}
+
 function fileStem(filePath: string): string {
   const name = filePath.split("\\").pop() ?? "";
   const dot = name.lastIndexOf(".");
@@ -81,6 +86,7 @@ export function isLibraryDisplayableMediaItem(item: Pick<MediaItem, "file_path" 
   const filePath = normalizePath(item.file_path);
   if (!filePath) return false;
   if (isGeneratedChapterImagePath(filePath)) return false;
+  if (item.media_type?.toLowerCase() === "photo" && isInternalArtworkCachePath(filePath)) return false;
   if (item.media_type?.toLowerCase() === "photo" && isSidecarArtworkImagePath(filePath)) return false;
   return true;
 }

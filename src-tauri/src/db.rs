@@ -7,7 +7,9 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use tauri::State;
 use crate::AppState;
-use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
+use crate::library_artifacts::{
+    is_generated_chapter_image_path, is_internal_artwork_cache_path, is_sidecar_artwork_image,
+};
 #[cfg(test)]
 use crate::library_artifacts::available_poster_path_for_media;
 
@@ -349,7 +351,10 @@ impl Database {
 
         for (id, file_path) in rows {
             let path = Path::new(&file_path);
-            if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
+            if is_generated_chapter_image_path(path)
+                || is_internal_artwork_cache_path(path)
+                || is_sidecar_artwork_image(path)
+            {
                 self.conn
                     .execute("DELETE FROM media_items WHERE id = ?1", params![id])?;
             }
@@ -1565,6 +1570,54 @@ mod tests {
         drop(db);
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_dir_all(media_dir);
+    }
+
+    #[test]
+    fn cleanup_removes_internal_trash_and_generated_poster_photo_rows() {
+        let db_path = test_db_path("internal-artwork-cleanup");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let mut trash_artwork = sample_item(
+            "PISS PUMPING CLOUDS-(720p)",
+            r"E:\Personal Vids X\.cinavault-trash\PISS PUMPING CLOUDS-(720p).jpg",
+        );
+        trash_artwork.media_type = "photo".to_string();
+        let mut generated_poster = sample_item(
+            "poster cache",
+            r"C:\Users\johng\AppData\Roaming\CinaVault\generated-posters\abc123.jpg",
+        );
+        generated_poster.media_type = "photo".to_string();
+        let mut real_photo = sample_item("beach-day", r"E:\Photos\Vacation\beach-day.jpg");
+        real_photo.media_type = "photo".to_string();
+
+        db.add_media_item_data(&trash_artwork)
+            .expect("trash artwork row should insert");
+        db.add_media_item_data(&generated_poster)
+            .expect("generated poster row should insert");
+        db.add_media_item_data(&real_photo)
+            .expect("real photo row should insert");
+
+        db.cleanup_non_library_photo_artifacts()
+            .expect("cleanup should succeed");
+
+        let remaining = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
+            .expect("count should load");
+        assert_eq!(remaining, 1);
+
+        let real_photo_exists = db
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
+                params![real_photo.file_path],
+                |row| row.get::<_, bool>(0),
+            )
+            .expect("real photo lookup should load");
+        assert!(real_photo_exists);
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
     }
 
     #[test]

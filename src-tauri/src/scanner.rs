@@ -9,7 +9,7 @@ use crate::db::{MediaItem, MediaSource};
 use rusqlite::OptionalExtension;
 use crate::library_artifacts::{
     available_poster_path_for_media, is_artwork_image_for_nearby_media,
-    is_generated_chapter_image_path, is_sidecar_artwork_image,
+    is_generated_chapter_image_path, is_internal_artwork_cache_path, is_sidecar_artwork_image,
 };
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -56,6 +56,7 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
 
 fn should_index_path(path: &Path) -> bool {
     !is_generated_chapter_image_path(path)
+        && !is_internal_artwork_cache_path(path)
         && !is_sidecar_artwork_image(path)
         && !is_artwork_image_for_nearby_media(path)
 }

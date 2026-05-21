@@ -71,6 +71,12 @@ pub fn is_generated_chapter_image_path(path: &Path) -> bool {
     path_lower.contains("_chapters\\chapter_")
 }
 
+pub fn is_internal_artwork_cache_path(path: &Path) -> bool {
+    let path_lower = path.to_string_lossy().replace('/', "\\").to_lowercase();
+    path_lower.contains("\\.cinavault-trash\\")
+        || path_lower.contains("\\cinavault\\generated-posters\\")
+}
+
 pub fn is_sidecar_artwork_image(path: &Path) -> bool {
     let Some(ext) = extension_lower(path) else {
         return false;
@@ -265,8 +271,9 @@ pub fn sidecar_poster_path_for_video(video_path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::available_poster_path_for_media;
+    use super::{available_poster_path_for_media, is_internal_artwork_cache_path};
     use std::fs;
+    use std::path::Path;
 
     #[test]
     fn finds_same_stem_poster_image_next_to_video() {
@@ -312,5 +319,18 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn detects_internal_artwork_cache_paths() {
+        assert!(is_internal_artwork_cache_path(Path::new(
+            r"E:\Personal Vids X\.cinavault-trash\PISS PUMPING CLOUDS-(720p).jpg"
+        )));
+        assert!(is_internal_artwork_cache_path(Path::new(
+            r"C:\Users\johng\AppData\Roaming\CinaVault\generated-posters\abc123.jpg"
+        )));
+        assert!(!is_internal_artwork_cache_path(Path::new(
+            r"E:\Photos\Vacation\beach-day.jpg"
+        )));
     }
 }

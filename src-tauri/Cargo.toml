@@ -1,6 +1,6 @@
 [package]
 name = "cinavault-premium"
-version = "1.0.0-12"
+version = "1.0.0-13"
 description = "CinaVault Premium — A Full-Featured Media Server"
 authors = ["CinaVault Team"]
 edition = "2021"
@@ -9,7 +9,7 @@ edition = "2021"
 tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
-tauri = { version = "2.11.2", features = [] }
+tauri = { version = "2.11.2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"

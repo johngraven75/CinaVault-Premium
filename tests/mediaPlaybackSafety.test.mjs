@@ -48,6 +48,8 @@ test("isLibraryDisplayableMediaItem hides sidecar artwork photo rows from the li
     "E:\\Videos\\Movie\\folder.jpg",
     "E:\\Videos\\Movie\\cover.png",
     "E:\\Videos\\Movie\\scene-poster.webp",
+    "E:\\Personal Vids X\\.cinavault-trash\\PISS PUMPING CLOUDS-(720p).jpg",
+    "C:\\Users\\johng\\AppData\\Roaming\\CinaVault\\generated-posters\\abc123.jpg",
   ]) {
     assert.equal(
       isLibraryDisplayableMediaItem({ media_type: "photo", file_path: filePath }),

@@ -87,3 +87,14 @@ test("each media card exposes an isolated one-item metadata check action", () =>
   assert.match(ai, /pub async fn check_media_item_metadata/);
   assert.match(main, /ai::check_media_item_metadata/);
 });
+
+test("local poster files are renderable through the Tauri asset protocol", () => {
+  const tauriConfig = JSON.parse(read("src-tauri/tauri.conf.json"));
+
+  assert.equal(tauriConfig.app.security.assetProtocol.enable, true);
+  assert.deepEqual(tauriConfig.app.security.assetProtocol.scope, {
+    allow: ["**"],
+    requireLiteralLeadingDot: false,
+  });
+  assert.match(tauriConfig.app.security.csp, /img-src[^;]*asset:/);
+});
