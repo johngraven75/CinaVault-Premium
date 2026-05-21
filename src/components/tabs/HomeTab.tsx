@@ -53,6 +53,7 @@ export default function HomeTab() {
   const [cardStyle, setCardStyle] = useState<CardStyle>("poster");
   const [detailFlipped, setDetailFlipped] = useState(false);
   const [titleInitialFilter, setTitleInitialFilter] = useState<TitleInitialFilter>("all");
+  const [metadataCheckId, setMetadataCheckId] = useState<number | null>(null);
   const filterListRef = useRef<HTMLDivElement | null>(null);
   const libraryLoadGenerationRef = useRef(0);
 
@@ -62,6 +63,16 @@ export default function HomeTab() {
       buildLibraryPageRequest({ mediaType: typeFilter, offset }),
     );
   }, [typeFilter]);
+
+  const applyUpdatedMediaItem = useCallback((updated: Partial<MediaItem> & { id?: number }) => {
+    if (!updated.id) return;
+    setMediaItems(current => current.map(item =>
+      item.id === updated.id ? { ...item, ...updated } : item
+    ));
+    setSelectedMedia(current => (
+      current?.id === updated.id ? { ...current, ...updated } : current
+    ));
+  }, [setMediaItems, setSelectedMedia]);
 
   const loadMedia = useCallback(async () => {
     const generation = libraryLoadGenerationRef.current + 1;
@@ -82,7 +93,6 @@ export default function HomeTab() {
           : `Library loaded: ${items.length} items`,
       );
     } catch {
-      // Dev mode — use demo data
       if (generation !== libraryLoadGenerationRef.current) return;
       setMediaItems(DEMO_ITEMS);
       setLibraryOffset(DEMO_ITEMS.length);
@@ -182,6 +192,25 @@ export default function HomeTab() {
     } catch {}
   };
 
+  const handleCheckMetadata = async (item: MediaItem) => {
+    if (!item.id) {
+      addStatusMessage(`Metadata check skipped: ${item.title} does not have a library id yet`);
+      return;
+    }
+    setMetadataCheckId(item.id);
+    try {
+      const result = await invoke<any>("check_media_item_metadata", { id: item.id });
+      if (result?.updated_item) {
+        applyUpdatedMediaItem(result.updated_item);
+      }
+      addStatusMessage(result?.message || `Metadata check complete for ${item.title}`);
+    } catch (e) {
+      addStatusMessage(`Metadata check failed for ${item.title}: ${e}`);
+    } finally {
+      setMetadataCheckId(null);
+    }
+  };
+
   const handleMediaClick = async (item: MediaItem) => {
     setSelectedMedia(item);
   };
@@ -192,7 +221,6 @@ export default function HomeTab() {
 
   return (
     <div className="space-y-5 h-full">
-      {/* Spotlight / Hero Section */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -273,6 +301,18 @@ export default function HomeTab() {
                 <button onClick={() => handleVerify(selectedMedia)} className="cv-btn cv-btn-secondary">
                   <CheckCircle size={14} /> Verify
                 </button>
+                <button
+                  onClick={() => void handleCheckMetadata(selectedMedia)}
+                  disabled={metadataCheckId === selectedMedia.id}
+                  className="cv-btn cv-btn-secondary disabled:opacity-60"
+                >
+                  {metadataCheckId === selectedMedia.id ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={14} />
+                  )}
+                  Check Metadata
+                </button>
                 <button onClick={() => setDetailFlipped(v => !v)} className="cv-btn cv-btn-secondary">
                   <RotateCw size={14} /> Rotate Card
                 </button>
@@ -300,7 +340,6 @@ export default function HomeTab() {
         </div>
       </motion.div>
 
-      {/* Shelf Tabs + Controls */}
       <div className="glass-panel p-3">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div className="flex gap-1 flex-wrap">
@@ -413,7 +452,6 @@ export default function HomeTab() {
         </div>
       </div>
 
-      {/* Library Content */}
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {Array.from({ length: 12 }).map((_, i) => (
@@ -433,16 +471,28 @@ export default function HomeTab() {
         >
           {filteredItems.map((item, i) => {
             const className = `media-card glass-panel-2 rounded-xl overflow-hidden group ${cardStyle === "disc" ? "p-3" : ""}`;
+            const checking = metadataCheckId === item.id;
             if (filteredItems.length > 500) {
               return (
                 <div key={item.id || i} onClick={() => void handleMediaClick(item)} className={className}>
                   <CardVisual item={item} styleMode={cardStyle} />
-                  <div className="p-2.5">
+                  <div className="p-2.5 space-y-2">
                     <h4 className="text-xs font-semibold truncate">{item.title}</h4>
                     <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
                       {item.year && <span>{item.year}</span>}
                       <span className="capitalize">{item.media_type}</span>
                     </div>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleCheckMetadata(item);
+                      }}
+                      disabled={checking}
+                      className="cv-btn cv-btn-secondary w-full text-[11px] py-1.5 disabled:opacity-60"
+                    >
+                      {checking ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      Check Metadata
+                    </button>
                   </div>
                 </div>
               );
@@ -457,12 +507,23 @@ export default function HomeTab() {
                 className={className}
               >
                 <CardVisual item={item} styleMode={cardStyle} />
-                <div className="p-2.5">
+                <div className="p-2.5 space-y-2">
                   <h4 className="text-xs font-semibold truncate">{item.title}</h4>
                   <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
                     {item.year && <span>{item.year}</span>}
                     <span className="capitalize">{item.media_type}</span>
                   </div>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleCheckMetadata(item);
+                    }}
+                    disabled={checking}
+                    className="cv-btn cv-btn-secondary w-full text-[11px] py-1.5 disabled:opacity-60"
+                  >
+                    {checking ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    Check Metadata
+                  </button>
                 </div>
               </motion.div>
             );
@@ -519,7 +580,6 @@ export default function HomeTab() {
         </div>
       )}
 
-      {/* Stats bar */}
       <div className="flex items-center gap-4 text-[11px] text-cv-subtext">
         <span>{filteredItems.length} visible</span>
         <span>{mediaItems.length} loaded</span>
@@ -608,7 +668,6 @@ function CardVisual({ item, styleMode }: { item: MediaItem; styleMode: CardStyle
   );
 }
 
-// Demo data for development mode
 const DEMO_ITEMS: MediaItem[] = [
   { title: "Inception", file_path: "", media_type: "movie", year: 2010, rating: 8.8, genre: "Sci-Fi, Thriller", verified: true, watched: true, favorite: true, date_added: "2026-04-01", resolution: "4K", overview: "A thief who steals corporate secrets through dream-sharing technology." },
   { title: "Breaking Bad", file_path: "", media_type: "tvshow", year: 2008, rating: 9.5, genre: "Drama, Crime", verified: true, watched: false, favorite: false, date_added: "2026-04-02", resolution: "1080p" },
