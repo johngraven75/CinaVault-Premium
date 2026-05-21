@@ -97,4 +97,6 @@ test("local poster files are renderable through the Tauri asset protocol", () =>
     requireLiteralLeadingDot: false,
   });
   assert.match(tauriConfig.app.security.csp, /img-src[^;]*asset:/);
+  assert.match(tauriConfig.app.security.csp, /img-src[^;]*http:\/\/asset\.localhost/);
+  assert.match(tauriConfig.app.security.csp, /img-src[^;]*https:\/\/asset\.localhost/);
 });
