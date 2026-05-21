@@ -14,6 +14,9 @@ pub struct MetadataProvider {
     pub category: String,
 }
 
+const PHOENIX_ADULT_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/DirtyRacer1337/Jellyfin.Plugin.PhoenixAdult/master/manifest.json";
+
 const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
     (
         "TMDb",
@@ -71,7 +74,13 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
         true,
         "Adult",
     ),
-    ("PhoenixAdult", "phoenixadult", "", false, "Adult"),
+    (
+        "PhoenixAdult",
+        "phoenixadult",
+        PHOENIX_ADULT_MANIFEST_URL,
+        false,
+        "Adult",
+    ),
     ("IAFD", "iafd", "https://www.iafd.com", false, "Adult"),
     (
         "AniDB",
@@ -201,11 +210,105 @@ fn is_known_provider(provider: &str) -> bool {
 }
 
 fn provider_has_live_key_check(provider: &str) -> bool {
-    matches!(provider, "tmdb" | "omdb")
+    matches!(provider, "tmdb" | "omdb" | "tpdb")
 }
 
 fn should_assume_key_validity(provider: &str) -> bool {
     is_known_provider(provider) && !provider_has_live_key_check(provider)
+}
+
+fn theporndb_headers(api_key: &str) -> Result<reqwest::header::HeaderMap, String> {
+    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    let token = format!("Bearer {}", api_key.trim());
+    let header_value = HeaderValue::from_str(&token).map_err(|err| err.to_string())?;
+    headers.insert(AUTHORIZATION, header_value);
+    Ok(headers)
+}
+
+async fn fetch_theporndb_search_metadata(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: &str,
+) -> Result<serde_json::Value, String> {
+    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
+    let url = format!(
+        "https://api.theporndb.net/scenes?parse={encoded}&hash=&year="
+    );
+    let headers = theporndb_headers(api_key)?;
+    let resp = client
+        .get(url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+    let status = resp.status();
+    let data = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| err.to_string())?;
+    if !status.is_success() {
+        return Err(data
+            .get("message")
+            .and_then(|value| value.as_str())
+            .unwrap_or("ThePornDB request failed")
+            .to_string());
+    }
+    Ok(data)
+}
+
+async fn fetch_phoenixadult_manifest(
+    client: &reqwest::Client,
+    query: &str,
+) -> Result<serde_json::Value, String> {
+    let manifest = client
+        .get(PHOENIX_ADULT_MANIFEST_URL)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let plugin = manifest
+        .as_array()
+        .and_then(|items| items.first())
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let latest = plugin
+        .get("versions")
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    Ok(serde_json::json!({
+        "provider": "phoenixadult",
+        "query": query,
+        "manifest_url": PHOENIX_ADULT_MANIFEST_URL,
+        "plugin": plugin,
+        "latest_version": latest.get("version").cloned().unwrap_or(serde_json::Value::Null),
+        "latest_download_url": latest.get("sourceUrl").cloned().unwrap_or(serde_json::Value::Null),
+        "capabilities": [
+            "scene_title",
+            "scene_summary",
+            "studio",
+            "release_date",
+            "genres_categories_tags",
+            "pornstars",
+            "posters_and_background_art"
+        ],
+        "filename_patterns": [
+            "SiteName - YYYY-MM-DD - Scene Name.[ext]",
+            "SiteName - Scene Name.[ext]",
+            "SiteName - YYYY-MM-DD - Actor(s).[ext]",
+            "SiteName - Actor(s).[ext]",
+            "SiteName - SceneID - Scene Name.[ext]"
+        ],
+        "message": "PhoenixAdult is integrated as a Jellyfin/Emby-compatible provider manifest and filename-compatibility source. Direct scene retrieval in CinaVault uses live adult APIs such as ThePornDB and StashDB."
+    }))
 }
 
 #[tauri::command]
@@ -277,6 +380,11 @@ pub async fn fetch_metadata(
             let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             Ok(data)
         }
+        "tpdb" => {
+            let key = api_key.ok_or("ThePornDB API key required")?;
+            fetch_theporndb_search_metadata(&client, &query, &key).await
+        }
+        "phoenixadult" => fetch_phoenixadult_manifest(&client, &query).await,
         _ => Ok(serde_json::json!({
             "provider": provider,
             "query": query,
@@ -351,6 +459,16 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
                 .map_err(|e| e.to_string())?;
             resp.status().is_success()
         }
+        "tpdb" => {
+            let headers = theporndb_headers(&api_key)?;
+            let resp = client
+                .get("https://api.theporndb.net/sites?q=test")
+                .headers(headers)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            resp.status().is_success()
+        }
         _ => should_assume_key_validity(provider.as_str()),
     };
 
@@ -392,6 +510,7 @@ mod tests {
     #[test]
     fn known_provider_with_live_check_is_not_assumed_valid() {
         assert!(!should_assume_key_validity("tmdb"));
+        assert!(!should_assume_key_validity("tpdb"));
     }
 }
 
@@ -429,7 +548,6 @@ pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String>
     for row in rows {
         let (provider, key) = row.map_err(|e| e.to_string())?;
         let normalized_provider = normalize_provider_key(&provider);
-        // Mask the key for security
         let masked = if key.len() > 4 {
             format!("{}...{}", &key[..2], &key[key.len() - 2..])
         } else {
