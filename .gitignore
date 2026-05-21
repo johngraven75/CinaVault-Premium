@@ -219,6 +219,14 @@ pnpm-debug.log*
 src-tauri/target/
 *.pdb
 
+# --- Release payloads live in GitHub Releases / local build folders ---
+releases/**/*.exe
+releases/**/*.msi
+releases/**/*.zip
+platforms/windows/**/*.exe
+platforms/windows/**/*.msi
+platforms/windows/**/*.zip
+
 # --- Local tooling caches ---
 .snapshots/
 .DS_Store
