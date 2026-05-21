@@ -7,8 +7,10 @@ use crate::adult_site_provider::{
 };
 use crate::enrichment::{classify_library_item, LibraryItemRecord, SourceKind};
 use crate::library_artifacts::available_poster_path_for_media;
+use crate::phoenix_adult_provider::{phoenix_adult_manifest_summary, PHOENIX_ADULT_VERSION};
+use crate::theporndb_provider::{theporndb_provider_manifest_summary, theporndb_scene_search_url};
 use crate::{task_progress, AppState};
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 #[cfg(target_os = "windows")]
@@ -432,7 +434,7 @@ async fn check_single_provider_key(
         }
         "tpdb" => {
             match client
-                .get("https://api.theporndb.net/scenes?parse=test&hash=&year=")
+                .get(theporndb_scene_search_url("test"))
                 .header("Authorization", format!("Bearer {api_key}"))
                 .header("Accept", "application/json")
                 .header("User-Agent", "CinaVault/1.0")
@@ -446,7 +448,12 @@ async fn check_single_provider_key(
                 Err(err) => (false, err.to_string()),
             }
         }
-        "phoenixadult" => (true, "local_metadata_screenshot_fallback".to_string()),
+        "phoenixadult" => (
+            true,
+            format!(
+                "phoenixadult_manifest_{PHOENIX_ADULT_VERSION}_local_metadata_screenshot_fallback"
+            ),
+        ),
         "iafd" => (true, "local_adult_title_fallback".to_string()),
         "porn_site_nuxt" => {
             let base_url = porn_site_nuxt_base_url(Some(api_key));
@@ -677,6 +684,23 @@ struct RemoteMetadata {
     imdb_id: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct MetadataCheckItem {
+    id: i64,
+    title: String,
+    file_path: String,
+    poster_path: Option<String>,
+    overview: Option<String>,
+    year: Option<i32>,
+    rating: Option<f64>,
+    genre: Option<String>,
+    tmdb_id: Option<String>,
+    imdb_id: Option<String>,
+    media_type: String,
+    source_name: Option<String>,
+    source_path: Option<String>,
+}
+
 fn non_empty_string(value: Option<&str>) -> Option<String> {
     value
         .map(|v| v.trim())
@@ -706,8 +730,7 @@ fn parse_year_anywhere(value: &str) -> Option<i32> {
 }
 
 fn tpdb_search_url(query: &str) -> String {
-    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
-    format!("https://api.theporndb.net/scenes?parse={encoded}&hash=&year=")
+    theporndb_scene_search_url(query)
 }
 
 fn first_image_url(value: &serde_json::Value) -> Option<String> {
@@ -1147,6 +1170,377 @@ fn merge_remote_metadata(
         }
     }
     Some(merged)
+}
+
+fn load_metadata_check_item(
+    state: &AppState,
+    id: i64,
+) -> Result<Option<MetadataCheckItem>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT mi.id,
+                    mi.title,
+                    mi.file_path,
+                    mi.poster_path,
+                    mi.overview,
+                    mi.year,
+                    mi.rating,
+                    mi.genre,
+                    mi.tmdb_id,
+                    mi.imdb_id,
+                    mi.media_type,
+                    ms.name,
+                    ms.path
+             FROM media_items mi
+             LEFT JOIN media_sources ms ON ms.id = mi.source_id
+             WHERE mi.id = ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    stmt.query_row(params![id], |row| {
+        Ok(MetadataCheckItem {
+            id: row.get::<_, i64>(0)?,
+            title: row.get::<_, String>(1)?,
+            file_path: row.get::<_, String>(2)?,
+            poster_path: row.get::<_, Option<String>>(3)?,
+            overview: row.get::<_, Option<String>>(4)?,
+            year: row.get::<_, Option<i32>>(5)?,
+            rating: row.get::<_, Option<f64>>(6)?,
+            genre: row.get::<_, Option<String>>(7)?,
+            tmdb_id: row.get::<_, Option<String>>(8)?,
+            imdb_id: row.get::<_, Option<String>>(9)?,
+            media_type: row.get::<_, String>(10)?,
+            source_name: row.get::<_, Option<String>>(11)?,
+            source_path: row.get::<_, Option<String>>(12)?,
+        })
+    })
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+fn load_metadata_provider_keys(state: &AppState) -> Result<HashMap<String, String>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT provider, api_key FROM api_keys")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut keys = HashMap::new();
+    for row in rows.filter_map(|r| r.ok()) {
+        let raw_key = row.0.to_lowercase();
+        let normalized_key = normalize_provider_key(&raw_key);
+        keys.insert(raw_key, row.1.clone());
+        keys.insert(normalized_key, row.1);
+    }
+    Ok(keys)
+}
+
+fn blank(value: Option<&String>) -> bool {
+    value.map(|v| v.trim().is_empty()).unwrap_or(true)
+}
+
+fn string_changed(left: Option<&String>, right: Option<&String>) -> bool {
+    left.map(|v| v.as_str()) != right.map(|v| v.as_str())
+}
+
+#[tauri::command]
+pub async fn check_media_item_metadata(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<serde_json::Value, String> {
+    let Some(item) = load_metadata_check_item(&state, id)? else {
+        return Ok(serde_json::json!({
+            "type": "media_item_metadata_check",
+            "status": "not_found",
+            "id": id,
+            "message": "Media item was not found in the library.",
+        }));
+    };
+
+    let media_path = std::path::Path::new(&item.file_path);
+    let file_exists = media_path.exists();
+    let adult_match = is_adult_library_item(
+        &item.media_type,
+        &item.title,
+        &item.file_path,
+        item.source_name.as_deref(),
+        item.source_path.as_deref(),
+    );
+    let video_candidate = is_adult_gather_candidate(&item.media_type, &item.file_path);
+
+    let provider_keys = load_metadata_provider_keys(&state)?;
+    let tmdb_key = provider_keys.get("tmdb").cloned();
+    let omdb_key = provider_keys.get("omdb").cloned();
+    let stashdb_key = provider_keys.get("stashdb").cloned();
+    let tpdb_key = provider_keys.get("tpdb").cloned();
+    let porn_site_nuxt_base = provider_keys.get("porn_site_nuxt").cloned();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut errors: Vec<String> = Vec::new();
+    let mut provider_errors: Vec<String> = Vec::new();
+    let mut providers_used: Vec<String> = Vec::new();
+    let mut final_title = item.title.clone();
+    let mut final_overview = item.overview.clone();
+    let mut final_poster = item.poster_path.clone();
+    let mut final_year = item.year;
+    let mut final_rating = item.rating;
+    let mut final_genre = item.genre.clone();
+    let mut final_tmdb_id = item.tmdb_id.clone();
+    let mut final_imdb_id = item.imdb_id.clone();
+    let mut final_media_type = item.media_type.clone();
+
+    if adult_match && final_media_type != "adult" {
+        final_media_type = "adult".to_string();
+    }
+
+    if file_exists && should_refresh_title_from_embedded(&final_title, &item.file_path) {
+        if let Some(embedded_title) = extract_embedded_title(&item.file_path) {
+            if !embedded_title.eq_ignore_ascii_case(&final_title) {
+                final_title = embedded_title;
+            }
+        }
+    }
+
+    if blank(final_poster.as_ref()) {
+        if let Some(local_poster) = detect_local_poster(&item.file_path) {
+            final_poster = Some(local_poster);
+        } else if file_exists && video_candidate {
+            match generated_screenshot_posters(&item.file_path) {
+                Ok(Some(screenshot_poster)) => final_poster = Some(screenshot_poster),
+                Ok(None) => {}
+                Err(e) => errors.push(format!("screenshot poster failed: {e}")),
+            }
+        }
+    }
+
+    let missing_genre = blank(final_genre.as_ref());
+    let needs_remote_metadata = blank(final_overview.as_ref())
+        || should_prefer_remote_poster(final_poster.as_deref())
+        || final_year.is_none()
+        || final_rating.is_none()
+        || missing_genre
+        || blank(final_tmdb_id.as_ref())
+        || blank(final_imdb_id.as_ref());
+
+    if needs_remote_metadata {
+        let query_title = if file_exists {
+            extract_embedded_title(&item.file_path)
+                .filter(|embedded| !embedded.trim().is_empty())
+                .unwrap_or_else(|| final_title.clone())
+        } else {
+            final_title.clone()
+        };
+
+        let mut remote_meta: Option<RemoteMetadata> = None;
+        if adult_match {
+            if let Some(key) = tpdb_key.as_deref().filter(|key| !key.trim().is_empty()) {
+                match fetch_tpdb_metadata(&client, key, &query_title).await {
+                    Ok(result) => {
+                        if result.is_some() {
+                            providers_used.push("tpdb".to_string());
+                        }
+                        remote_meta = merge_remote_metadata(remote_meta, result);
+                    }
+                    Err(err) => provider_errors.push(format!("tpdb: {err}")),
+                }
+            }
+            if let Some(key) = stashdb_key.as_deref().filter(|key| !key.trim().is_empty()) {
+                let result = fetch_stashdb_metadata(&client, key, &query_title).await;
+                if result.is_some() {
+                    providers_used.push("stashdb".to_string());
+                }
+                remote_meta = merge_remote_metadata(remote_meta, result);
+            }
+            match fetch_porn_site_nuxt_metadata(
+                &client,
+                porn_site_nuxt_base.as_deref(),
+                &query_title,
+            )
+            .await
+            {
+                Ok(result) => {
+                    if result.is_some() {
+                        providers_used.push("porn_site_nuxt".to_string());
+                    }
+                    remote_meta = merge_remote_metadata(remote_meta, result);
+                }
+                Err(err) => provider_errors.push(format!("porn_site_nuxt: {err}")),
+            }
+            let phoenix_meta =
+                phoenix_adult_local_metadata(&query_title, &item.file_path, final_poster.clone());
+            if phoenix_meta.is_some() {
+                providers_used.push("phoenixadult".to_string());
+            }
+            remote_meta = merge_remote_metadata(remote_meta, phoenix_meta);
+        }
+
+        if let Some(key) = tmdb_key.as_deref().filter(|key| !key.trim().is_empty()) {
+            let result = fetch_tmdb_metadata(&client, key, &query_title).await;
+            if result.is_some() {
+                providers_used.push("tmdb".to_string());
+            }
+            remote_meta = merge_remote_metadata(remote_meta, result);
+        }
+        if let Some(key) = omdb_key.as_deref().filter(|key| !key.trim().is_empty()) {
+            let result = fetch_omdb_metadata(&client, key, &query_title).await;
+            if result.is_some() {
+                providers_used.push("omdb".to_string());
+            }
+            remote_meta = merge_remote_metadata(remote_meta, result);
+        }
+
+        if let Some(meta) = remote_meta {
+            if should_refresh_title_from_embedded(&item.title, &item.file_path) {
+                if let Some(new_title) = meta.title.filter(|v| !v.trim().is_empty()) {
+                    if !new_title.eq_ignore_ascii_case(&final_title) {
+                        final_title = new_title;
+                    }
+                }
+            }
+            if blank(final_overview.as_ref()) {
+                if let Some(new_overview) = meta.overview.filter(|v| !v.trim().is_empty()) {
+                    final_overview = Some(new_overview);
+                }
+            }
+            if should_prefer_remote_poster(final_poster.as_deref()) {
+                if let Some(new_poster) = meta.poster_path.filter(|v| !v.trim().is_empty()) {
+                    final_poster = Some(new_poster);
+                }
+            }
+            if final_year.is_none() {
+                final_year = meta.year;
+            }
+            if final_rating.is_none() {
+                final_rating = meta.rating;
+            }
+            if blank(final_genre.as_ref()) {
+                final_genre = meta.genre.filter(|v| !v.trim().is_empty());
+            }
+            if blank(final_tmdb_id.as_ref()) {
+                final_tmdb_id = meta.tmdb_id.filter(|v| !v.trim().is_empty());
+            }
+            if blank(final_imdb_id.as_ref()) {
+                final_imdb_id = meta.imdb_id.filter(|v| !v.trim().is_empty());
+            }
+        }
+    }
+
+    let mut changed_fields = 0usize;
+    if final_title != item.title {
+        changed_fields += 1;
+    }
+    if string_changed(final_overview.as_ref(), item.overview.as_ref()) {
+        changed_fields += 1;
+    }
+    if string_changed(final_poster.as_ref(), item.poster_path.as_ref()) {
+        changed_fields += 1;
+    }
+    if final_year != item.year {
+        changed_fields += 1;
+    }
+    if final_rating != item.rating {
+        changed_fields += 1;
+    }
+    if string_changed(final_genre.as_ref(), item.genre.as_ref()) {
+        changed_fields += 1;
+    }
+    if string_changed(final_tmdb_id.as_ref(), item.tmdb_id.as_ref()) {
+        changed_fields += 1;
+    }
+    if string_changed(final_imdb_id.as_ref(), item.imdb_id.as_ref()) {
+        changed_fields += 1;
+    }
+    if final_media_type != item.media_type {
+        changed_fields += 1;
+    }
+
+    if changed_fields > 0 {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items
+                 SET title = ?1,
+                     overview = ?2,
+                     poster_path = ?3,
+                     year = ?4,
+                     rating = ?5,
+                     genre = ?6,
+                     tmdb_id = ?7,
+                     imdb_id = ?8,
+                     media_type = ?9
+                 WHERE id = ?10",
+                params![
+                    final_title,
+                    final_overview,
+                    final_poster,
+                    final_year,
+                    final_rating,
+                    final_genre,
+                    final_tmdb_id,
+                    final_imdb_id,
+                    final_media_type,
+                    item.id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
+    let mut sidecars_written = 0usize;
+    if file_exists {
+        match write_metadata_sidecar(
+            &item.file_path,
+            &final_title,
+            final_overview.as_ref(),
+            final_poster.as_ref(),
+            final_year,
+            final_rating,
+            final_genre.as_ref(),
+            final_tmdb_id.as_ref(),
+            final_imdb_id.as_ref(),
+        ) {
+            Ok(true) => sidecars_written += 1,
+            Ok(false) => {}
+            Err(e) => errors.push(format!("sidecar write failed: {e}")),
+        }
+    } else {
+        errors.push(
+            "media file is currently unavailable; sidecar and screenshot poster were skipped"
+                .to_string(),
+        );
+    }
+
+    Ok(serde_json::json!({
+        "type": "media_item_metadata_check",
+        "status": "success",
+        "id": item.id,
+        "title": final_title,
+        "adult_match": adult_match,
+        "file_exists": file_exists,
+        "providers_used": providers_used,
+        "phoenixadult_manifest": if adult_match { phoenix_adult_manifest_summary() } else { serde_json::Value::Null },
+        "theporndb_config": if adult_match { theporndb_provider_manifest_summary() } else { serde_json::Value::Null },
+        "metadata_items_enriched": if changed_fields > 0 { 1 } else { 0 },
+        "metadata_fields_updated": changed_fields,
+        "posters_updated": if string_changed(final_poster.as_ref(), item.poster_path.as_ref()) { 1 } else { 0 },
+        "sidecars_written": sidecars_written,
+        "provider_errors": provider_errors,
+        "errors": errors,
+        "message": if changed_fields > 0 {
+            "Metadata checked and updated for this item."
+        } else {
+            "Metadata checked for this item; no field changes were needed."
+        },
+    }))
 }
 
 async fn gather_adult_metadata_assets(

@@ -540,6 +540,42 @@ input[type="range"] {
     0 0 24px rgba(255, 122, 61, 0.1);
 }
 
+.media-card-metadata-button {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 5;
+  display: inline-flex;
+  width: 1.85rem;
+  height: 1.85rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 234, 255, 0.28);
+  border-radius: 999px;
+  color: var(--cv-text);
+  background: rgba(8, 13, 24, 0.78);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--cv-fast), transform var(--cv-fast), border-color var(--cv-fast), background var(--cv-fast);
+}
+
+.media-card:hover .media-card-metadata-button,
+.media-card:focus-within .media-card-metadata-button {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.media-card-metadata-button:hover {
+  border-color: rgba(0, 234, 255, 0.58);
+  background: rgba(0, 234, 255, 0.18);
+}
+
+.media-card-metadata-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
 .library-virtual-grid-shell {
   width: 100%;
 }

@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 124)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 125)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -19,6 +19,8 @@ mod enrichment;
 mod task_progress;
 mod library_artifacts;
 mod adult_site_provider;
+mod phoenix_adult_provider;
+mod theporndb_provider;
 
 use db::Database;
 use std::sync::Mutex;
@@ -54,7 +56,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 124 initialized successfully");
+            log::info!("CinaVault Premium Build 125 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -153,6 +155,7 @@ fn main() {
             // AI
             ai::ai_query,
             ai::ai_inference,
+            ai::check_media_item_metadata,
             ai::set_hf_token,
             ai::get_ai_config,
             ai::set_ai_model,
@@ -336,8 +339,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-11",
-        "build_tag": "Build 124 Nuxt Adult Provider Integration (Premium Edition)",
+        "version": "1.0.0-12",
+        "build_tag": "Build 125 Per-Item Metadata Checks (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

@@ -6,6 +6,10 @@ use crate::adult_site_provider::{
     porn_site_nuxt_entry_rating, porn_site_nuxt_entry_source_url, porn_site_nuxt_entry_title,
     porn_site_nuxt_search_url, PORN_SITE_NUXT_DEFAULT_BASE_URL,
 };
+use crate::phoenix_adult_provider::{phoenix_adult_manifest_summary, PHOENIX_ADULT_SOURCE_URL};
+use crate::theporndb_provider::{
+    theporndb_provider_manifest_summary, theporndb_scene_search_url, THEPORNDB_API_BASE_URL,
+};
 use crate::AppState;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -63,13 +67,7 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
         true,
         "Music",
     ),
-    (
-        "ThePornDB",
-        "tpdb",
-        "https://api.theporndb.net",
-        true,
-        "Adult",
-    ),
+    ("ThePornDB", "tpdb", THEPORNDB_API_BASE_URL, true, "Adult"),
     (
         "StashDB",
         "stashdb",
@@ -77,7 +75,13 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
         true,
         "Adult",
     ),
-    ("PhoenixAdult", "phoenixadult", "", false, "Adult"),
+    (
+        "PhoenixAdult",
+        "phoenixadult",
+        PHOENIX_ADULT_SOURCE_URL,
+        false,
+        "Adult",
+    ),
     ("IAFD", "iafd", "https://www.iafd.com", false, "Adult"),
     (
         "Porn Site Nuxt",
@@ -267,6 +271,21 @@ fn local_metadata_response(provider: &str, query: &str, reason: &str) -> serde_j
     })
 }
 
+fn phoenix_adult_metadata_response(query: &str) -> serde_json::Value {
+    let mut response = local_metadata_response(
+        "phoenixadult",
+        query,
+        "phoenixadult_manifest_local_filename_metadata",
+    );
+    if let Some(obj) = response.as_object_mut() {
+        obj.insert(
+            "provider_manifest".to_string(),
+            phoenix_adult_manifest_summary(),
+        );
+    }
+    response
+}
+
 fn porn_site_nuxt_entry_to_result(entry: &serde_json::Value) -> Option<serde_json::Value> {
     let title = porn_site_nuxt_entry_title(entry)?;
     let source_url = porn_site_nuxt_entry_source_url(entry);
@@ -378,10 +397,7 @@ pub async fn fetch_metadata(
         }
         "tpdb" => {
             let key = api_key.ok_or("ThePornDB API key required")?;
-            let url = format!(
-                "https://api.theporndb.net/scenes?parse={}&hash=&year=",
-                percent_encoding::utf8_percent_encode(&query, percent_encoding::NON_ALPHANUMERIC)
-            );
+            let url = theporndb_scene_search_url(&query);
             let resp = client
                 .get(&url)
                 .header("Authorization", format!("Bearer {key}"))
@@ -392,7 +408,13 @@ pub async fn fetch_metadata(
                 .map_err(|e| e.to_string())?
                 .error_for_status()
                 .map_err(|e| e.to_string())?;
-            let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            let mut data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert(
+                    "provider_manifest".to_string(),
+                    theporndb_provider_manifest_summary(),
+                );
+            }
             Ok(data)
         }
         "tvmaze" => {
@@ -419,11 +441,7 @@ pub async fn fetch_metadata(
             Ok(data)
         }
         "porn_site_nuxt" => fetch_porn_site_nuxt_results(&client, api_key.as_deref(), &query).await,
-        "phoenixadult" => Ok(local_metadata_response(
-            &provider,
-            &query,
-            "phoenixadult_local_filename_metadata",
-        )),
+        "phoenixadult" => Ok(phoenix_adult_metadata_response(&query)),
         "iafd" => Ok(local_metadata_response(
             &provider,
             &query,
@@ -515,7 +533,7 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
         }
         "tpdb" => {
             let resp = client
-                .get("https://api.theporndb.net/scenes?parse=test&hash=&year=")
+                .get(theporndb_scene_search_url("test"))
                 .header("Authorization", format!("Bearer {api_key}"))
                 .header("Accept", "application/json")
                 .header("User-Agent", "CinaVault/1.0")

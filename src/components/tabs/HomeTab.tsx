@@ -55,6 +55,7 @@ export default function HomeTab() {
   const [cardStyle, setCardStyle] = useState<CardStyle>("poster");
   const [detailFlipped, setDetailFlipped] = useState(false);
   const [titleInitialFilter, setTitleInitialFilter] = useState<TitleInitialFilter>("all");
+  const [metadataCheckingId, setMetadataCheckingId] = useState<number | null>(null);
   const filterListRef = useRef<HTMLDivElement | null>(null);
   const libraryLoadGenerationRef = useRef(0);
 
@@ -182,6 +183,33 @@ export default function HomeTab() {
       addStatusMessage(`Verified: ${item.title}`);
       await loadMedia();
     } catch {}
+  };
+
+  const handleCheckMetadata = async (item: MediaItem) => {
+    if (!item.id) {
+      addStatusMessage(`Metadata check skipped: ${item.title} is not saved in the library yet`);
+      return;
+    }
+    setMetadataCheckingId(item.id);
+    try {
+      const result = await invoke<{
+        metadata_fields_updated?: number;
+        sidecars_written?: number;
+        posters_updated?: number;
+        message?: string;
+      }>("check_media_item_metadata", { id: item.id });
+      const fieldCount = result.metadata_fields_updated ?? 0;
+      const sidecarCount = result.sidecars_written ?? 0;
+      const posterCount = result.posters_updated ?? 0;
+      addStatusMessage(
+        `Metadata checked: ${item.title} (${fieldCount} fields, ${posterCount} posters, ${sidecarCount} sidecars)`,
+      );
+      await loadMedia();
+    } catch (e) {
+      addStatusMessage(`Metadata check failed: ${item.title} — ${e}`);
+    } finally {
+      setMetadataCheckingId(null);
+    }
   };
 
   const handleMediaClick = async (item: MediaItem) => {
@@ -451,6 +479,8 @@ export default function HomeTab() {
                   styleMode={cardStyle}
                   animated={false}
                   onSelect={handleMediaClick}
+                  onCheckMetadata={handleCheckMetadata}
+                  checkingMetadata={metadataCheckingId === filteredItems[i].id}
                 />
               )}
             />
@@ -468,6 +498,8 @@ export default function HomeTab() {
                 styleMode={cardStyle}
                 animated={true}
                 onSelect={handleMediaClick}
+                onCheckMetadata={handleCheckMetadata}
+                checkingMetadata={metadataCheckingId === item.id}
               />
             ))}
           </div>
@@ -550,16 +582,39 @@ function LibraryCard({
   styleMode,
   animated,
   onSelect,
+  onCheckMetadata,
+  checkingMetadata,
 }: {
   item: MediaItem;
   index: number;
   styleMode: CardStyle;
   animated: boolean;
   onSelect: (item: MediaItem) => Promise<void>;
+  onCheckMetadata: (item: MediaItem) => Promise<void>;
+  checkingMetadata: boolean;
 }) {
-  const className = `media-card glass-panel-2 rounded-xl overflow-hidden group ${styleMode === "disc" ? "p-3" : ""}`;
+  const className = `media-card glass-panel-2 rounded-xl overflow-hidden group relative ${styleMode === "disc" ? "p-3" : ""}`;
+  const handleMetadataClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void onCheckMetadata(item);
+  };
   const body = (
     <>
+      <button
+        type="button"
+        aria-label={`Check metadata for ${item.title}`}
+        title="Check metadata"
+        onClick={handleMetadataClick}
+        disabled={checkingMetadata || !item.id}
+        className="media-card-metadata-button"
+      >
+        {checkingMetadata ? (
+          <RefreshCw size={13} className="animate-spin" />
+        ) : (
+          <Sparkles size={13} />
+        )}
+        <span className="sr-only">Check metadata</span>
+      </button>
       <CardVisual item={item} styleMode={styleMode} />
       <div className="p-2.5">
         <h4 className="text-xs font-semibold truncate">{item.title}</h4>
