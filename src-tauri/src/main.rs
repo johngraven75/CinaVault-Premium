@@ -127,6 +127,7 @@ fn main() {
             // Metadata
             metadata::fetch_metadata,
             metadata::search_metadata,
+            metadata::check_media_item_metadata,
             metadata::get_provider_status,
             metadata::test_api_key,
             metadata::set_api_key,
