@@ -46,6 +46,27 @@ const TASK_FREQ_OPTIONS = [
   { value: "never", label: "Never" },
 ];
 
+const PHOENIX_ADULT_PLUGIN: PluginEntry = {
+  id: "jf-phoenixadult",
+  name: "PhoenixAdult",
+  description: "Adult video metadata provider for Jellyfin/Emby-compatible libraries, with filename-aware scene matching and artwork support.",
+  version: "2.7.0.47",
+  author: "DirtyRacer",
+  platforms: ["jellyfin", "emby", "cinavault"],
+  category: "metadata",
+  status: "available",
+  icon: "🔞",
+  repo: "https://github.com/DirtyRacer1337/Jellyfin.Plugin.PhoenixAdult",
+  configurable: true,
+  premium: false,
+  cinavaultNative: true,
+  tags: ["adult", "metadata", "scenes", "jellyfin", "emby", "artwork"],
+};
+
+const PLUGIN_CATALOG: PluginEntry[] = FULL_PLUGIN_REGISTRY.some((plugin) => plugin.id === PHOENIX_ADULT_PLUGIN.id)
+  ? FULL_PLUGIN_REGISTRY
+  : [...FULL_PLUGIN_REGISTRY, PHOENIX_ADULT_PLUGIN];
+
 export default function PluginsTab() {
   const {
     metadataProviders, toggleMetadataProvider, enableAllProviders, disableAllProviders,
@@ -56,7 +77,7 @@ export default function PluginsTab() {
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState<PluginPlatform | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<PluginCategory | "all">("all");
-  const [plugins, setPlugins] = useState<PluginEntry[]>(FULL_PLUGIN_REGISTRY);
+  const [plugins, setPlugins] = useState<PluginEntry[]>(PLUGIN_CATALOG);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(["metadata", "subtitles", "sync", "management"]));
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [metaCategoryFilter, setMetaCategoryFilter] = useState<string>("all");
@@ -67,7 +88,7 @@ export default function PluginsTab() {
   // Load installed status on mount
   useEffect(() => {
     pluginEngine.loadFromBackend().then(() => {
-      setPlugins(applyPluginRuntimeState(FULL_PLUGIN_REGISTRY, pluginEngine.getInstalled()));
+      setPlugins(applyPluginRuntimeState(PLUGIN_CATALOG, pluginEngine.getInstalled()));
       addStatusMessage(`Plugin catalog loaded (${pluginEngine.getInstalled().length} installed)`);
     });
   }, [addStatusMessage]);
@@ -556,4 +577,3 @@ function PluginRow({ plugin, installing, onInstall, onUninstall, onSetEnabled }:
     </div>
   );
 }
-
