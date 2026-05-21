@@ -210,6 +210,7 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
   { id: "phoenixadult", name: "PhoenixAdult", category: "Adult", enabled: false },
   { id: "iafd", name: "IAFD", category: "Adult", enabled: false },
+  { id: "porn_site_nuxt", name: "Porn Site Nuxt", category: "Adult", enabled: false },
   // Subtitles
   { id: "opensubtitles", name: "OpenSubtitles", category: "Subtitles", enabled: true },
   { id: "subscene", name: "Subscene", category: "Subtitles", enabled: true },

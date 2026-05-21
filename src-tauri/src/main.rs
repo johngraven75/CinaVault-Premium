@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 123)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 124)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -18,6 +18,7 @@ mod ai;
 mod enrichment;
 mod task_progress;
 mod library_artifacts;
+mod adult_site_provider;
 
 use db::Database;
 use std::sync::Mutex;
@@ -53,7 +54,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 123 initialized successfully");
+            log::info!("CinaVault Premium Build 124 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -335,8 +336,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-10",
-        "build_tag": "Build 123 Provider Durability + Full Library Hydration (Premium Edition)",
+        "version": "1.0.0-11",
+        "build_tag": "Build 124 Nuxt Adult Provider Integration (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

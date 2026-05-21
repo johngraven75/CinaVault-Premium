@@ -1,5 +1,11 @@
 // CinaVault Premium — Metadata Fetching Module
 // Supports TMDb, OMDb, TVDB, Fanart.tv, and 30+ providers
+use crate::adult_site_provider::{
+    is_porn_site_nuxt_alias, porn_site_nuxt_base_url, porn_site_nuxt_entries,
+    porn_site_nuxt_entry_id, porn_site_nuxt_entry_image, porn_site_nuxt_entry_overview,
+    porn_site_nuxt_entry_rating, porn_site_nuxt_entry_source_url, porn_site_nuxt_entry_title,
+    porn_site_nuxt_search_url, PORN_SITE_NUXT_DEFAULT_BASE_URL,
+};
 use crate::AppState;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -73,6 +79,13 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
     ),
     ("PhoenixAdult", "phoenixadult", "", false, "Adult"),
     ("IAFD", "iafd", "https://www.iafd.com", false, "Adult"),
+    (
+        "Porn Site Nuxt",
+        "porn_site_nuxt",
+        PORN_SITE_NUXT_DEFAULT_BASE_URL,
+        false,
+        "Adult",
+    ),
     (
         "AniDB",
         "anidb",
@@ -187,6 +200,9 @@ const PROVIDERS: &[(&str, &str, &str, bool, &str)] = &[
 ];
 
 fn normalize_provider_key(provider: &str) -> String {
+    if is_porn_site_nuxt_alias(provider) {
+        return "porn_site_nuxt".to_string();
+    }
     match provider.trim().to_lowercase().as_str() {
         "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
         "theporndb" | "tpdb" => "tpdb".to_string(),
@@ -210,14 +226,11 @@ fn should_assume_key_validity(provider: &str) -> bool {
 }
 
 fn clean_local_metadata_title(query: &str) -> String {
-    let normalized = query
-        .replace('_', " ")
-        .replace('.', " ")
-        .replace('-', " ");
+    let normalized = query.replace('_', " ").replace('.', " ").replace('-', " ");
     let noise = [
         "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd", "x264", "x265", "h264", "h265",
-        "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv",
-        "avi", "mov", "wmv",
+        "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv", "avi",
+        "mov", "wmv",
     ];
     let words: Vec<&str> = normalized
         .split_whitespace()
@@ -254,6 +267,66 @@ fn local_metadata_response(provider: &str, query: &str, reason: &str) -> serde_j
     })
 }
 
+fn porn_site_nuxt_entry_to_result(entry: &serde_json::Value) -> Option<serde_json::Value> {
+    let title = porn_site_nuxt_entry_title(entry)?;
+    let source_url = porn_site_nuxt_entry_source_url(entry);
+    let poster_path = porn_site_nuxt_entry_image(entry);
+    let rating = porn_site_nuxt_entry_rating(entry);
+    let overview = porn_site_nuxt_entry_overview(entry);
+    let id = porn_site_nuxt_entry_id(entry);
+
+    Some(serde_json::json!({
+        "title": title,
+        "provider": "porn_site_nuxt",
+        "id": id,
+        "source_url": source_url,
+        "poster_path": poster_path,
+        "overview": overview,
+        "rating": rating,
+        "genre": "Adult",
+    }))
+}
+
+async fn fetch_porn_site_nuxt_results(
+    client: &reqwest::Client,
+    base_url: Option<&str>,
+    query: &str,
+) -> Result<serde_json::Value, String> {
+    let base_url = porn_site_nuxt_base_url(base_url);
+    let resp = client
+        .get(porn_site_nuxt_search_url(&base_url, query))
+        .timeout(std::time::Duration::from_secs(4))
+        .header("Accept", "application/json")
+        .header("User-Agent", "CinaVault/1.0")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!(
+            "Porn Site Nuxt provider returned http_{}",
+            status.as_u16()
+        ));
+    }
+    let data = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())?;
+    let results: Vec<serde_json::Value> = porn_site_nuxt_entries(&data)
+        .into_iter()
+        .filter_map(porn_site_nuxt_entry_to_result)
+        .collect();
+
+    Ok(serde_json::json!({
+        "provider": "porn_site_nuxt",
+        "query": query,
+        "status": "success",
+        "base_url": base_url,
+        "results": results,
+        "raw": data,
+    }))
+}
+
 #[tauri::command]
 pub fn get_metadata_providers() -> Vec<MetadataProvider> {
     PROVIDERS
@@ -274,7 +347,10 @@ pub async fn fetch_metadata(
     query: String,
     api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
     let provider = normalize_provider_key(&provider);
 
     match provider.as_str() {
@@ -342,6 +418,7 @@ pub async fn fetch_metadata(
             let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             Ok(data)
         }
+        "porn_site_nuxt" => fetch_porn_site_nuxt_results(&client, api_key.as_deref(), &query).await,
         "phoenixadult" => Ok(local_metadata_response(
             &provider,
             &query,
@@ -386,7 +463,10 @@ pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, 
     let mut configured = serde_json::Map::new();
     for row in rows {
         let (provider, _key) = row.map_err(|e| e.to_string())?;
-        configured.insert(normalize_provider_key(&provider), serde_json::Value::Bool(true));
+        configured.insert(
+            normalize_provider_key(&provider),
+            serde_json::Value::Bool(true),
+        );
     }
 
     Ok(serde_json::json!({
@@ -469,7 +549,10 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
 
 #[cfg(test)]
 mod tests {
-    use super::{is_known_provider, local_metadata_response, normalize_provider_key, provider_has_live_key_check, should_assume_key_validity};
+    use super::{
+        is_known_provider, local_metadata_response, normalize_provider_key,
+        porn_site_nuxt_entry_to_result, provider_has_live_key_check, should_assume_key_validity,
+    };
 
     #[test]
     fn known_provider_is_detected() {
@@ -485,6 +568,7 @@ mod tests {
         assert_eq!(normalize_provider_key("theporndb"), "tpdb");
         assert_eq!(normalize_provider_key("openmoviedb"), "omdb");
         assert_eq!(normalize_provider_key("Phoenix Adult"), "phoenixadult");
+        assert_eq!(normalize_provider_key("IreneHub"), "porn_site_nuxt");
     }
 
     #[test]
@@ -496,6 +580,7 @@ mod tests {
     fn known_provider_without_live_check_is_assumed_valid() {
         assert!(should_assume_key_validity("tvdb"));
         assert!(should_assume_key_validity("phoenixadult"));
+        assert!(should_assume_key_validity("porn_site_nuxt"));
     }
 
     #[test]
@@ -516,7 +601,10 @@ mod tests {
         );
 
         assert_eq!(data.get("status").and_then(|v| v.as_str()), Some("success"));
-        assert_eq!(data.get("local_fallback").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            data.get("local_fallback").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert_eq!(
             data.get("results")
                 .and_then(|v| v.as_array())
@@ -524,6 +612,34 @@ mod tests {
                 .and_then(|item| item.get("title"))
                 .and_then(|v| v.as_str()),
             Some("Studio Scene 2024")
+        );
+    }
+
+    #[test]
+    fn porn_site_nuxt_entry_maps_to_metadata_result() {
+        let entry = serde_json::json!({
+            "key": { "kind": "PornEntry", "id": "abc123" },
+            "name": "Bundled Provider Scene",
+            "sourceUrl": "https://example.test/watch/abc123",
+            "duration": 98,
+            "rating": 93,
+            "preview": "https://cdn.example.test/thumb.jpg"
+        });
+
+        let result = porn_site_nuxt_entry_to_result(&entry)
+            .expect("PornEntry should map to provider result");
+
+        assert_eq!(
+            result.get("title").and_then(|v| v.as_str()),
+            Some("Bundled Provider Scene")
+        );
+        assert_eq!(
+            result.get("poster_path").and_then(|v| v.as_str()),
+            Some("https://cdn.example.test/thumb.jpg")
+        );
+        assert_eq!(
+            result.get("source_url").and_then(|v| v.as_str()),
+            Some("https://example.test/watch/abc123")
         );
     }
 }

@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.0.0-10",
+  "version": "1.0.0-11",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {

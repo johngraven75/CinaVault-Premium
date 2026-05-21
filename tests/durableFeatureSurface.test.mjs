@@ -41,3 +41,14 @@ test("PhoenixAdult remains an active local adult metadata provider", () => {
   assert.match(metadata, /phoenixadult/);
   assert.doesNotMatch(ai, /provider_integration_pending.*phoenixadult/);
 });
+
+test("Nuxt porn-site bundle remains an active adult metadata provider", () => {
+  const ai = read("src-tauri/src/ai.rs");
+  const metadata = read("src-tauri/src/metadata.rs");
+  const store = read("src/store/appStore.ts");
+
+  assert.match(ai, /fetch_porn_site_nuxt_metadata/);
+  assert.match(ai, /porn_site_nuxt/);
+  assert.match(metadata, /Porn Site Nuxt/);
+  assert.match(store, /Porn Site Nuxt/);
+});

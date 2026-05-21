@@ -238,7 +238,7 @@ export default function SettingsTab() {
                 <div className="text-3xl mb-2">🎬</div>
                 <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cv-text)" }}>CinaVault Premium</h2>
                 <p className="text-sm font-medium mb-0.5" style={{ color: "var(--cv-accent)" }}>Fusion Edition</p>
-                <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>v1.0.0-10 · Build 123 · Tauri v2 + React 18</p>
+                <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>v1.0.0-11 · Build 124 · Tauri v2 + React 18</p>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-white/3">
                     <div className="text-lg font-bold" style={{ color: "var(--cv-accent)" }}>150+</div>
