@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 126)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 127)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -15,6 +15,8 @@ mod duplicates;
 mod vpn;
 mod downloads;
 mod ai;
+mod vpnb;
+mod avb;
 mod enrichment;
 mod task_progress;
 mod library_artifacts;
@@ -56,7 +58,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 126 initialized successfully");
+            log::info!("CinaVault Premium Build 127 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -152,6 +154,15 @@ fn main() {
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,
+            // Built-in VPN / Antivirus
+            vpnb::vpnb_status,
+            vpnb::vpnb_connect,
+            vpnb::vpnb_disconnect,
+            vpnb::vpnb_generate_test_config,
+            avb::avb_status,
+            avb::avb_scan_path,
+            avb::avb_update_database,
+            avb::avb_install_tools,
             // AI
             ai::ai_query,
             ai::ai_inference,
@@ -339,8 +350,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-13",
-        "build_tag": "Build 126 Forward UI Poster Rendering (Premium Edition)",
+        "version": "1.0.0-15",
+        "build_tag": "Build 127 RC3 Feature Carry Forward (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

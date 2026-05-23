@@ -13,7 +13,7 @@ import {
   Package, Search, Filter, Download, Trash2, Settings, Play,
   CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronRight,
   Layers, Clock, ToggleLeft, ToggleRight, AlertTriangle,
-  Database, Image, Film, Tag, Zap,
+  Database, Image, Film, Tag, Zap, Key, TestTube2,
 } from "lucide-react";
 
 type SubView = "plugins" | "metadata" | "tasks";
@@ -46,6 +46,12 @@ const TASK_FREQ_OPTIONS = [
   { value: "never", label: "Never" },
 ];
 
+const KEYED_METADATA_PROVIDERS = new Set([
+  "tmdb", "omdb", "tvdb", "fanart", "audiodb", "tpdb", "stashdb",
+  "anidb", "mal", "igdb", "goodreads", "lastfm", "discogs",
+  "trakt", "opensubtitles",
+]);
+
 export default function PluginsTab() {
   const {
     metadataProviders, toggleMetadataProvider, enableAllProviders, disableAllProviders,
@@ -60,6 +66,10 @@ export default function PluginsTab() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(["metadata", "subtitles", "sync", "management"]));
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [metaCategoryFilter, setMetaCategoryFilter] = useState<string>("all");
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [keyValue, setKeyValue] = useState("");
+  const [testingKey, setTestingKey] = useState<string | null>(null);
 
   const statusForPlugin = (plugin: PluginEntry, enabled = true): PluginStatus =>
     enabled ? (plugin.cinavaultNative ? "active" : "installed") : "disabled";
@@ -71,6 +81,12 @@ export default function PluginsTab() {
       addStatusMessage(`Plugin catalog loaded (${pluginEngine.getInstalled().length} installed)`);
     });
   }, [addStatusMessage]);
+
+  useEffect(() => {
+    invoke<Record<string, string>>("get_api_keys")
+      .then(setApiKeys)
+      .catch(() => setApiKeys({}));
+  }, []);
 
   // Filtered plugins
   const filtered = useMemo(() => {
@@ -148,6 +164,77 @@ export default function PluginsTab() {
       s.has(cat) ? s.delete(cat) : s.add(cat);
       return s;
     });
+  };
+
+  const enabledProviderIds = (providers = metadataProviders) =>
+    providers.filter((provider) => provider.enabled).map((provider) => provider.id);
+
+  const persistProviderSelection = async (providerIds: string[]) => {
+    const value = JSON.stringify(providerIds);
+    try {
+      await invoke("set_setting", { key: "metadata_selected_providers", value });
+    } catch (error) {
+      addStatusMessage(`Provider selection save failed: ${error}`);
+    }
+  };
+
+  const toggleProviderAndPersist = async (id: string) => {
+    const nextProviders = metadataProviders.map((provider) =>
+      provider.id === id ? { ...provider, enabled: !provider.enabled } : provider,
+    );
+    toggleMetadataProvider(id);
+    await persistProviderSelection(enabledProviderIds(nextProviders));
+  };
+
+  const setProvidersForCategory = async (enabled: boolean) => {
+    const category = metaCategoryFilter === "all" ? undefined : metaCategoryFilter;
+    const nextProviders = metadataProviders.map((provider) =>
+      !category || provider.category === category ? { ...provider, enabled } : provider,
+    );
+    if (enabled) {
+      enableAllProviders(category);
+    } else {
+      disableAllProviders(category);
+    }
+    await persistProviderSelection(enabledProviderIds(nextProviders));
+  };
+
+  const saveApiKey = async (providerId: string) => {
+    const trimmed = keyValue.trim();
+    if (!trimmed) {
+      addStatusMessage(`API key is empty for ${providerId}`);
+      return;
+    }
+    try {
+      await invoke("set_api_key", { provider: providerId, apiKey: trimmed });
+      const refreshed = await invoke<Record<string, string>>("get_api_keys");
+      setApiKeys(refreshed);
+      setEditingKey(null);
+      setKeyValue("");
+      addStatusMessage(`API key saved for ${providerId}`);
+    } catch (error) {
+      addStatusMessage(`API key save failed for ${providerId}: ${error}`);
+    }
+  };
+
+  const testApiKey = async (providerId: string) => {
+    const candidate = keyValue.trim();
+    if (!candidate) {
+      addStatusMessage(`Paste an API key before testing ${providerId}`);
+      return;
+    }
+    setTestingKey(providerId);
+    try {
+      const result = await invoke<{ valid?: boolean }>("test_api_key", {
+        provider: providerId,
+        apiKey: candidate,
+      });
+      addStatusMessage(`${providerId} API key test: ${result.valid ? "valid" : "invalid"}`);
+    } catch (error) {
+      addStatusMessage(`${providerId} API key test failed: ${error}`);
+    } finally {
+      setTestingKey(null);
+    }
   };
 
   const installedCount = plugins.filter(p => p.status === "installed" || p.status === "active").length;
@@ -292,11 +379,11 @@ export default function PluginsTab() {
                     <option value="all">All Categories</option>
                     {metaCategories.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <button onClick={() => enableAllProviders(metaCategoryFilter === "all" ? undefined : metaCategoryFilter)}
+                  <button onClick={() => void setProvidersForCategory(true)}
                     className="cv-btn-sm text-xs bg-green-500/20 text-green-400 hover:bg-green-500/30">
                     Enable All
                   </button>
-                  <button onClick={() => disableAllProviders(metaCategoryFilter === "all" ? undefined : metaCategoryFilter)}
+                  <button onClick={() => void setProvidersForCategory(false)}
                     className="cv-btn-sm text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30">
                     Disable All
                   </button>
@@ -309,30 +396,70 @@ export default function PluginsTab() {
                   <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 px-1"
                     style={{ color: "var(--cv-accent)" }}>{category}</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {providers.map(provider => (
-                      <button key={provider.id} onClick={() => toggleMetadataProvider(provider.id)}
-                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                    {providers.map(provider => {
+                      const hasApiKey = Boolean(apiKeys[provider.id]);
+                      const needsApiKey = KEYED_METADATA_PROVIDERS.has(provider.id);
+                      const isEditing = editingKey === provider.id;
+                      return (
+                      <div key={provider.id}
+                        className={`flex flex-col gap-2 p-3 rounded-xl border transition-all ${
                           provider.enabled
                             ? "border-[var(--cv-accent)]/40 bg-[var(--cv-accent)]/10"
                             : "border-white/5 bg-white/3 hover:bg-white/5"
                         }`}>
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
-                          provider.enabled ? "bg-[var(--cv-accent)]/30 text-[var(--cv-accent)]" : "bg-white/10 text-[var(--cv-subtext)]"
-                        }`}>
-                          {getMetadataProviderInitials(provider.name)}
-                        </div>
-                        <div className="flex-1 text-left">
-                          <div className="text-xs font-medium" style={{ color: provider.enabled ? "var(--cv-text)" : "var(--cv-subtext)" }}>
-                            {provider.name}
+                        <button onClick={() => void toggleProviderAndPersist(provider.id)} className="flex items-center gap-3 text-left">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
+                            provider.enabled ? "bg-[var(--cv-accent)]/30 text-[var(--cv-accent)]" : "bg-white/10 text-[var(--cv-subtext)]"
+                          }`}>
+                            {getMetadataProviderInitials(provider.name)}
                           </div>
-                          <div className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>{provider.category}</div>
+                          <div className="flex-1 text-left">
+                            <div className="text-xs font-medium" style={{ color: provider.enabled ? "var(--cv-text)" : "var(--cv-subtext)" }}>
+                              {provider.name}
+                            </div>
+                            <div className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>{provider.id} · {provider.category}</div>
+                          </div>
+                          {provider.enabled
+                            ? <ToggleRight size={20} className="text-[var(--cv-accent)]" />
+                            : <ToggleLeft size={20} className="text-[var(--cv-subtext)]/40" />
+                          }
+                        </button>
+                        {needsApiKey && (
+                          <div className="pt-2 border-t border-white/5">
+                            {isEditing ? (
+                              <div className="flex gap-2">
+                                <input
+                                  value={keyValue}
+                                  onChange={(e) => setKeyValue(e.target.value)}
+                                  type="password"
+                                  className="cv-input text-xs flex-1 min-w-0"
+                                  placeholder={`${provider.name} API key`}
+                                />
+                                <button onClick={() => void saveApiKey(provider.id)} className="cv-btn-sm text-xs bg-[var(--cv-accent)]/20 text-[var(--cv-accent)]">
+                                  <Key size={12} /> Save
+                                </button>
+                                <button onClick={() => void testApiKey(provider.id)} disabled={testingKey === provider.id} className="cv-btn-sm text-xs bg-white/10 text-[var(--cv-subtext)]">
+                                  <TestTube2 size={12} /> Test
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px]" style={{ color: hasApiKey ? "var(--cv-accent)" : "var(--cv-subtext)" }}>
+                                  {hasApiKey ? `Key set (${apiKeys[provider.id]})` : "API key not set"}
+                                </span>
+                                <button
+                                  onClick={() => { setEditingKey(provider.id); setKeyValue(""); }}
+                                  className="cv-btn-sm text-xs bg-white/10 text-[var(--cv-subtext)]"
+                                >
+                                  <Key size={12} /> {hasApiKey ? "Update" : "Set Key"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         </div>
-                        {provider.enabled
-                          ? <ToggleRight size={20} className="text-[var(--cv-accent)]" />
-                          : <ToggleLeft size={20} className="text-[var(--cv-subtext)]/40" />
-                        }
-                      </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

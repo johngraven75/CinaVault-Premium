@@ -211,6 +211,10 @@ fn normalize_provider_key(provider: &str) -> String {
         "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
         "theporndb" | "tpdb" => "tpdb".to_string(),
         "open_movie_db" | "openmoviedb" | "omdb" => "omdb".to_string(),
+        "fanarttv" | "fanart_tv" | "fanart.tv" | "fanart" => "fanart".to_string(),
+        "rotten_tomatoes" | "rottentomatoes" | "rt" => "rt".to_string(),
+        "myanimelist" | "mal" => "mal".to_string(),
+        "epg_guide" | "epgguide" | "epg" => "epg".to_string(),
         "phoenix_adult" | "phoenix adult" | "phoenixadult" => "phoenixadult".to_string(),
         other => other.to_string(),
     }
@@ -585,6 +589,10 @@ mod tests {
         assert_eq!(normalize_provider_key("themoviedb_images"), "tmdb");
         assert_eq!(normalize_provider_key("theporndb"), "tpdb");
         assert_eq!(normalize_provider_key("openmoviedb"), "omdb");
+        assert_eq!(normalize_provider_key("fanarttv"), "fanart");
+        assert_eq!(normalize_provider_key("rotten_tomatoes"), "rt");
+        assert_eq!(normalize_provider_key("myanimelist"), "mal");
+        assert_eq!(normalize_provider_key("epg_guide"), "epg");
         assert_eq!(normalize_provider_key("Phoenix Adult"), "phoenixadult");
         assert_eq!(normalize_provider_key("IreneHub"), "porn_site_nuxt");
     }

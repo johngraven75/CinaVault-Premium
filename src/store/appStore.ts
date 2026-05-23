@@ -1,6 +1,6 @@
 // CinaVault Premium — Global State Store (Zustand) with Persistence
 import { create } from "zustand";
-import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
+import { enableAdultMetadataProviders, sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 
 export type TabId =
   | "home" | "sources" | "downloads" | "livetv" | "server"
@@ -189,7 +189,7 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "tvdb", name: "TVDB", category: "Movies & TV", enabled: true },
   { id: "trakt", name: "Trakt", category: "Movies & TV", enabled: true },
   { id: "imdb", name: "IMDb", category: "Movies & TV", enabled: true },
-  { id: "rotten_tomatoes", name: "Rotten Tomatoes", category: "Movies & TV", enabled: true },
+  { id: "rt", name: "Rotten Tomatoes", category: "Movies & TV", enabled: true },
   { id: "cinemeta", name: "CINEMETA", category: "Movies & TV", enabled: true },
   { id: "tvmaze", name: "TVMaze", category: "Movies & TV", enabled: true },
   // Music
@@ -200,17 +200,17 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   // Anime
   { id: "anidb", name: "AniDB", category: "Anime", enabled: true },
   { id: "anilist", name: "AniList", category: "Anime", enabled: true },
-  { id: "myanimelist", name: "MyAnimeList", category: "Anime", enabled: true },
+  { id: "mal", name: "MyAnimeList", category: "Anime", enabled: true },
   { id: "kitsu", name: "Kitsu", category: "Anime", enabled: true },
   // Artwork
-  { id: "fanarttv", name: "Fanart.tv", category: "Artwork", enabled: true },
+  { id: "fanart", name: "Fanart.tv", category: "Artwork", enabled: true },
   { id: "tmdb_images", name: "TheMovieDB Images", category: "Artwork", enabled: true },
   // Adult
-  { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: false },
-  { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
-  { id: "phoenixadult", name: "PhoenixAdult", category: "Adult", enabled: false },
-  { id: "iafd", name: "IAFD", category: "Adult", enabled: false },
-  { id: "porn_site_nuxt", name: "Porn Site Nuxt", category: "Adult", enabled: false },
+  { id: "tpdb", name: "ThePornDB", category: "Adult", enabled: true },
+  { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
+  { id: "phoenixadult", name: "PhoenixAdult", category: "Adult", enabled: true },
+  { id: "iafd", name: "IAFD", category: "Adult", enabled: true },
+  { id: "porn_site_nuxt", name: "Porn Site Nuxt", category: "Adult", enabled: true },
   // Subtitles
   { id: "opensubtitles", name: "OpenSubtitles", category: "Subtitles", enabled: true },
   { id: "subscene", name: "Subscene", category: "Subtitles", enabled: true },
@@ -218,7 +218,7 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "igdb", name: "IGDB", category: "Other", enabled: true },
   { id: "openlibrary", name: "OpenLibrary", category: "Other", enabled: true },
   { id: "goodreads", name: "GoodReads", category: "Other", enabled: true },
-  { id: "epg_guide", name: "EPG Guide", category: "Other", enabled: true },
+  { id: "epg", name: "EPG Guide", category: "Other", enabled: true },
   // Agents
   { id: "plex_agents", name: "MS-A Agents", category: "Agents", enabled: true },
   { id: "emby_providers", name: "MS-B Providers", category: "Agents", enabled: true },
@@ -293,6 +293,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   glassmorphism: "true",
   starfield_header: "true",
   window_opacity: "100",
+  metadata_selected_providers: JSON.stringify(DEFAULT_PROVIDERS.filter((provider) => provider.enabled).map((provider) => provider.id)),
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -366,7 +367,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   // Metadata Providers
-  metadataProviders: [...DEFAULT_PROVIDERS],
+  metadataProviders: enableAdultMetadataProviders([...DEFAULT_PROVIDERS]),
   setMetadataProviders: (p) => set({ metadataProviders: p }),
   toggleMetadataProvider: (id) => set((s) => ({
     metadataProviders: s.metadataProviders.map(p =>
@@ -438,7 +439,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     let currentTheme = "vidhub_flagship";
     let libraryView: "list" | "card" = "card";
     let featureSettings = { ...DEFAULT_FEATURE_SETTINGS };
-    let metadataProviders = [...DEFAULT_PROVIDERS];
+    let metadataProviders = enableAdultMetadataProviders([...DEFAULT_PROVIDERS]);
     let scheduledTasks = { ...DEFAULT_SCHEDULED_TASKS };
     let cloudServices = get().cloudServices;
 
@@ -454,7 +455,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else if (key === "_featureSettings") {
         try { featureSettings = { ...DEFAULT_FEATURE_SETTINGS, ...JSON.parse(value) }; } catch {}
       } else if (key === "_metadataProviders") {
-        try { metadataProviders = sanitizeMetadataProviders(JSON.parse(value), DEFAULT_PROVIDERS); } catch {}
+        try { metadataProviders = enableAdultMetadataProviders(sanitizeMetadataProviders(JSON.parse(value), DEFAULT_PROVIDERS)); } catch {}
       } else if (key === "_scheduledTasks") {
         try { scheduledTasks = { ...DEFAULT_SCHEDULED_TASKS, ...JSON.parse(value) }; } catch {}
       } else if (key === "_cloudServices") {

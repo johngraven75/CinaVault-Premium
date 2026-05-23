@@ -3,16 +3,18 @@ import assert from "node:assert/strict";
 
 import {
   applyPluginRuntimeState,
+  enableAdultMetadataProviders,
   getMetadataProviderInitials,
   getUnreadStatusMessages,
   matchesPluginSearch,
+  normalizeMetadataProviderId,
   sanitizeMetadataProviders,
 } from "../src/utils/pluginUiSafety.ts";
 
 test("sanitizeMetadataProviders keeps defaults and repairs malformed persisted providers", () => {
   const defaults = [
     { id: "tmdb", name: "TMDb", category: "Movies & TV", enabled: true },
-    { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: false },
+    { id: "tpdb", name: "ThePornDB", category: "Adult", enabled: false },
   ];
 
   const persisted = [
@@ -23,8 +25,31 @@ test("sanitizeMetadataProviders keeps defaults and repairs malformed persisted p
 
   assert.deepEqual(sanitizeMetadataProviders(persisted, defaults), [
     { id: "tmdb", name: "TMDb", category: "Movies & TV", enabled: false },
-    { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: true },
+    { id: "tpdb", name: "ThePornDB", category: "Adult", enabled: true },
   ]);
+});
+
+test("normalizeMetadataProviderId keeps old RC3 provider selections compatible", () => {
+  assert.equal(normalizeMetadataProviderId("theporndb"), "tpdb");
+  assert.equal(normalizeMetadataProviderId("fanarttv"), "fanart");
+  assert.equal(normalizeMetadataProviderId("rotten_tomatoes"), "rt");
+  assert.equal(normalizeMetadataProviderId("myanimelist"), "mal");
+  assert.equal(normalizeMetadataProviderId("epg_guide"), "epg");
+});
+
+test("enableAdultMetadataProviders overrides older disabled adult settings", () => {
+  assert.deepEqual(
+    enableAdultMetadataProviders([
+      { id: "tmdb", name: "TMDb", category: "Movies & TV", enabled: false },
+      { id: "tpdb", name: "ThePornDB", category: "Adult", enabled: false },
+      { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
+    ]),
+    [
+      { id: "tmdb", name: "TMDb", category: "Movies & TV", enabled: false },
+      { id: "tpdb", name: "ThePornDB", category: "Adult", enabled: true },
+      { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
+    ],
+  );
 });
 
 test("getMetadataProviderInitials never throws on missing provider names", () => {

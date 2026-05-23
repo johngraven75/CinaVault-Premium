@@ -6,6 +6,23 @@ type PluginSearchCandidate = Partial<Pick<PluginEntry, "name" | "description" | 
 type PluginRuntimeState = { id?: unknown; enabled?: unknown } | null | undefined;
 type PluginStatusCandidate = Pick<PluginEntry, "id" | "status"> & Partial<Pick<PluginEntry, "cinavaultNative">>;
 
+export function normalizeMetadataProviderId(id: string): string {
+  switch (id.trim().toLowerCase()) {
+    case "theporndb":
+      return "tpdb";
+    case "fanarttv":
+      return "fanart";
+    case "rotten_tomatoes":
+      return "rt";
+    case "myanimelist":
+      return "mal";
+    case "epg_guide":
+      return "epg";
+    default:
+      return id.trim().toLowerCase();
+  }
+}
+
 export function matchesPluginSearch(plugin: PluginSearchCandidate, rawSearch: string): boolean {
   const search = rawSearch.trim().toLowerCase();
   if (!search) return true;
@@ -41,7 +58,8 @@ export function sanitizeMetadataProviders(
       continue;
     }
 
-    const fallback = merged.get(candidate.id);
+    const normalizedId = normalizeMetadataProviderId(candidate.id);
+    const fallback = merged.get(normalizedId);
     const name = typeof candidate.name === "string" && candidate.name.trim()
       ? candidate.name.trim()
       : fallback?.name;
@@ -53,8 +71,8 @@ export function sanitizeMetadataProviders(
       continue;
     }
 
-    merged.set(candidate.id, {
-      id: candidate.id,
+    merged.set(normalizedId, {
+      id: normalizedId,
       name,
       category,
       enabled: typeof candidate.enabled === "boolean" ? candidate.enabled : fallback?.enabled ?? false,
@@ -62,6 +80,12 @@ export function sanitizeMetadataProviders(
   }
 
   return Array.from(merged.values());
+}
+
+export function enableAdultMetadataProviders(providers: MetadataProvider[]): MetadataProvider[] {
+  return providers.map((provider) =>
+    provider.category === "Adult" ? { ...provider, enabled: true } : provider,
+  );
 }
 
 export function applyPluginRuntimeState<T extends PluginStatusCandidate>(

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
-import { Shield, Wifi, WifiOff, Globe, Scan, RefreshCw, Download, CheckCircle, XCircle, Loader, MapPin } from "lucide-react";
+import { Shield, Wifi, WifiOff, Globe, Scan, RefreshCw, Download, Loader, MapPin, KeyRound } from "lucide-react";
 
 const VPN_LOCATIONS = [
   "US East", "US West", "US Central", "Canada", "UK",
@@ -16,8 +16,13 @@ export default function SecurityTab() {
   const [selectedLocation, setSelectedLocation] = useState("US East");
   const [avScanning, setAvScanning] = useState(false);
   const [vpnInstalled, setVpnInstalled] = useState<boolean | null>(null);
+  const [builtInVpnInstalled, setBuiltInVpnInstalled] = useState<boolean | null>(null);
+  const [vpnEndpoint, setVpnEndpoint] = useState("");
+  const [vpnPublicKey, setVpnPublicKey] = useState("");
+  const [vpnConfig, setVpnConfig] = useState("");
+  const [avStatus, setAvStatus] = useState<string>("Checking...");
 
-  useEffect(() => { checkVpnStatus(); }, []);
+  useEffect(() => { checkVpnStatus(); checkBuiltInSecurity(); }, []);
 
   const checkVpnStatus = async () => {
     try {
@@ -79,6 +84,87 @@ export default function SecurityTab() {
       addStatusMessage("Security tools installation initiated");
       checkVpnStatus();
     } catch (e) { addStatusMessage(`Install failed: ${e}`); }
+  };
+
+  const checkBuiltInSecurity = async () => {
+    try {
+      const vpn = await invoke<any>("vpnb_status");
+      setBuiltInVpnInstalled(Boolean(vpn.installed));
+    } catch {
+      setBuiltInVpnInstalled(false);
+    }
+    try {
+      const av = await invoke<any>("avb_status");
+      setAvStatus(av.status || (av.installed ? "ready" : "unavailable"));
+    } catch {
+      setAvStatus("unavailable");
+    }
+  };
+
+  const generateBuiltInVpnConfig = async () => {
+    if (!vpnEndpoint.trim() || !vpnPublicKey.trim()) {
+      addStatusMessage("Built-in VPN needs an endpoint and public key");
+      return;
+    }
+    try {
+      const result = await invoke<any>("vpnb_generate_test_config", {
+        endpoint: vpnEndpoint.trim(),
+        publicKey: vpnPublicKey.trim(),
+      });
+      setVpnConfig(result.config || "");
+      addStatusMessage("Built-in WireGuard config generated");
+    } catch (e) {
+      addStatusMessage(`Built-in VPN config failed: ${e}`);
+    }
+  };
+
+  const connectBuiltInVpn = async () => {
+    if (!vpnConfig.trim()) {
+      addStatusMessage("Generate or paste a WireGuard config before connecting");
+      return;
+    }
+    setVpnLoading(true);
+    try {
+      const result = await invoke<any>("vpnb_connect", { config: vpnConfig });
+      addStatusMessage(`Built-in VPN ${result.status}: ${result.message || ""}`);
+      await checkBuiltInSecurity();
+    } catch (e) {
+      addStatusMessage(`Built-in VPN error: ${e}`);
+    }
+    setVpnLoading(false);
+  };
+
+  const disconnectBuiltInVpn = async () => {
+    setVpnLoading(true);
+    try {
+      const result = await invoke<any>("vpnb_disconnect");
+      addStatusMessage(`Built-in VPN ${result.status}: ${result.message || ""}`);
+      await checkBuiltInSecurity();
+    } catch (e) {
+      addStatusMessage(`Built-in VPN disconnect error: ${e}`);
+    }
+    setVpnLoading(false);
+  };
+
+  const runBuiltInScan = async () => {
+    setAvScanning(true);
+    try {
+      const result = await invoke<any>("avb_scan_path", { path: "C:\\" });
+      addStatusMessage(`Built-in antivirus ${result.status}`);
+    } catch (e) {
+      addStatusMessage(`Built-in antivirus scan failed: ${e}`);
+    }
+    setAvScanning(false);
+  };
+
+  const updateBuiltInSignatures = async () => {
+    try {
+      const result = await invoke<any>("avb_update_database");
+      addStatusMessage(`Built-in antivirus signatures ${result.status}`);
+      await checkBuiltInSecurity();
+    } catch (e) {
+      addStatusMessage(`Built-in antivirus update failed: ${e}`);
+    }
   };
 
   return (
@@ -155,6 +241,39 @@ export default function SecurityTab() {
         </div>
       </div>
 
+      {/* Built-in VPN Section */}
+      <div className="glass-panel p-5">
+        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+          <KeyRound size={16} className="text-cv-accent" /> Built-in VPN — WireGuard
+        </h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="space-y-3">
+            <div className="text-xs text-cv-subtext">
+              Status: {builtInVpnInstalled === false ? "WireGuard not detected" : "WireGuard command surface ready"}
+            </div>
+            <input value={vpnEndpoint} onChange={e => setVpnEndpoint(e.target.value)} className="cv-input" placeholder="Endpoint host:port" />
+            <input value={vpnPublicKey} onChange={e => setVpnPublicKey(e.target.value)} className="cv-input" placeholder="Peer public key" />
+            <div className="flex flex-wrap gap-2">
+              <button onClick={generateBuiltInVpnConfig} className="cv-btn cv-btn-secondary">
+                <KeyRound size={14} /> Generate Config
+              </button>
+              <button onClick={connectBuiltInVpn} disabled={vpnLoading} className="cv-btn cv-btn-primary">
+                {vpnLoading ? <Loader size={14} className="animate-spin" /> : <Wifi size={14} />} Connect Built-in
+              </button>
+              <button onClick={disconnectBuiltInVpn} disabled={vpnLoading} className="cv-btn cv-btn-danger">
+                <WifiOff size={14} /> Disconnect Built-in
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={vpnConfig}
+            onChange={e => setVpnConfig(e.target.value)}
+            className="cv-input min-h-[170px] font-mono text-[11px]"
+            placeholder="Paste a full WireGuard config here, or generate one from endpoint/public key."
+          />
+        </div>
+      </div>
+
       {/* Antivirus Section */}
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
@@ -170,6 +289,23 @@ export default function SecurityTab() {
           </button>
           <button onClick={installTools} className="cv-btn cv-btn-secondary">
             <Download size={14} /> Install Security Tools
+          </button>
+        </div>
+      </div>
+
+      {/* Built-in Antivirus Section */}
+      <div className="glass-panel p-5">
+        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+          <Shield size={16} className="text-cv-accent" /> Built-in Antivirus — Microsoft Defender
+        </h3>
+        <div className="text-xs text-cv-subtext mb-3">Status: {avStatus}</div>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={runBuiltInScan} disabled={avScanning} className="cv-btn cv-btn-primary">
+            {avScanning ? <Loader size={14} className="animate-spin" /> : <Scan size={14} />}
+            Scan System Drive
+          </button>
+          <button onClick={updateBuiltInSignatures} className="cv-btn cv-btn-secondary">
+            <RefreshCw size={14} /> Update Built-in Signatures
           </button>
         </div>
       </div>

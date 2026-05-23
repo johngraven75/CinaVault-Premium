@@ -31,13 +31,21 @@ export default function MediaSourcesTab() {
 
   const addSource = async () => {
     if (!newSourcePath) return;
+    if (newSourceType === "wd_mycloud" && !newSourceName.trim()) {
+      addStatusMessage("WD MyCloud source needs a username or display name");
+      return;
+    }
     try {
       await invoke("add_source", {
         path: newSourcePath,
         sourceType: newSourceType,
         name: newSourceName || newSourcePath.split(/[\\/]/).pop() || "New Source",
       });
-      addStatusMessage(`Source added: ${newSourceName || newSourcePath}`);
+      addStatusMessage(
+        newSourceType === "wd_mycloud"
+          ? `WD MyCloud source added: ${newSourceName}@${newSourcePath}`
+          : `Source added: ${newSourceName || newSourcePath}`,
+      );
       setNewSourcePath("");
       setNewSourceName("");
       loadSources();
@@ -90,7 +98,12 @@ export default function MediaSourcesTab() {
 
   const sourcePathPlaceholder = newSourceType === "synology_quickconnect"
     ? "synology_quickconnect://username@quickconnect-id/video"
+    : newSourceType === "wd_mycloud"
+    ? "wdmycloud://username@192.168.1.100/Public/Shared Videos"
     : "C:\\Movies or /media/library";
+
+  const sourceNameLabel = newSourceType === "wd_mycloud" ? "Username or Display Name" : "Name";
+  const sourceNamePlaceholder = newSourceType === "wd_mycloud" ? "admin or Family WD Cloud" : "My Movies";
 
   return (
     <div className="space-y-5">
@@ -111,12 +124,12 @@ export default function MediaSourcesTab() {
             />
           </div>
           <div>
-            <label className="section-label">Name</label>
+            <label className="section-label">{sourceNameLabel}</label>
             <input
               type="text"
               value={newSourceName}
               onChange={e => setNewSourceName(e.target.value)}
-              placeholder="My Movies"
+              placeholder={sourceNamePlaceholder}
               className="cv-input"
             />
           </div>
@@ -127,9 +140,18 @@ export default function MediaSourcesTab() {
               <option value="drive">Drive</option>
               <option value="file">File</option>
               <option value="synology_quickconnect">Synology QuickConnect</option>
+              <option value="wd_mycloud">WD MyCloud</option>
             </select>
           </div>
         </div>
+        {newSourceType === "wd_mycloud" && (
+          <div className="mt-3 glass-panel-2 p-3 rounded-lg">
+            <div className="text-xs font-semibold text-cv-text">WD MyCloud source</div>
+            <div className="text-[10px] text-cv-subtext mt-1">
+              Add a local WD Cloud host, SMB path, or MyCloud-style URL as a first-class media source. Passwords stay outside this source record.
+            </div>
+          </div>
+        )}
         <div className="flex gap-2 mt-4">
           <button onClick={addSource} className="cv-btn cv-btn-primary">
             <FolderOpen size={14} /> Add Source
@@ -234,7 +256,7 @@ export default function MediaSourcesTab() {
                 className="px-5 py-3 flex items-center gap-4 hover:bg-white/[0.03] transition-colors"
               >
                 <div className="w-10 h-10 rounded-lg bg-cv-accent/10 flex items-center justify-center shrink-0">
-                  {source.source_type === "drive" ? <HardDrive size={18} className="text-cv-accent" /> :
+                  {source.source_type === "drive" || source.source_type === "wd_mycloud" ? <HardDrive size={18} className="text-cv-accent" /> :
                    source.source_type === "file" ? <File size={18} className="text-cv-accent" /> :
                    <FolderOpen size={18} className="text-cv-accent" />}
                 </div>
