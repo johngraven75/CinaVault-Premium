@@ -6,29 +6,31 @@ export type TabId =
   | "security" | "advanced" | "cloud" | "plugins" | "ai" | "mediaactions" | "settings";
 
 export interface MediaItem {
-  id?: number;
-  title: string;
-  file_path: string;
-  media_type: string;
-  year?: number;
-  rating?: number;
-  overview?: string;
-  poster_path?: string;
-  backdrop_path?: string;
-  genre?: string;
-  duration?: number;
-  file_size?: number;
-  resolution?: string;
-  codec?: string;
-  verified: boolean;
-  watched: boolean;
-  favorite: boolean;
-  date_added: string;
-  last_played?: string;
-  tmdb_id?: string;
-  imdb_id?: string;
-  source_id?: number;
-}
+   id?: number;
+   title: string;
+   file_path: string;
+   media_type: string;
+   year?: number;
+   rating?: number;
+   overview?: string;
+   poster_path?: string;
+   backdrop_path?: string;
+   genre?: string;
+   duration?: number;
+   file_size?: number;
+   resolution?: string;
+   codec?: string;
+   verified: boolean;
+   watched: boolean;
+   favorite: boolean;
+   date_added: string;
+   last_played?: string;
+   tmdb_id?: string;
+   imdb_id?: string;
+   source_id?: number;
+   // For alphabetical view headers
+   isHeader?: boolean;
+ }
 
 export interface MediaSource {
   id?: number;

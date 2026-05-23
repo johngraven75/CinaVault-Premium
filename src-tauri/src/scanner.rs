@@ -2,7 +2,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 use tauri::State;
 use walkdir::WalkDir;
 use crate::AppState;

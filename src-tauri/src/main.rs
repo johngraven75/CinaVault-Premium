@@ -15,6 +15,8 @@ mod duplicates;
 mod vpn;
 mod downloads;
 mod ai;
+mod vpnb;
+mod avb;
 
 use db::Database;
 use std::sync::Mutex;
@@ -136,6 +138,16 @@ fn main() {
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,
+            // Built-in VPN
+            vpnb::vpnb_status,
+            vpnb::vpnb_connect,
+            vpnb::vpnb_disconnect,
+            vpnb::vpnb_generate_test_config,
+            // Built-in Antivirus
+            avb::avb_status,
+            avb::avb_scan_path,
+            avb::avb_update_database,
+            avb::avb_install_tools,
             // AI
             ai::ai_query,
             ai::ai_inference,
@@ -158,8 +170,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Emby Fusion",
-        "version": "1.0.0-beta.1",
-        "build_tag": "v109 (Public Beta 1)",
+        "version": "1.0.0-rc3.1",
+        "build_tag": "RC3 Build 1",
         "engine": "Tauri v2 + Rust + React",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

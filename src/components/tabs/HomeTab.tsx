@@ -5,11 +5,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
 import ParticleField from "../effects/ParticleField";
 import {
-  Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Music,
-  Heart, RefreshCw, Sparkles, Layers, ImageIcon, Bot
+    Grid3X3, List, Play, Star, CheckCircle, Clock, Film, Music,
+    Heart, RefreshCw, Sparkles, Layers, ImageIcon, Bot
 } from "lucide-react";
 
-type Shelf = "recent" | "verified" | "unverified" | "favorites";
+type Shelf = "recent" | "verified" | "unverified" | "favorites" | "alphabetical";
+type LetterSection = {
+  letter: string;
+  items: MediaItem[];
+};
 
 export default function HomeTab() {
   const {
@@ -51,20 +55,77 @@ export default function HomeTab() {
     }
   }, [settings.library_task_chapter_images, settings.library_task_metadata_gather, settings.library_task_metadata_agents]);
 
-  useEffect(() => {
-    let items = [...mediaItems];
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter(m => m.title.toLowerCase().includes(q) || m.genre?.toLowerCase().includes(q));
-    }
-    if (typeFilter !== "all") items = items.filter(m => m.media_type === typeFilter);
-    switch (activeShelf) {
-      case "verified": items = items.filter(m => m.verified); break;
-      case "unverified": items = items.filter(m => !m.verified); break;
-      case "favorites": items = items.filter(m => m.favorite); break;
-    }
-    setFilteredItems(items);
-  }, [mediaItems, searchQuery, typeFilter, activeShelf]);
+   useEffect(() => {
+     let items = [...mediaItems];
+     if (searchQuery) {
+       const q = searchQuery.toLowerCase();
+       items = items.filter(m => m.title.toLowerCase().includes(q) || m.genre?.toLowerCase().includes(q));
+     }
+     if (typeFilter !== "all") items = items.filter(m => m.media_type === typeFilter);
+     switch (activeShelf) {
+       case "verified": items = items.filter(m => m.verified); break;
+       case "unverified": items = items.filter(m => !m.verified); break;
+       case "favorites": items = items.filter(m => m.favorite); break;
+       case "alphabetical": {
+         // Group items by first letter of title
+         const grouped: Record<string, MediaItem[]> = {};
+         items.forEach(item => {
+           const firstChar = item.title.charAt(0).toUpperCase();
+           if (!grouped[firstChar]) {
+             grouped[firstChar] = [];
+           }
+           grouped[firstChar].push(item);
+         });
+         
+         // Convert to array of sections sorted by letter
+         const letterSections: LetterSection[] = Object.keys(grouped)
+           .sort()
+           .map(letter => ({
+             letter,
+             items: grouped[letter]
+           }));
+         
+         // Create a new array with section headers
+         const newItems: MediaItem[] = [];
+         letterSections.forEach(section => {
+           // Add header item
+           newItems.push({
+             title: `--- ${section.letter} ---`,
+             isHeader: true,
+             file_path: "",
+             media_type: "header",
+             year: 0,
+             rating: 0,
+             overview: "",
+             poster_path: "",
+             backdrop_path: "",
+             genre: "",
+             duration: 0,
+             file_size: 0,
+             resolution: "",
+             codec: "",
+             verified: false,
+             watched: false,
+             favorite: false,
+             date_added: "",
+             last_played: undefined,
+             tmdb_id: undefined,
+             imdb_id: undefined,
+             source_id: undefined
+           });
+           
+           // Add actual items
+           section.items.forEach(item => {
+             newItems.push({ ...item, isHeader: false });
+           });
+         });
+         
+         items = newItems;
+         break;
+       }
+     }
+     setFilteredItems(items);
+   }, [mediaItems, searchQuery, typeFilter, activeShelf]);
 
   const handlePlay = async (item: MediaItem) => {
     try {
@@ -142,28 +203,36 @@ export default function HomeTab() {
         </motion.div>
       )}
 
-      {/* Carousel Shelf Tabs */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1">
-          {([
-            { id: "recent" as Shelf, label: "Recently Added", icon: Clock },
-            { id: "verified" as Shelf, label: "Verified", icon: CheckCircle },
-            { id: "unverified" as Shelf, label: "Needs Metadata", icon: Sparkles },
-            { id: "favorites" as Shelf, label: "Favorites", icon: Heart },
-          ]).map(s => (
-            <button
-              key={s.id}
-              onClick={() => setActiveShelf(s.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                activeShelf === s.id
-                  ? "bg-cv-accent/15 text-cv-accent border border-cv-accent/20"
-                  : "text-cv-subtext hover:text-cv-text hover:bg-white/5"
-              }`}
-            >
-              <s.icon size={12} /> {s.label}
-            </button>
-          ))}
-        </div>
+       {/* Carousel Shelf Tabs */}
+       <div className="flex items-center justify-between">
+         <div className="flex gap-1">
+           {([
+             { id: "recent" as Shelf, label: "Recently Added", icon: Clock },
+             { id: "verified" as Shelf, label: "Verified", icon: CheckCircle },
+             { id: "unverified" as Shelf, label: "Needs Metadata", icon: Sparkles },
+             { id: "favorites" as Shelf, label: "Favorites", icon: Heart },
+             { id: "alphabetical" as Shelf, label: "Alphabetical", icon: "A-Z" },
+           ]).map(s => (
+             <button
+               key={s.id}
+               onClick={() => setActiveShelf(s.id)}
+               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                 activeShelf === s.id
+                   ? "bg-cv-accent/15 text-cv-accent border border-cv-accent/20"
+                   : "text-cv-subtext hover:text-cv-text hover:bg-white/5"
+               }`}
+             >
+                {s.id === "alphabetical" ? (
+                  <span className="flex items-center gap-1 text-cv-accent">
+                    A<span className="mx-1">-</span>Z
+                  </span>
+                ) : (
+                  <s.icon size={12} />
+                )}
+               {s.label}
+             </button>
+           ))}
+         </div>
 
         <div className="flex items-center gap-2">
           {/* Type filter */}
@@ -266,88 +335,110 @@ export default function HomeTab() {
           <h3 className="text-lg font-semibold mb-2">No Media Found</h3>
           <p className="text-sm text-cv-subtext">Add media sources and scan to populate your library</p>
         </div>
-      ) : libraryView === "card" ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {filteredItems.map((item, i) => (
-            <motion.div
-              key={item.id || i}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.03, 0.5) }}
-              onClick={() => setSelectedMedia(item)}
-              className="media-card glass-panel-2 rounded-xl overflow-hidden group"
-            >
-              {/* Poster area */}
-              <div className="aspect-[2/3] relative bg-gradient-to-br from-cv-accent/10 to-cv-neon-3/10 flex items-center justify-center">
-                {item.poster_path ? (
-                  <img src={item.poster_path} alt={item.title} className="w-full h-full object-cover" />
-                ) : (
-                  <Film size={32} className="text-cv-subtext/20" />
-                )}
-                {/* Hover overlay */}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handlePlay(item); }}
-                    className="w-12 h-12 rounded-full bg-cv-accent flex items-center justify-center shadow-lg"
-                  >
-                    <Play size={20} fill="white" color="white" />
-                  </button>
-                </div>
-                {/* Badges */}
-                <div className="absolute top-2 right-2 flex flex-col gap-1">
-                  {item.verified && (
-                    <span className="w-5 h-5 rounded-full bg-green-500/80 flex items-center justify-center">
-                      <CheckCircle size={10} color="white" />
-                    </span>
-                  )}
-                  {item.favorite && (
-                    <span className="w-5 h-5 rounded-full bg-cv-danger/80 flex items-center justify-center">
-                      <Heart size={10} color="white" fill="white" />
-                    </span>
-                  )}
-                </div>
-                {item.resolution && (
-                  <span className="absolute bottom-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/60 text-cv-accent">
-                    {item.resolution}
-                  </span>
-                )}
-              </div>
-              {/* Info */}
-              <div className="p-2.5">
-                <h4 className="text-xs font-semibold truncate">{item.title}</h4>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
-                  {item.year && <span>{item.year}</span>}
-                  <span className="capitalize">{item.media_type}</span>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      ) : (
-        /* List View */
-        <div className="glass-panel rounded-xl overflow-hidden">
-          <div className="grid grid-cols-[1fr_100px_80px_80px_80px] gap-2 px-4 py-2 border-b border-white/5 text-[10px] font-semibold text-cv-subtext uppercase tracking-wider">
-            <span>Title</span><span>Type</span><span>Year</span><span>Rating</span><span>Status</span>
-          </div>
-          <div className="max-h-[calc(100vh-300px)] overflow-y-auto">
-            {filteredItems.map((item, i) => (
-              <div
-                key={item.id || i}
-                onClick={() => setSelectedMedia(item)}
-                className="grid grid-cols-[1fr_100px_80px_80px_80px] gap-2 px-4 py-2.5 zebra-row cursor-pointer items-center text-sm"
-              >
-                <span className="truncate font-medium">{item.title}</span>
-                <span className="text-cv-subtext text-xs capitalize">{item.media_type}</span>
-                <span className="text-cv-subtext text-xs">{item.year || "—"}</span>
-                <span className="text-xs flex items-center gap-1">
-                  {item.rating ? <><Star size={10} className="text-cv-gold" />{item.rating}</> : "—"}
-                </span>
-                <span>{item.verified ? <CheckCircle size={14} className="text-green-500" /> : <Clock size={14} className="text-cv-subtext/40" />}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+       ) : libraryView === "card" ? (
+         <div className="space-y-4">
+           {filteredItems.map((item, index) => {
+             // Check if this is a header item for alphabetical view
+             if (activeShelf === "alphabetical" && item.isHeader) {
+               return (
+                 <div key={`header-${index}`} className="text-xs font-bold text-cv-accent mb-2">
+                   {item.title}
+                 </div>
+               );
+             }
+             
+             return (
+               <motion.div
+                 key={item.id || index}
+                 initial={{ opacity: 0, y: 12 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 transition={{ delay: Math.min(index * 0.03, 0.5) }}
+                 onClick={() => setSelectedMedia(item)}
+                 className="media-card glass-panel-2 rounded-xl overflow-hidden group"
+               >
+                 {/* Poster area */}
+                 <div className="aspect-[2/3] relative bg-gradient-to-br from-cv-accent/10 to-cv-neon-3/10 flex items-center justify-center">
+                   {item.poster_path ? (
+                     <img src={item.poster_path} alt={item.title} className="w-full h-full object-cover" />
+                   ) : (
+                     <Film size={32} className="text-cv-subtext/20" />
+                   )}
+                   {/* Hover overlay */}
+                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                     <button
+                       onClick={(e) => { e.stopPropagation(); handlePlay(item); }}
+                       className="w-12 h-12 rounded-full bg-cv-accent flex items-center justify-center shadow-lg"
+                     >
+                       <Play size={20} fill="white" color="white" />
+                     </button>
+                   </div>
+                   {/* Badges */}
+                   <div className="absolute top-2 right-2 flex flex-col gap-1">
+                     {item.verified && (
+                       <span className="w-5 h-5 rounded-full bg-green-500/80 flex items-center justify-center">
+                         <CheckCircle size={10} color="white" />
+                       </span>
+                     )}
+                     {item.favorite && (
+                       <span className="w-5 h-5 rounded-full bg-cv-danger/80 flex items-center justify-center">
+                         <Heart size={10} color="white" fill="white" />
+                       </span>
+                     )}
+                   </div>
+                   {item.resolution && (
+                     <span className="absolute bottom-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/60 text-cv-accent">
+                       {item.resolution}
+                     </span>
+                   )}
+                 </div>
+                 {/* Info */}
+                 <div className="p-2.5">
+                   <h4 className="text-xs font-semibold truncate">{item.title}</h4>
+                   <div className="flex items-center gap-2 mt-1 text-[10px] text-cv-subtext">
+                     {item.year && <span>{item.year}</span>}
+                     <span className="capitalize">{item.media_type}</span>
+                   </div>
+                 </div>
+               </motion.div>
+             );
+           })}
+         </div>
+       ) : (
+         /* List View */
+         <div className="glass-panel rounded-xl overflow-hidden">
+           <div className="grid grid-cols-[1fr_100px_80px_80px_80px] gap-2 px-4 py-2 border-b border-white/5 text-[10px] font-semibold text-cv-subtext uppercase tracking-wider">
+             <span>Title</span><span>Type</span><span>Year</span><span>Rating</span><span>Status</span>
+           </div>
+           <div className="max-h-[calc(100vh-300px)] overflow-y-auto">
+             {filteredItems.map((item, index) => {
+               // Check if this is a header item for alphabetical view
+               if (activeShelf === "alphabetical" && item.isHeader) {
+                 return (
+                   <div key={`header-${index}`} className="text-xs font-bold text-cv-accent mb-2">
+                     {item.title}
+                   </div>
+                 );
+               }
+               
+               return (
+                 <div
+                   key={item.id || index}
+                   onClick={() => setSelectedMedia(item)}
+                   className="grid grid-cols-[1fr_100px_80px_80px_80px] gap-2 px-4 py-2.5 zebra-row cursor-pointer items-center text-sm"
+                 >
+                   <span className="truncate font-medium">{item.title}</span>
+                   <span className="text-cv-subtext text-xs capitalize">{item.media_type}</span>
+                   <span className="text-cv-subtext text-xs">{item.year || "—"}</span>
+                   <span className="text-xs flex items-center gap-1">
+                     {item.rating ? <><Star size={10} className="text-cv-gold" />{item.rating}</> : "—"}
+                   </span>
+                   <span>{item.verified ? <CheckCircle size={14} className="text-green-500" /> : <Clock size={14} className="text-cv-subtext/40" />}</span>
+                 </div>
+               );
+             })}
+           </div>
+         </div>
+       )}
 
       {homeMode === "library" && (
         <div className="flex items-center gap-4 text-[11px] text-cv-subtext">

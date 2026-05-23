@@ -28,20 +28,41 @@ export default function MediaSourcesTab() {
     }
   };
 
-  const addSource = async () => {
-    if (!newSourcePath) return;
-    try {
-      await invoke("add_source", {
-        path: newSourcePath,
-        sourceType: newSourceType,
-        name: newSourceName || newSourcePath.split(/[\\/]/).pop() || "New Source",
-      });
-      addStatusMessage(`Source added: ${newSourceName || newSourcePath}`);
-      setNewSourcePath("");
-      setNewSourceName("");
-      loadSources();
-    } catch (e) { addStatusMessage(`Failed to add source: ${e}`); }
-  };
+   const addSource = async () => {
+     // Handle WD MyCloud specially
+     if (newSourceType === "wd_mycloud") {
+       if (!newSourcePath || !newSourceName) {
+         addStatusMessage("Please enter both hostname/IP and username for WD MyCloud");
+         return;
+       }
+       try {
+         await invoke("add_source", {
+           path: newSourcePath, // hostname/IP
+           sourceType: "wd_mycloud",
+           name: newSourceName, // username
+           // We could store password in settings securely, but for now just use username as name field
+         });
+         addStatusMessage(`WD MyCloud source added: ${newSourceName}@${newSourcePath}`);
+         setNewSourcePath("");
+         setNewSourceName("");
+         loadSources();
+       } catch (e) { addStatusMessage(`Failed to add WD MyCloud source: ${e}`); }
+     } else {
+       // Regular source handling
+       if (!newSourcePath) return;
+       try {
+         await invoke("add_source", {
+           path: newSourcePath,
+           sourceType: newSourceType,
+           name: newSourceName || newSourcePath.split(/[\\/]/).pop() || "New Source",
+         });
+         addStatusMessage(`Source added: ${newSourceName || newSourcePath}`);
+         setNewSourcePath("");
+         setNewSourceName("");
+         loadSources();
+       } catch (e) { addStatusMessage(`Failed to add source: ${e}`); }
+     }
+   };
 
   const removeSource = async (id: number) => {
     try {
@@ -73,35 +94,75 @@ export default function MediaSourcesTab() {
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
           <Plus size={16} className="text-cv-accent" /> Add Media Source
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div className="md:col-span-2">
-            <label className="section-label">Path</label>
-            <input
-              type="text"
-              value={newSourcePath}
-              onChange={e => setNewSourcePath(e.target.value)}
-              placeholder="C:\Movies or /media/library"
-              className="cv-input"
-            />
-          </div>
-          <div>
-            <label className="section-label">Name</label>
-            <input
-              type="text"
-              value={newSourceName}
-              onChange={e => setNewSourceName(e.target.value)}
-              placeholder="My Movies"
-              className="cv-input"
-            />
-          </div>
-          <div>
-            <label className="section-label">Type</label>
-            <select value={newSourceType} onChange={e => setNewSourceType(e.target.value)} className="cv-select w-full">
-              <option value="folder">Folder</option>
-              <option value="drive">Drive</option>
-              <option value="file">File</option>
-            </select>
-          </div>
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+           <div className="md:col-span-2">
+             <label className="section-label">Path</label>
+             <input
+               type="text"
+               value={newSourcePath}
+               onChange={e => setNewSourcePath(e.target.value)}
+               placeholder="C:\Movies or /media/library"
+               className="cv-input"
+             />
+           </div>
+           <div>
+             <label className="section-label">Name</label>
+             <input
+               type="text"
+               value={newSourceName}
+               onChange={e => setNewSourceName(e.target.value)}
+               placeholder="My Movies"
+               className="cv-input"
+             />
+           </div>
+           <div>
+             <label className="section-label">Type</label>
+             <select value={newSourceType} onChange={e => setNewSourceType(e.target.value)} className="cv-select w-full">
+               <option value="folder">Folder</option>
+               <option value="drive">Drive</option>
+               <option value="file">File</option>
+               <option value="wd_mycloud">WD MyCloud</option>
+             </select>
+           </div>
+           {/* WD MyCloud specific fields */}
+           {newSourceType === "wd_mycloud" && (
+             <div className="md:col-span-2">
+               <div className="space-y-2">
+                 <div>
+                   <label className="section-label">Hostname/IP</label>
+                   <input
+                     type="text"
+                     value={newSourcePath}
+                     onChange={e => setNewSourcePath(e.target.value)}
+                     placeholder="mycloud.example.com or 192.168.1.100"
+                     className="cv-input"
+                   />
+                 </div>
+                 <div>
+                   <label className="section-label">Username</label>
+                   <input
+                     type="text"
+                     value={newSourceName}
+                     onChange={e => setNewSourceName(e.target.value)}
+                     placeholder="admin"
+                     className="cv-input"
+                   />
+                 </div>
+                 <div className="flex items-end">
+                   <button
+                     onClick={() => {
+                       // Validate and add WD MyCloud source
+                       if (!newSourcePath || !newSourceName) return;
+                       addSource();
+                     }}
+                     className="cv-btn cv-btn-primary mt-2"
+                   >
+                     Add WD MyCloud Source
+                   </button>
+                 </div>
+               </div>
+             </div>
+           )}
         </div>
         <div className="flex gap-2 mt-4">
           <button onClick={addSource} className="cv-btn cv-btn-primary">

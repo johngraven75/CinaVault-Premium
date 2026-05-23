@@ -1,6 +1,6 @@
 [package]
 name = "cinavault-premium"
-version = "1.0.0"
+version = "1.0.1"
 description = "CinaVault Premium — A Full-Featured Media Server"
 authors = ["CinaVault Team"]
 edition = "2021"
@@ -32,6 +32,10 @@ open = "5"
 log = "0.4"
 env_logger = "0.11"
 percent-encoding = "2"
+# New dependencies for built-in VPN and AV (disabled due to build issues)
+# wireguard = "0.2"
+# fdisk = "0.2"
+# clamav = { version = "0.4" }
 
 [features]
 default = ["custom-protocol"]

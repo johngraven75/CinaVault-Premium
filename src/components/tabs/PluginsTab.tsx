@@ -15,6 +15,7 @@ interface MetadataProvider {
   base_url: string;
   requires_key: boolean;
   category: string;
+  implemented: boolean;
 }
 
 interface MediaItem {
@@ -352,11 +353,12 @@ export default function PluginsTab() {
                         return (
                           <div key={provider.key} className="flex items-center justify-between py-2 px-3 rounded hover:bg-white/[0.02] gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                              <button onClick={() => toggleProvider(provider.key)} className="text-cv-subtext hover:text-cv-text shrink-0">
-                                {checked ? <CheckSquare size={14} className="text-cv-accent" /> : <Square size={14} />}
+                              <button onClick={() => provider.implemented && toggleProvider(provider.key)} className="text-cv-subtext hover:text-cv-text shrink-0" disabled={!provider.implemented}>
+                                {provider.implemented ? (checked ? <CheckSquare size={14} className="text-cv-accent" /> : <Square size={14} />) : <Square size={14} className="text-cv-subtext/20" />}
                               </button>
                               {hasKey ? <CheckCircle size={12} className="text-green-500 shrink-0" /> : <XCircle size={12} className="text-cv-subtext/30 shrink-0" />}
                               <span className="text-sm truncate">{provider.name}</span>
+                              {!provider.implemented && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">Coming Soon</span>}
                               {hasKey && <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-500">Configured</span>}
                             </div>
                             <div className="flex gap-1 shrink-0">

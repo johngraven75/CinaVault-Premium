@@ -4,14 +4,6 @@ use tauri::State;
 use crate::AppState;
 use std::process::Command;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServerInfo {
-    pub name: String,
-    pub version: String,
-    pub url: String,
-    pub running: bool,
-}
-
 #[tauri::command]
 pub async fn start_server(server_type: String) -> Result<serde_json::Value, String> {
     let exe_name = match server_type.as_str() {

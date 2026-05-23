@@ -1,4 +1,4 @@
-// CinaVault Premium — VPN & Security Module (Windscribe + AV)
+// CinaVault Premium — VPN & Security Module
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 

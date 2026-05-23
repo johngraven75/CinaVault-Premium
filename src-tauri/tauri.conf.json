@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "CinaVault Premium",
-  "version": "1.0.0",
-  "identifier": "com.cinavault.premium",
+  "version": "1.0.1",
+  "identifier": "com.cinavault.premium.rc3",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",

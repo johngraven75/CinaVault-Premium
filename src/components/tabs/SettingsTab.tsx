@@ -42,15 +42,67 @@ export default function SettingsTab() {
     addStatusMessage(`Theme changed to ${THEME_PRESETS.find(t => t.id === themeId)?.name}`);
   };
 
+  const [selectedDuplicates, setSelectedDuplicates] = useState<number[]>([]);
+
   const runDuplicateScan = async () => {
     setDupScanning(true);
     addStatusMessage("Scanning for duplicates...");
     try {
       const result = await invoke<any>("find_duplicates", { matchBy: dupMatchBy, toleranceMb: parseFloat(dupTolerance) || 0 });
       setDupResults(result);
+      setSelectedDuplicates([]); // Clear selection on new scan
       addStatusMessage(`Found ${result.groups_found} duplicate groups (${result.total_duplicates} items)`);
     } catch (e) { addStatusMessage(`Scan failed: ${e}`); }
     setDupScanning(false);
+  };
+
+  const toggleDuplicateSelection = (itemId: number) => {
+    setSelectedDuplicates(prev => 
+      prev.includes(itemId)
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    );
+  };
+
+  const selectAllDuplicates = () => {
+    if (dupResults && dupResults.groups) {
+      // Collect all item IDs from all groups
+      const allItemIds = dupResults.groups.flatMap((group: any) => 
+        group.items.map((item: any) => item.id)
+      );
+      setSelectedDuplicates(allItemIds);
+      addStatusMessage(`Selected all ${allItemIds.length} duplicate items`);
+    } else if (dupResults && dupResults.total_duplicates > 0) {
+      addStatusMessage("Duplicate groups data not available for selection");
+    } else {
+      addStatusMessage("No duplicates to select");
+    }
+  };
+
+  const deleteSelectedDuplicates = async () => {
+    if (selectedDuplicates.length === 0) {
+      addStatusMessage("No duplicates selected for deletion");
+      return;
+    }
+
+    if (!window.confirm(`Delete ${selectedDuplicates.length} selected duplicate items? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      // Delete each selected duplicate
+      for (const itemId of selectedDuplicates) {
+        await invoke("remove_duplicate", { id: itemId, delete_file: true });
+      }
+      
+      addStatusMessage(`Deleted ${selectedDuplicates.length} duplicate items`);
+      setSelectedDuplicates([]);
+      
+      // Rescan to update results
+      runDuplicateScan();
+    } catch (e) {
+      addStatusMessage(`Delete failed: ${e}`);
+    }
   };
 
   const ToggleSetting = ({ settingKey, label, desc }: { settingKey: string; label: string; desc?: string }) => {
@@ -320,17 +372,79 @@ export default function SettingsTab() {
                     <input type="number" value={dupTolerance} onChange={e => setDupTolerance(e.target.value)} className="cv-input" min="0" step="0.1" />
                   </div>
                 </div>
-                <button onClick={runDuplicateScan} disabled={dupScanning} className="cv-btn cv-btn-primary mb-4">
-                  <Search size={14} /> {dupScanning ? "Scanning..." : "Scan for Duplicates"}
+                <div className="flex gap-2 mb-4">
+                  <button onClick={runDuplicateScan} disabled={dupScanning} className="cv-btn cv-btn-primary flex-1">
+                    <Search size={14} /> {dupScanning ? "Scanning..." : "Scan for Duplicates"}
+                  </button>
+                  <button onClick={selectAllDuplicates} disabled={dupScanning || !dupResults} className="cv-btn cv-btn-secondary flex-1">
+                    <SlidersHorizontal size={14} /> Select All
+                  </button>
+                </div>
+                <button onClick={deleteSelectedDuplicates} disabled={dupScanning || selectedDuplicates.length === 0} className="cv-btn cv-btn-danger w-full">
+                  <Trash2 size={14} /> Delete Selected ({selectedDuplicates.length})
                 </button>
                 {dupResults && (
                   <div className="glass-panel-2 p-4 rounded-lg">
                     <div className="text-sm font-semibold mb-2">Results</div>
-                    <div className="text-xs text-cv-subtext">
-                      <div>Groups found: <span className="text-cv-text">{dupResults.groups_found}</span></div>
-                      <div>Total duplicates: <span className="text-cv-text">{dupResults.total_duplicates}</span></div>
-                      <div>Match rule: <span className="text-cv-text">{dupResults.match_rule}</span></div>
+                <div className="space-y-4">
+                  <div className="text-xs text-cv-subtext">
+                    <div>Groups found: <span className="text-cv-text">{dupResults.groups_found}</span></div>
+                    <div>Total duplicates: <span className="text-cv-text">{dupResults.total_duplicates}</span></div>
+                    <div>Match rule: <span className="text-cv-text">{dupResults.match_rule}</span></div>
+                  </div>
+                  
+                  {dupResults.groups && (
+                    <div className="space-y-3">
+                      <div className="font-semibold mb-2">Duplicate Groups:</div>
+                      {dupResults.groups.map((group: any, groupIndex: number) => (
+                        <div key={group.id} className="border border-white/10 rounded-lg overflow-hidden">
+                          <div className="px-4 py-3 bg-cv-accent/10">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">Group {groupIndex + 1}</span>
+                              <span className="text-xs text-cv-subtext">{group.items.length} items</span>
+                            </div>
+                          </div>
+                          <div className="divide-y divide-white/5">
+                            {group.items.map((item: any, itemIndex: number) => {
+                              const isSelected = selectedDuplicates.includes(item.id);
+                              return (
+                                <div 
+                                  key={item.id} 
+                                  className="flex items-center px-4 py-3 hover:bg-white/5 transition-colors"
+                                  onClick={() => toggleDuplicateSelection(item.id)}
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-3">
+                                      <div className={`h-4 w-4 rounded ${isSelected ? 'bg-cv-accent' : 'bg-white/10'} flex items-center justify-center`}>
+                                        {isSelected ? <CheckCircle size={10} color={isSelected ? 'white' : 'cv-accent'} /> : <CheckCircle size={10} className="text-white/50" />}
+                                      </div>
+                                      <div>
+                                        <div className="text-xs font-medium truncate max-w-[200px]">
+                                          {item.title || 'Unknown Title'}
+                                        </div>
+                                        <div className="text-[9px] text-cv-subtext truncate">
+                                          {item.file_path}
+                                        </div>
+                                        {item.file_size && (
+                                          <div className="text-[9px] text-cv-subtext">
+                                            {(item.file_size / (1024*1024)).toFixed(1)} MB
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-xs text-cv-subtext">
+                                    ID: {item.id}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
+                  )}
+                </div>
                   </div>
                 )}
               </div>

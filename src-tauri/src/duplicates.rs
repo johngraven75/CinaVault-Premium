@@ -119,10 +119,57 @@ pub async fn find_duplicates(
         }
     }
 
+    // Collect detailed group information for frontend
+    let mut groups_detail = Vec::new();
+    // We need to map from our temporary hash keys to actual database group IDs
+    // Let's query the groups we just inserted to get their actual IDs
+    let mut group_id_map: HashMap<String, i64> = HashMap::new();
+    {
+        let mut stmt = db.conn.prepare("SELECT id, group_hash FROM duplicate_groups").map_err(|e| e.to_string())?;
+        let group_rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        }).map_err(|e| e.to_string())?;
+        for row in group_rows {
+            let (id, hash) = row.map_err(|e| e.to_string())?;
+            group_id_map.insert(hash, id);
+        }
+    }
+    
+    for (hash_key, group_items) in &groups {
+        // Get the actual group ID from our map
+        let gid = *group_id_map.get(hash_key).ok_or_else(|| 
+            format!("Group ID not found for hash key: {}", hash_key))?;
+        
+        let mut item_stmt = db.conn.prepare(
+            "SELECT di.id, di.media_id, di.file_path, di.file_size, mi.title \
+             FROM duplicate_items di LEFT JOIN media_items mi ON di.media_id = mi.id \
+             WHERE di.group_id = ?1"
+        ).map_err(|e| e.to_string())?;
+        
+        let items: Vec<DuplicateItem> = item_stmt.query_map(params![gid], |row| {
+            Ok(DuplicateItem {
+                id: row.get(0)?,
+                media_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_size: row.get(3)?,
+                title: row.get(4)?,
+            })
+        }).map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+        
+        groups_detail.push(DuplicateGroup {
+            id: gid,
+            group_hash: hash_key.clone(), // This is our temporary hash, but we should use the real one from DB
+            items,
+        });
+    }
+
     Ok(serde_json::json!({
         "groups_found": total_groups,
         "total_duplicates": total_items,
         "match_rule": match_rule,
+        "groups": groups_detail
     }))
 }
 

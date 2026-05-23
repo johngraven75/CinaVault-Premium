@@ -8,6 +8,7 @@ interface MetadataProvider {
   key: string;
   category: string;
   requires_key: boolean;
+  implemented: boolean;
 }
 
 interface MediaItem {
@@ -189,11 +190,11 @@ export default function MediaActionsTab() {
             <div key={category} className="glass-panel-2 p-3 rounded-lg">
               <div className="text-xs font-semibold text-cv-accent mb-2">{category}</div>
               <div className="space-y-1">
-                {list.map((provider) => {
+                  {list.map((provider) => {
                   const checked = selectedProviders.has(provider.key);
                   return (
-                    <button key={provider.key} onClick={() => toggleProvider(provider.key)} className="w-full flex items-center justify-between text-left px-2 py-1 rounded hover:bg-white/5">
-                      <span className="text-xs">{provider.name}</span>
+                    <button key={provider.key} onClick={() => provider.implemented && toggleProvider(provider.key)} className={`w-full flex items-center justify-between text-left px-2 py-1 rounded hover:bg-white/5 ${!provider.implemented ? 'opacity-40' : ''}`} disabled={!provider.implemented}>
+                      <span className="text-xs">{provider.name} {!provider.implemented && <span className="text-[9px] text-amber-400 ml-1">(soon)</span>}</span>
                       {checked ? <CheckSquare size={12} className="text-cv-accent" /> : <Square size={12} className="text-cv-subtext" />}
                     </button>
                   );

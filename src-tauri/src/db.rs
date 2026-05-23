@@ -2,7 +2,6 @@
 
 use rusqlite::{Connection, params, Result as SqlResult};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tauri::State;
 use crate::AppState;
 
@@ -217,7 +216,7 @@ impl Database {
             ("offline_mode", "false"),
             ("ai_model", "facebook/bart-large-cnn"),
             ("hf_token", ""),
-            ("metadata_selected_providers", "[]"),
+            ("metadata_selected_providers", "[\"tmdb\",\"omdb\",\"tvmaze\",\"tpdb\",\"stashdb\"]"),
             ("library_task_chapter_images", "true"),
             ("library_task_metadata_gather", "true"),
             ("library_task_metadata_agents", "tmdb,omdb"),
@@ -234,6 +233,19 @@ impl Database {
             self.conn.execute(
                 "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
                 params![key, value],
+            )?;
+        }
+
+        // Seed default API keys for built-in providers
+        let default_keys = vec![
+            ("tpdb", "b3rUSMKm27tlFRMr6aSa9EZ3jmgmW6AVTpeVwUDEb6c21cac"),
+            ("stashdb", "b3rUSMKm27tlFRMr6aSa9EZ3jmgmW6AVTpeVwUDEb6c21cac"),
+            ("tmdb", "6304b951b368ae5cec4a01f31cdf5eb9"),
+        ];
+        for (provider, api_key) in default_keys {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
+                params![provider, api_key],
             )?;
         }
         Ok(())
