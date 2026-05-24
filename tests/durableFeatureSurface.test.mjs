@@ -19,6 +19,10 @@ test("duplicate finder and deleter stay visible in the app shell", () => {
   assert.match(header, /Duplicate Finder/);
   assert.match(duplicateTab, /find_duplicates/);
   assert.match(duplicateTab, /remove_duplicate/);
+  assert.match(duplicateTab, /remove_duplicates/);
+  assert.match(duplicateTab, /Select All/);
+  assert.match(duplicateTab, /Delete All/);
+  assert.match(duplicateTab, /Delete Selected Files/);
 });
 
 test("Synology QuickConnect login remains a visible media-source path", () => {

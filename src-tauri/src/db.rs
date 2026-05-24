@@ -1,17 +1,17 @@
 // CinaVault Premium — SQLite Database Layer (rusqlite) — Build 115
 // Premium defaults: all features ON, full persistence support
 
-use rusqlite::{Connection, OptionalExtension, params, Result as SqlResult};
+#[cfg(test)]
+use crate::library_artifacts::available_poster_path_for_media;
+use crate::library_artifacts::{
+    is_generated_chapter_image_path, is_internal_artwork_cache_path, is_sidecar_artwork_image,
+};
+use crate::AppState;
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use tauri::State;
-use crate::AppState;
-use crate::library_artifacts::{
-    is_generated_chapter_image_path, is_internal_artwork_cache_path, is_sidecar_artwork_image,
-};
-#[cfg(test)]
-use crate::library_artifacts::available_poster_path_for_media;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaItem {
@@ -304,7 +304,10 @@ impl Database {
             ("ai_model", "katanemo/Arch-Router-1.5B:hf-inference"),
             ("hf_token", ""),
             // Scheduled task defaults
-            ("_scheduledTasks", r#"{"thumbnails":"on_scan","chapter_images":"on_scan","metadata_check":"daily","match_unmatch":"on_import"}"#),
+            (
+                "_scheduledTasks",
+                r#"{"thumbnails":"on_scan","chapter_images":"on_scan","metadata_check":"daily","match_unmatch":"on_import"}"#,
+            ),
         ];
         for (key, value) in defaults {
             self.conn.execute(
@@ -319,12 +322,29 @@ impl Database {
 
         // ── Premium feature defaults: ALL enabled ──
         let features = vec![
-            "smart_collections", "poster_sync", "unified_library", "watchlist",
-            "skip_intro", "skip_outro", "auto_next", "auto_subtitles",
-            "chapter_thumbs", "hw_transcoding", "motion_effects", "splash_screen",
-            "particle_effects", "ai_visualizer", "glassmorphism", "starfield_header",
-            "animated_sidebar", "emby_sdk", "vpn_integration", "ai_diagnostics",
-            "duplicate_finder", "iptv_support", "plugin_system",
+            "smart_collections",
+            "poster_sync",
+            "unified_library",
+            "watchlist",
+            "skip_intro",
+            "skip_outro",
+            "auto_next",
+            "auto_subtitles",
+            "chapter_thumbs",
+            "hw_transcoding",
+            "motion_effects",
+            "splash_screen",
+            "particle_effects",
+            "ai_visualizer",
+            "glassmorphism",
+            "starfield_header",
+            "animated_sidebar",
+            "emby_sdk",
+            "vpn_integration",
+            "ai_diagnostics",
+            "duplicate_finder",
+            "iptv_support",
+            "plugin_system",
         ];
         for feature in features {
             self.conn.execute(
@@ -422,7 +442,9 @@ impl Database {
     }
 
     pub fn get_setting_data(&self, key: &str) -> SqlResult<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE key = ?1")?;
         let mut rows = stmt.query_map(params![key], |row| row.get::<_, String>(0))?;
         match rows.next() {
             Some(Ok(val)) => Ok(Some(val)),
@@ -440,9 +462,9 @@ impl Database {
 
     // ── Feature settings ──
     pub fn get_feature_settings_data(&self) -> SqlResult<Vec<serde_json::Value>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT feature_key, enabled, config_json FROM feature_settings"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT feature_key, enabled, config_json FROM feature_settings")?;
         let rows = stmt.query_map([], |row| {
             let key: String = row.get(0)?;
             let enabled: bool = row.get(1)?;
@@ -456,7 +478,12 @@ impl Database {
         rows.collect()
     }
 
-    pub fn set_feature_setting_data(&self, key: &str, enabled: bool, config: &str) -> SqlResult<()> {
+    pub fn set_feature_setting_data(
+        &self,
+        key: &str,
+        enabled: bool,
+        config: &str,
+    ) -> SqlResult<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO feature_settings (feature_key, enabled, config_json) VALUES (?1, ?2, ?3)",
             params![key, enabled, config],
@@ -465,7 +492,12 @@ impl Database {
     }
 
     // ── Media items ──
-    pub fn get_media_items_data(&self, media_type: Option<&str>, limit: Option<i64>, offset: Option<i64>) -> SqlResult<Vec<MediaItem>> {
+    pub fn get_media_items_data(
+        &self,
+        media_type: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> SqlResult<Vec<MediaItem>> {
         let off = offset.unwrap_or(0);
         match (media_type, limit) {
             (Some(mt), Some(lim)) => {
@@ -477,22 +509,22 @@ impl Database {
             }
             (Some(mt), None) => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC"
+                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC",
                 )?;
                 let rows = stmt.query_map(params![mt], Self::row_to_media)?;
                 rows.collect()
             }
             (None, Some(lim)) => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2"
+                    "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
                 )?;
                 let rows = stmt.query_map(params![lim, off], Self::row_to_media)?;
                 rows.collect()
             }
             (None, None) => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items ORDER BY date_added DESC"
-                )?;
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT * FROM media_items ORDER BY date_added DESC")?;
                 let rows = stmt.query_map([], Self::row_to_media)?;
                 rows.collect()
             }
@@ -555,6 +587,7 @@ impl Database {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_media_metadata_data(
         &self,
         file_path: &str,
@@ -617,29 +650,31 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT * FROM media_items WHERE title LIKE ?1 OR genre LIKE ?1 OR overview LIKE ?1 ORDER BY title"
         )?;
-        let rows = stmt.query_map(params![pattern], |row| Self::row_to_media(row))?;
+        let rows = stmt.query_map(params![pattern], Self::row_to_media)?;
         rows.collect()
     }
 
     pub fn get_recent_media_data(&self, limit: i64) -> SqlResult<Vec<MediaItem>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1"
-        )?;
-        let rows = stmt.query_map(params![limit], |row| Self::row_to_media(row))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1")?;
+        let rows = stmt.query_map(params![limit], Self::row_to_media)?;
         rows.collect()
     }
 
     pub fn get_unverified_media_data(&self) -> SqlResult<Vec<MediaItem>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC"
-        )?;
-        let rows = stmt.query_map([], |row| Self::row_to_media(row))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC")?;
+        let rows = stmt.query_map([], Self::row_to_media)?;
         rows.collect()
     }
 
     // ── Sources ──
     pub fn get_sources_data(&self) -> SqlResult<Vec<MediaSource>> {
-        let mut stmt = self.conn.prepare("SELECT * FROM media_sources ORDER BY name")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM media_sources ORDER BY name")?;
         let rows = stmt.query_map([], |row| {
             Ok(MediaSource {
                 id: Some(row.get(0)?),
@@ -663,8 +698,10 @@ impl Database {
     }
 
     pub fn remove_source_data(&self, id: i64) -> SqlResult<()> {
-        self.conn.execute("DELETE FROM media_items WHERE source_id = ?1", params![id])?;
-        self.conn.execute("DELETE FROM media_sources WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM media_items WHERE source_id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM media_sources WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -685,7 +722,7 @@ impl Database {
         let access_key_hash = hash_secret(&access_key_salt, &access_key);
         let access_key_preview = preview_secret(&access_key);
         let display_name = display_name
-            .and_then(|value| non_empty_trimmed(value))
+            .and_then(non_empty_trimmed)
             .or_else(|| Some(email.clone()));
 
         self.conn
@@ -859,7 +896,13 @@ impl Database {
                      access_key_preview = ?3,
                      updated_at = ?4
                  WHERE email = ?5",
-                params![access_key_salt, access_key_hash, access_key_preview, updated_at, email],
+                params![
+                    access_key_salt,
+                    access_key_hash,
+                    access_key_preview,
+                    updated_at,
+                    email
+                ],
             )
             .map_err(|err| err.to_string())?;
         if changed == 0 {
@@ -873,11 +916,7 @@ impl Database {
         }))
     }
 
-    pub fn set_remote_access_user_enabled(
-        &self,
-        email: &str,
-        enabled: bool,
-    ) -> Result<(), String> {
+    pub fn set_remote_access_user_enabled(&self, email: &str, enabled: bool) -> Result<(), String> {
         let email = normalize_remote_email(email)?;
         self.conn
             .execute(
@@ -941,7 +980,14 @@ impl Database {
                 "INSERT INTO remote_access_sessions
                  (user_id, token_salt, token_hash, auth_method, created_at, expires_at, revoked)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
-                params![user_id, token_salt, token_hash, auth_method, created_at, expires_at_string],
+                params![
+                    user_id,
+                    token_salt,
+                    token_hash,
+                    auth_method,
+                    created_at,
+                    expires_at_string
+                ],
             )
             .map_err(|err| err.to_string())?;
         self.conn
@@ -1113,9 +1159,15 @@ pub fn get_feature_settings(state: State<AppState>) -> Result<Vec<serde_json::Va
 }
 
 #[tauri::command]
-pub fn set_feature_setting(state: State<AppState>, key: String, enabled: bool, config: String) -> Result<(), String> {
+pub fn set_feature_setting(
+    state: State<AppState>,
+    key: String,
+    enabled: bool,
+    config: String,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_feature_setting_data(&key, enabled, &config).map_err(|e| e.to_string())
+    db.set_feature_setting_data(&key, enabled, &config)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1168,13 +1220,17 @@ pub fn set_remote_access_user_enabled(
 }
 
 #[tauri::command]
-pub fn list_remote_access_users(state: State<AppState>) -> Result<Vec<RemoteAccessUserSummary>, String> {
+pub fn list_remote_access_users(
+    state: State<AppState>,
+) -> Result<Vec<RemoteAccessUserSummary>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.list_remote_access_users()
 }
 
 #[tauri::command]
-pub fn get_remote_access_security_status(state: State<AppState>) -> Result<serde_json::Value, String> {
+pub fn get_remote_access_security_status(
+    state: State<AppState>,
+) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let user_count = db.list_remote_access_users()?.len();
     let remote_enabled = db
@@ -1203,15 +1259,23 @@ pub fn get_remote_access_security_status(state: State<AppState>) -> Result<serde
 }
 
 #[tauri::command]
-pub fn get_media_items(state: State<AppState>, media_type: Option<String>, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<MediaItem>, String> {
+pub fn get_media_items(
+    state: State<AppState>,
+    media_type: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_media_items_data(media_type.as_deref(), limit, offset).map_err(|e| e.to_string())
+    db.get_media_items_data(media_type.as_deref(), limit, offset)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_media_item(state: State<AppState>, id: i64) -> Result<Option<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let items = db.get_media_items_data(None, Some(1), None).map_err(|e| e.to_string())?;
+    let items = db
+        .get_media_items_data(None, Some(1), None)
+        .map_err(|e| e.to_string())?;
     Ok(items.into_iter().find(|i| i.id == Some(id)))
 }
 
@@ -1222,19 +1286,46 @@ pub fn add_media_item(state: State<AppState>, item: MediaItem) -> Result<i64, St
 }
 
 #[tauri::command]
-pub fn update_media_item(state: State<AppState>, id: i64, title: Option<String>, verified: Option<bool>, watched: Option<bool>, favorite: Option<bool>) -> Result<(), String> {
+pub fn update_media_item(
+    state: State<AppState>,
+    id: i64,
+    title: Option<String>,
+    verified: Option<bool>,
+    watched: Option<bool>,
+    favorite: Option<bool>,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     if let Some(t) = title {
-        db.conn.execute("UPDATE media_items SET title = ?1 WHERE id = ?2", params![t, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET title = ?1 WHERE id = ?2",
+                params![t, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     if let Some(v) = verified {
-        db.conn.execute("UPDATE media_items SET verified = ?1 WHERE id = ?2", params![v, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET verified = ?1 WHERE id = ?2",
+                params![v, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     if let Some(w) = watched {
-        db.conn.execute("UPDATE media_items SET watched = ?1 WHERE id = ?2", params![w, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET watched = ?1 WHERE id = ?2",
+                params![w, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     if let Some(f) = favorite {
-        db.conn.execute("UPDATE media_items SET favorite = ?1 WHERE id = ?2", params![f, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET favorite = ?1 WHERE id = ?2",
+                params![f, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1242,7 +1333,9 @@ pub fn update_media_item(state: State<AppState>, id: i64, title: Option<String>,
 #[tauri::command]
 pub fn delete_media_item(state: State<AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("DELETE FROM media_items WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute("DELETE FROM media_items WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1253,9 +1346,13 @@ pub fn search_media(state: State<AppState>, query: String) -> Result<Vec<MediaIt
 }
 
 #[tauri::command]
-pub fn get_recent_media(state: State<AppState>, limit: Option<i64>) -> Result<Vec<MediaItem>, String> {
+pub fn get_recent_media(
+    state: State<AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_recent_media_data(limit.unwrap_or(20)).map_err(|e| e.to_string())
+    db.get_recent_media_data(limit.unwrap_or(20))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1267,7 +1364,12 @@ pub fn get_unverified_media(state: State<AppState>) -> Result<Vec<MediaItem>, St
 #[tauri::command]
 pub fn verify_media_item(state: State<AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("UPDATE media_items SET verified = 1 WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "UPDATE media_items SET verified = 1 WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1278,11 +1380,21 @@ pub fn get_sources(state: State<AppState>) -> Result<Vec<MediaSource>, String> {
 }
 
 #[tauri::command]
-pub fn add_source(state: State<AppState>, path: String, source_type: String, name: String) -> Result<i64, String> {
+pub fn add_source(
+    state: State<AppState>,
+    path: String,
+    source_type: String,
+    name: String,
+) -> Result<i64, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let source = MediaSource {
-        id: None, path, source_type, name,
-        enabled: true, last_scanned: None, item_count: 0,
+        id: None,
+        path,
+        source_type,
+        name,
+        enabled: true,
+        last_scanned: None,
+        item_count: 0,
     };
     db.add_source_data(&source).map_err(|e| e.to_string())
 }
@@ -1338,11 +1450,14 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let mut original = sample_item("File Name", r"C:\media\movie.mkv");
-        db.add_media_item_data(&original).expect("initial insert should succeed");
-        db.conn.execute(
-            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
-            params![&original.file_path],
-        ).expect("should update flags");
+        db.add_media_item_data(&original)
+            .expect("initial insert should succeed");
+        db.conn
+            .execute(
+                "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+                params![&original.file_path],
+            )
+            .expect("should update flags");
 
         original.title = "Embedded Title".to_string();
         original.file_size = Some(200);
@@ -1350,7 +1465,10 @@ mod tests {
             .upsert_scanned_media_item_data(&original)
             .expect("scan upsert should succeed");
 
-        assert!(!inserted, "existing rows should be refreshed, not counted as new");
+        assert!(
+            !inserted,
+            "existing rows should be refreshed, not counted as new"
+        );
 
         let row = db
             .conn
@@ -1383,7 +1501,8 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let mut original = sample_item("Movie", r"C:\media\movie.mkv");
-        db.add_media_item_data(&original).expect("initial insert should succeed");
+        db.add_media_item_data(&original)
+            .expect("initial insert should succeed");
 
         original.poster_path = Some(r"C:\media\movie-poster.jpg".to_string());
         let inserted = db
@@ -1454,7 +1573,9 @@ mod tests {
                 .expect("insert should succeed");
         }
 
-        let matches = db.search_media_data("Match").expect("search should succeed");
+        let matches = db
+            .search_media_data("Match")
+            .expect("search should succeed");
         assert_eq!(matches.len(), 230);
 
         drop(db);
@@ -1467,11 +1588,14 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let item = sample_item("Old Title", r"C:\media\old-title.mp4");
-        db.add_media_item_data(&item).expect("insert should succeed");
-        db.conn.execute(
-            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
-            params![&item.file_path],
-        ).expect("flag update should succeed");
+        db.add_media_item_data(&item)
+            .expect("insert should succeed");
+        db.conn
+            .execute(
+                "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+                params![&item.file_path],
+            )
+            .expect("flag update should succeed");
 
         db.update_media_metadata_data(
             &item.file_path,
@@ -1484,7 +1608,8 @@ mod tests {
             Some("123"),
             Some("tt123"),
             Some("adult"),
-        ).expect("metadata update should succeed");
+        )
+        .expect("metadata update should succeed");
 
         let row = db.conn.query_row(
             "SELECT title, overview, watched, favorite, media_type FROM media_items WHERE file_path = ?1",
@@ -1543,7 +1668,9 @@ mod tests {
 
         let remaining = db
             .conn
-            .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM media_items", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .expect("count should load");
         assert_eq!(remaining, 2);
 
@@ -1602,7 +1729,9 @@ mod tests {
 
         let remaining = db
             .conn
-            .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM media_items", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .expect("count should load");
         assert_eq!(remaining, 1);
 
@@ -1623,8 +1752,10 @@ mod tests {
     #[test]
     fn manual_sidecar_artwork_backfill_populates_video_posters() {
         let db_path = test_db_path("manual-sidecar-backfill");
-        let media_dir =
-            std::env::temp_dir().join(format!("cinavault-manual-backfill-{}", uuid::Uuid::new_v4()));
+        let media_dir = std::env::temp_dir().join(format!(
+            "cinavault-manual-backfill-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&media_dir).expect("media dir should be created");
         let video_path = media_dir.join("Movie.mp4");
         let poster_path = media_dir.join("Movie-poster.jpg");
@@ -1647,7 +1778,10 @@ mod tests {
                 |row| row.get::<_, Option<String>>(0),
             )
             .expect("video row should load");
-        assert_eq!(attached_poster.as_deref(), Some(poster_path.to_string_lossy().as_ref()));
+        assert_eq!(
+            attached_poster.as_deref(),
+            Some(poster_path.to_string_lossy().as_ref())
+        );
 
         drop(db);
         let _ = fs::remove_file(db_path);
@@ -1657,8 +1791,10 @@ mod tests {
     #[test]
     fn manual_available_poster_backfill_supports_same_stem_artwork() {
         let db_path = test_db_path("manual-same-stem-backfill");
-        let media_dir =
-            std::env::temp_dir().join(format!("cinavault-manual-same-stem-db-{}", uuid::Uuid::new_v4()));
+        let media_dir = std::env::temp_dir().join(format!(
+            "cinavault-manual-same-stem-db-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&media_dir).expect("media dir should be created");
         let video_path = media_dir.join("Movie.mp4");
         let poster_path = media_dir.join("Movie.jpg");
@@ -1681,7 +1817,10 @@ mod tests {
                 |row| row.get::<_, Option<String>>(0),
             )
             .expect("video row should load");
-        assert_eq!(attached_poster.as_deref(), Some(poster_path.to_string_lossy().as_ref()));
+        assert_eq!(
+            attached_poster.as_deref(),
+            Some(poster_path.to_string_lossy().as_ref())
+        );
 
         drop(db);
         let _ = fs::remove_file(db_path);
@@ -1728,16 +1867,20 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let item = sample_item("Old Title", r"C:\media\old-title.mp4");
-        db.add_media_item_data(&item).expect("insert should succeed");
+        db.add_media_item_data(&item)
+            .expect("insert should succeed");
 
         db.update_media_file_path_data(&item.file_path, r"C:\media\New Title.mp4", "New Title")
             .expect("rename update should succeed");
 
-        let row = db.conn.query_row(
-            "SELECT title, file_path FROM media_items WHERE file_path = ?1",
-            params![r"C:\media\New Title.mp4"],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).expect("renamed row should exist");
+        let row = db
+            .conn
+            .query_row(
+                "SELECT title, file_path FROM media_items WHERE file_path = ?1",
+                params![r"C:\media\New Title.mp4"],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("renamed row should exist");
 
         assert_eq!(row.0, "New Title");
         assert_eq!(row.1, r"C:\media\New Title.mp4");

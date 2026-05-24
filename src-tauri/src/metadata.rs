@@ -234,7 +234,7 @@ fn should_assume_key_validity(provider: &str) -> bool {
 }
 
 fn clean_local_metadata_title(query: &str) -> String {
-    let normalized = query.replace('_', " ").replace('.', " ").replace('-', " ");
+    let normalized = query.replace(['_', '.', '-'], " ");
     let noise = [
         "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd", "x264", "x265", "h264", "h265",
         "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv", "avi",

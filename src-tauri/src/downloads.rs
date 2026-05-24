@@ -1,10 +1,10 @@
 // CinaVault Premium — Downloads Module (yt-dlp + ffmpeg)
+use crate::AppState;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::State;
-use crate::AppState;
-use rusqlite::params;
 
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static CANCEL_DL: AtomicBool = AtomicBool::new(false);
@@ -52,7 +52,13 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
 
         // Install yt-dlp
         let ytdlp = Command::new("winget")
-            .args(&["install", "--id", "yt-dlp.yt-dlp", "--accept-package-agreements", "--accept-source-agreements"])
+            .args([
+                "install",
+                "--id",
+                "yt-dlp.yt-dlp",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
             .output();
         results.push(serde_json::json!({
             "tool": "yt-dlp",
@@ -62,7 +68,13 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
 
         // Install ffmpeg
         let ffmpeg = Command::new("winget")
-            .args(&["install", "--id", "Gyan.FFmpeg", "--accept-package-agreements", "--accept-source-agreements"])
+            .args([
+                "install",
+                "--id",
+                "Gyan.FFmpeg",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
             .output();
         results.push(serde_json::json!({
             "tool": "ffmpeg",
@@ -115,10 +127,13 @@ pub async fn start_download(
     };
 
     let output = Command::new("yt-dlp")
-        .args(&[
-            "-f", &fmt,
-            "--merge-output-format", "mp4",
-            "-o", &format!("{}/%(title)s.%(ext)s", out_dir),
+        .args([
+            "-f",
+            &fmt,
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            &format!("{}/%(title)s.%(ext)s", out_dir),
             "--no-playlist",
             "--newline",
             &url,
@@ -134,11 +149,10 @@ pub async fn start_download(
     let success = output.status.success();
 
     // Extract title from output
-    let title = stdout.lines()
+    let title = stdout
+        .lines()
         .find(|l| l.contains("[download] Destination:"))
-        .map(|l| {
-            l.replace("[download] Destination:", "").trim().to_string()
-        });
+        .map(|l| l.replace("[download] Destination:", "").trim().to_string());
 
     let completed_at = chrono::Utc::now().to_rfc3339();
     {
@@ -191,10 +205,13 @@ pub async fn start_playlist_download(
     };
 
     let output = Command::new("yt-dlp")
-        .args(&[
-            "-f", "bestvideo+bestaudio/best",
-            "--merge-output-format", "mp4",
-            "-o", &format!("{}/%(playlist_title)s/%(title)s.%(ext)s", out_dir),
+        .args([
+            "-f",
+            "bestvideo+bestaudio/best",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            &format!("{}/%(playlist_title)s/%(title)s.%(ext)s", out_dir),
             "--yes-playlist",
             "--newline",
             &url,
@@ -207,7 +224,11 @@ pub async fn start_playlist_download(
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let status = if success { "completed" } else { "failed" };
-        let err = if success { None } else { Some(String::from_utf8_lossy(&output.stderr).to_string()) };
+        let err = if success {
+            None
+        } else {
+            Some(String::from_utf8_lossy(&output.stderr).to_string())
+        };
         db.conn.execute(
             "UPDATE download_history SET status = ?1, error = ?2, completed_at = ?3 WHERE id = ?4",
             params![status, err, completed_at, db_id],

@@ -144,8 +144,7 @@ fn title_from_filename(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "Unknown".to_string())
-        .replace('_', " ")
-        .replace('.', " ")
+        .replace(['_', '.'], " ")
 }
 
 fn should_refresh_title_from_embedded(current_title: &str, file_path: &str) -> bool {
@@ -308,7 +307,7 @@ async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
     // Ping check
     #[cfg(target_os = "windows")]
     let ping = std::process::Command::new("ping")
-        .args(&["-n", "3", "8.8.8.8"])
+        .args(["-n", "3", "8.8.8.8"])
         .output();
     #[cfg(not(target_os = "windows"))]
     let ping = std::process::Command::new("ping")
@@ -505,12 +504,11 @@ async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value
         let normalized = normalize_provider_key(&provider);
         let key_present = !key.trim().is_empty();
         let live_supported = provider_live_check_supported(&normalized);
-        let (is_valid, status) = if matches!(
+        let provider_uses_local_or_live_check = matches!(
             normalized.as_str(),
             "phoenixadult" | "iafd" | "porn_site_nuxt"
-        ) {
-            check_single_provider_key(&client, &normalized, &key).await
-        } else if key_present && live_supported {
+        ) || (key_present && live_supported);
+        let (is_valid, status) = if provider_uses_local_or_live_check {
             check_single_provider_key(&client, &normalized, &key).await
         } else if key_present {
             (true, "local_metadata_fallback".to_string())
@@ -643,6 +641,7 @@ fn metadata_sidecar_path(file_path: &str) -> Option<std::path::PathBuf> {
     Some(parent.join(format!("{stem}.cinavault.json")))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_metadata_sidecar(
     file_path: &str,
     title: &str,
@@ -808,7 +807,7 @@ fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
 }
 
 fn clean_local_adult_title(value: &str) -> Option<String> {
-    let normalized = value.replace('_', " ").replace('.', " ").replace('-', " ");
+    let normalized = value.replace(['_', '.', '-'], " ");
     let noise = [
         "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd", "x264", "x265", "h264", "h265",
         "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv", "avi",
@@ -1623,7 +1622,7 @@ async fn gather_adult_metadata_assets_inner(
     let tpdb_key = provider_keys.get("tpdb").cloned();
     let porn_site_nuxt_base = provider_keys.get("porn_site_nuxt").cloned();
 
-    let media_items: Vec<(
+    type AdultGatherMediaRow = (
         i64,
         String,
         String,
@@ -1637,7 +1636,9 @@ async fn gather_adult_metadata_assets_inner(
         String,
         Option<String>,
         Option<String>,
-    )> = {
+    );
+
+    let media_items: Vec<AdultGatherMediaRow> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db
             .conn

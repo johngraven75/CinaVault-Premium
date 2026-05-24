@@ -1,5 +1,5 @@
-use crate::{task_progress, AppState};
 use crate::library_artifacts::available_poster_path_for_media;
+use crate::{task_progress, AppState};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -393,7 +393,11 @@ pub async fn run_library_enrichment(
     };
     let mut progress = task_progress::MetadataTaskGuard::start(
         "library_enrichment",
-        if rename_files { "Normalize Filenames" } else { "Enrich Metadata" },
+        if rename_files {
+            "Normalize Filenames"
+        } else {
+            "Enrich Metadata"
+        },
         items.len(),
         "Preparing library metadata enrichment",
     );
@@ -434,10 +438,14 @@ pub async fn run_library_enrichment(
         let local_title_provider = local_embedded_title_match(embedded_title.as_deref())
             .or_else(|| local_display_title_match(&item));
         let local_artwork_provider = local_sidecar_artwork_match(&item);
-        let provider = [remote_provider, local_title_provider, local_artwork_provider]
-            .into_iter()
-            .flatten()
-            .reduce(merge_provider_matches);
+        let provider = [
+            remote_provider,
+            local_title_provider,
+            local_artwork_provider,
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(merge_provider_matches);
 
         let Some(provider) = provider else {
             report.low_confidence_metadata_only += 1;
@@ -522,8 +530,7 @@ pub async fn run_library_enrichment(
 
     progress.finish(format!(
         "Metadata enrichment complete: {} metadata updates, {} files renamed",
-        report.metadata_updated,
-        report.files_renamed
+        report.metadata_updated, report.files_renamed
     ));
 
     Ok(report)
@@ -1301,8 +1308,7 @@ mod tests {
 
     #[test]
     fn sidecar_artwork_fallback_populates_missing_posters() {
-        let dir =
-            std::env::temp_dir().join(format!("cinavault-sidecar-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("cinavault-sidecar-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("temp dir should be created");
         let video = dir.join("Actual Scene Title.mp4");
         let poster = dir.join("Actual Scene Title-poster.jpg");

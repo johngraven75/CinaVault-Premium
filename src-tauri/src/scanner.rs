@@ -1,19 +1,19 @@
 // CinaVault Premium — Media Scanner Module
-use sha2::{Digest, Sha256};
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use tauri::State;
-use walkdir::WalkDir;
-use crate::AppState;
 use crate::db::{MediaItem, MediaSource};
-use rusqlite::OptionalExtension;
 use crate::library_artifacts::{
     available_poster_path_for_media, is_artwork_image_for_nearby_media,
     is_generated_chapter_image_path, is_internal_artwork_cache_path, is_sidecar_artwork_image,
 };
+use crate::AppState;
+use rusqlite::OptionalExtension;
+use sha2::{Digest, Sha256};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use tauri::State;
+use walkdir::WalkDir;
 
 static SCANNING: AtomicBool = AtomicBool::new(false);
 static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
@@ -31,15 +31,13 @@ impl Drop for ScanGuard {
 }
 
 const VIDEO_EXTS: &[&str] = &[
-    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg",
-    "ts", "m2ts", "vob", "ogv", "3gp", "divx", "rm", "rmvb", "asf",
+    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ts", "m2ts", "vob",
+    "ogv", "3gp", "divx", "rm", "rmvb", "asf",
 ];
 const AUDIO_EXTS: &[&str] = &[
     "mp3", "flac", "aac", "ogg", "wma", "wav", "m4a", "opus", "alac", "aiff",
 ];
-const IMAGE_EXTS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg",
-];
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg"];
 
 fn detect_media_type(ext: &str) -> Option<&'static str> {
     let ext_lower = ext.to_lowercase();
@@ -65,16 +63,18 @@ fn title_from_filename(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "Unknown".to_string())
-        .replace('_', " ")
-        .replace('.', " ")
+        .replace(['_', '.'], " ")
 }
 
 fn extract_embedded_title(file_path: &str) -> Option<String> {
     let mut cmd = Command::new("ffprobe");
     cmd.args([
-        "-v", "error",
-        "-show_entries", "format_tags=title:stream_tags=title",
-        "-of", "default=nw=1:nk=1",
+        "-v",
+        "error",
+        "-show_entries",
+        "format_tags=title:stream_tags=title",
+        "-of",
+        "default=nw=1:nk=1",
         file_path,
     ]);
     #[cfg(target_os = "windows")]
@@ -227,8 +227,12 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
     let mut total_added: u64 = 0;
 
     for source in &sources {
-        if !source.enabled { continue; }
-        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+        if !source.enabled {
+            continue;
+        }
+        if CANCEL_FLAG.load(Ordering::Relaxed) {
+            break;
+        }
 
         let (found, added) = scan_directory(&state, source, prefer_embedded_titles)?;
         total_found += found;
@@ -243,7 +247,10 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
 }
 
 #[tauri::command]
-pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> Result<serde_json::Value, String> {
+pub async fn scan_single_source(
+    state: State<'_, AppState>,
+    source_id: i64,
+) -> Result<serde_json::Value, String> {
     if SCANNING.load(Ordering::Relaxed) {
         return Err("Scan already in progress".into());
     }
@@ -255,7 +262,9 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
     let (source, prefer_embedded_titles) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let sources = db.get_sources_data().map_err(|e| e.to_string())?;
-        let source = sources.into_iter().find(|s| s.id == Some(source_id))
+        let source = sources
+            .into_iter()
+            .find(|s| s.id == Some(source_id))
             .ok_or("Source not found")?;
         let prefer_embedded_titles = db
             .get_setting_data("prefer_embedded_titles")
@@ -272,7 +281,11 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
     }))
 }
 
-fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded_titles: bool) -> Result<(u64, u64), String> {
+fn scan_directory(
+    state: &State<AppState>,
+    source: &MediaSource,
+    prefer_embedded_titles: bool,
+) -> Result<(u64, u64), String> {
     if source_uses_virtual_protocol(source) {
         return Ok((0, 0));
     }
@@ -285,16 +298,30 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
     let mut files: Vec<(String, String, u64)> = Vec::new();
 
     // Following links on Windows can recurse through junction/symlink loops forever.
-    for entry in WalkDir::new(path).follow_links(false).into_iter().filter_map(|e| e.ok()) {
-        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+    for entry in WalkDir::new(path)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if CANCEL_FLAG.load(Ordering::Relaxed) {
+            break;
+        }
         let p = entry.path();
-        if !p.is_file() { continue; }
-        if !should_index_path(p) { continue; }
+        if !p.is_file() {
+            continue;
+        }
+        if !should_index_path(p) {
+            continue;
+        }
 
         if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
             if let Some(media_type) = detect_media_type(ext) {
                 let size = p.metadata().map(|m| m.len()).unwrap_or(0);
-                files.push((p.to_string_lossy().to_string(), media_type.to_string(), size));
+                files.push((
+                    p.to_string_lossy().to_string(),
+                    media_type.to_string(),
+                    size,
+                ));
             }
         }
     }
@@ -307,7 +334,9 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
     let now = chrono::Utc::now().to_rfc3339();
 
     for (i, (file_path, media_type, file_size)) in files.iter().enumerate() {
-        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+        if CANCEL_FLAG.load(Ordering::Relaxed) {
+            break;
+        }
         SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
 
         let existing_poster_path = db
@@ -321,7 +350,8 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
             .map_err(|e| e.to_string())?
             .flatten();
         let title = if prefer_embedded_titles {
-            extract_embedded_title(file_path).unwrap_or_else(|| title_from_filename(Path::new(file_path)))
+            extract_embedded_title(file_path)
+                .unwrap_or_else(|| title_from_filename(Path::new(file_path)))
         } else {
             title_from_filename(Path::new(file_path))
         };
@@ -358,13 +388,10 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
             source_id: source.id,
         };
 
-        match db.upsert_scanned_media_item_data(&item) {
-            Ok(inserted) => {
-                if inserted {
-                    added += 1;
-                }
+        if let Ok(inserted) = db.upsert_scanned_media_item_data(&item) {
+            if inserted {
+                added += 1;
             }
-            Err(_) => {}
         }
     }
 
@@ -388,22 +415,30 @@ mod tests {
 
     #[test]
     fn skips_generated_chapter_images() {
-        assert!(!should_index_path(Path::new(r"E:\Videos\sample_chapters\chapter_0001.jpg")));
+        assert!(!should_index_path(Path::new(
+            r"E:\Videos\sample_chapters\chapter_0001.jpg"
+        )));
     }
 
     #[test]
     fn skips_sidecar_artwork_images() {
         assert!(!should_index_path(Path::new(r"E:\Videos\Movie\poster.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\backdrop.jpg")));
+        assert!(!should_index_path(Path::new(
+            r"E:\Videos\Movie\backdrop.jpg"
+        )));
         assert!(!should_index_path(Path::new(r"E:\Videos\Movie\folder.jpg")));
         assert!(!should_index_path(Path::new(r"E:\Videos\Movie\cover.png")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\scene-poster.webp")));
+        assert!(!should_index_path(Path::new(
+            r"E:\Videos\Movie\scene-poster.webp"
+        )));
     }
 
     #[test]
     fn keeps_real_media_files() {
         assert!(should_index_path(Path::new(r"E:\Videos\sample.mp4")));
-        assert!(should_index_path(Path::new(r"E:\Photos\Vacation\beach-day.jpg")));
+        assert!(should_index_path(Path::new(
+            r"E:\Photos\Vacation\beach-day.jpg"
+        )));
     }
 
     #[test]
@@ -417,8 +452,10 @@ mod tests {
 
     #[test]
     fn screenshot_poster_cache_path_is_stable_and_uses_jpg_extension() {
-        let first = screenshot_poster_cache_path_for_file(r"E:\Videos\Movie.mkv").expect("path should build");
-        let second = screenshot_poster_cache_path_for_file(r"E:\Videos\Movie.mkv").expect("path should build");
+        let first = screenshot_poster_cache_path_for_file(r"E:\Videos\Movie.mkv")
+            .expect("path should build");
+        let second = screenshot_poster_cache_path_for_file(r"E:\Videos\Movie.mkv")
+            .expect("path should build");
 
         assert_eq!(first, second);
         assert_eq!(first.extension().and_then(|ext| ext.to_str()), Some("jpg"));
@@ -429,8 +466,12 @@ mod tests {
         assert!(should_extract_poster_for_scan(None));
         assert!(should_extract_poster_for_scan(Some("")));
         assert!(should_extract_poster_for_scan(Some("   ")));
-        assert!(!should_extract_poster_for_scan(Some(r"E:\Videos\Movie.jpg")));
-        assert!(!should_extract_poster_for_scan(Some("https://example.com/poster.jpg")));
+        assert!(!should_extract_poster_for_scan(Some(
+            r"E:\Videos\Movie.jpg"
+        )));
+        assert!(!should_extract_poster_for_scan(Some(
+            "https://example.com/poster.jpg"
+        )));
     }
 
     #[test]
@@ -465,7 +506,9 @@ pub fn cancel_scan() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn apply_embedded_titles(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn apply_embedded_titles(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let rows: Vec<(i64, String, String)> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db
@@ -497,7 +540,9 @@ pub async fn apply_embedded_titles(state: State<'_, AppState>) -> Result<serde_j
         }
 
         if let Some(embedded_title) = extract_embedded_title(&file_path) {
-            if !embedded_title.trim().is_empty() && !embedded_title.eq_ignore_ascii_case(&current_title) {
+            if !embedded_title.trim().is_empty()
+                && !embedded_title.eq_ignore_ascii_case(&current_title)
+            {
                 let db = state.db.lock().map_err(|e| e.to_string())?;
                 db.conn
                     .execute(

@@ -95,8 +95,9 @@ pub async fn vpnb_connect(config: String) -> Result<serde_json::Value, String> {
     } else {
         #[cfg(target_os = "windows")]
         {
-            let exe = wireguard_exe()
-                .ok_or("WireGuard is not installed. Install WireGuard for Windows to use built-in VPN.")?;
+            let exe = wireguard_exe().ok_or(
+                "WireGuard is not installed. Install WireGuard for Windows to use built-in VPN.",
+            )?;
             Command::new(exe)
                 .arg("/installtunnelservice")
                 .arg(config_path.to_string_lossy().as_ref())
@@ -135,8 +136,9 @@ pub async fn vpnb_disconnect() -> Result<serde_json::Value, String> {
     } else {
         #[cfg(target_os = "windows")]
         {
-            let exe = wireguard_exe()
-                .ok_or("WireGuard is not installed. Install WireGuard for Windows to use built-in VPN.")?;
+            let exe = wireguard_exe().ok_or(
+                "WireGuard is not installed. Install WireGuard for Windows to use built-in VPN.",
+            )?;
             Command::new(exe)
                 .arg("/uninstalltunnelservice")
                 .arg("cinavault_vpn")

@@ -1,28 +1,28 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 127)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 128)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod adult_site_provider;
+mod ai;
+mod avb;
+mod chapters;
 mod db;
-mod scanner;
+mod downloads;
+mod duplicates;
+mod enrichment;
 mod iptv;
 mod jellyfin;
-mod plugins;
-mod player;
-mod metadata;
-mod chapters;
-mod duplicates;
-mod vpn;
-mod downloads;
-mod ai;
-mod vpnb;
-mod avb;
-mod enrichment;
-mod task_progress;
 mod library_artifacts;
-mod adult_site_provider;
+mod metadata;
 mod phoenix_adult_provider;
+mod player;
+mod plugins;
+mod scanner;
+mod task_progress;
 mod theporndb_provider;
+mod vpn;
+mod vpnb;
 
 use db::Database;
 use std::sync::Mutex;
@@ -43,7 +43,10 @@ fn main() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+            let app_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
 
             // Create plugin directories
@@ -53,12 +56,12 @@ fn main() {
             }
 
             let db_path = app_dir.join("cinavault.db");
-            let database = Database::new(db_path.to_str().unwrap())
-                .expect("Failed to initialize database");
+            let database =
+                Database::new(db_path.to_str().unwrap()).expect("Failed to initialize database");
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 127 initialized successfully");
+            log::info!("CinaVault Premium Build 128 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -99,6 +102,7 @@ fn main() {
             duplicates::find_duplicates,
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
+            duplicates::remove_duplicates,
             // IPTV
             iptv::add_xtream_profile,
             iptv::get_xtream_profiles,
@@ -277,7 +281,7 @@ fn extract_query_param(request: &str, param: &str) -> Option<String> {
     if let Some(pos) = request.find(&search) {
         let start = pos + search.len();
         let rest = &request[start..];
-        let end = rest.find(|c: char| c == '&' || c == ' ' || c == '\r' || c == '\n').unwrap_or(rest.len());
+        let end = rest.find(['&', ' ', '\r', '\n']).unwrap_or(rest.len());
         Some(rest[..end].to_string())
     } else {
         None
@@ -285,20 +289,29 @@ fn extract_query_param(request: &str, param: &str) -> Option<String> {
 }
 
 #[tauri::command]
-async fn cloud_disconnect(provider: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+async fn cloud_disconnect(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
     log::info!("Cloud disconnect: {}", provider);
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data(&format!("cloud_{}_status", provider), "disconnected").map_err(|e| e.to_string())?;
-    db.set_setting_data(&format!("cloud_{}_token", provider), "").map_err(|e| e.to_string())?;
+    db.set_setting_data(&format!("cloud_{}_status", provider), "disconnected")
+        .map_err(|e| e.to_string())?;
+    db.set_setting_data(&format!("cloud_{}_token", provider), "")
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-async fn cloud_sync(provider: String, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn cloud_sync(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     log::info!("Cloud sync: {}", provider);
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let now = chrono::Local::now().to_rfc3339();
-    db.set_setting_data(&format!("cloud_{}_last_sync", provider), &now).map_err(|e| e.to_string())?;
+    db.set_setting_data(&format!("cloud_{}_last_sync", provider), &now)
+        .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "success": true,
@@ -320,18 +333,26 @@ async fn cloud_browse(provider: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn cloud_list_files(provider: String, path: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+async fn cloud_list_files(
+    provider: String,
+    path: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     log::info!("Cloud list files: {} path={:?}", provider, path);
     Ok(vec![])
 }
 
 #[tauri::command]
-async fn cloud_get_status(provider: String, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn cloud_get_status(
+    provider: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let status = db.get_setting_data(&format!("cloud_{}_status", provider))
+    let status = db
+        .get_setting_data(&format!("cloud_{}_status", provider))
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "disconnected".to_string());
-    let last_sync = db.get_setting_data(&format!("cloud_{}_last_sync", provider))
+    let last_sync = db
+        .get_setting_data(&format!("cloud_{}_last_sync", provider))
         .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
@@ -350,8 +371,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-15",
-        "build_tag": "Build 127 RC3 Feature Carry Forward (Premium Edition)",
+        "version": "1.0.0-16",
+        "build_tag": "Build 128 Duplicate Removal Fix (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,

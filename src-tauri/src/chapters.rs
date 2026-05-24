@@ -1,9 +1,9 @@
 // CinaVault Premium — Chapter Thumbnail Generation
 use serde::{Deserialize, Serialize};
-use std::process::Command;
-use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
+use std::process::Command;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -34,14 +34,15 @@ pub async fn generate_chapter_thumbs(
     let interval = interval_secs.unwrap_or(300); // 5 minutes default
 
     // Get video duration first
-    let ffprobe_out = command_output(
-        Command::new("ffprobe").args(&[
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "csv=p=0",
-            &file_path,
-        ])
-    )
+    let ffprobe_out = command_output(Command::new("ffprobe").args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "csv=p=0",
+        &file_path,
+    ]))
     .map_err(|e| format!("ffprobe failed: {}", e))?;
 
     let duration_str = String::from_utf8_lossy(&ffprobe_out.stdout);
@@ -55,7 +56,10 @@ pub async fn generate_chapter_thumbs(
         let p = Path::new(&file_path);
         let parent = p.parent().unwrap_or(Path::new("."));
         let stem = p.file_stem().unwrap_or_default().to_string_lossy();
-        parent.join(format!("{}_chapters", stem)).to_string_lossy().to_string()
+        parent
+            .join(format!("{}_chapters", stem))
+            .to_string_lossy()
+            .to_string()
     });
 
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
@@ -68,16 +72,9 @@ pub async fn generate_chapter_thumbs(
         let out_path = format!("{}/chapter_{:04}.jpg", out_dir, idx);
         let timestamp = format!("{:.2}", t);
 
-        let result = command_output(
-            Command::new(&ffmpeg).args(&[
-                "-ss", &timestamp,
-                "-i", &file_path,
-                "-vframes", "1",
-                "-q:v", "3",
-                "-y",
-                &out_path,
-            ])
-        );
+        let result = command_output(Command::new(&ffmpeg).args([
+            "-ss", &timestamp, "-i", &file_path, "-vframes", "1", "-q:v", "3", "-y", &out_path,
+        ]));
 
         match result {
             Ok(output) if output.status.success() => {
@@ -114,7 +111,8 @@ pub fn get_chapter_thumbs(chapter_dir: String) -> Result<Vec<ChapterThumb>, Stri
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.path().extension()
+            e.path()
+                .extension()
                 .map(|ext| ext == "jpg" || ext == "png")
                 .unwrap_or(false)
         })

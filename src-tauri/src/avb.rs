@@ -3,7 +3,13 @@ use std::process::Command;
 
 fn run_powershell(script: &str) -> Result<(bool, String, String), String> {
     let output = Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
         .output()
         .map_err(|error| format!("PowerShell failed: {}", error))?;
 

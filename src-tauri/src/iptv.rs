@@ -1,9 +1,9 @@
 // CinaVault Premium — IPTV / Xtream Codes Module
+use crate::AppState;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use crate::AppState;
-use rusqlite::params;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct XtreamProfile {
@@ -28,7 +28,13 @@ pub struct LiveChannel {
 }
 
 #[tauri::command]
-pub fn add_xtream_profile(state: State<AppState>, name: String, server_url: String, username: String, password: String) -> Result<i64, String> {
+pub fn add_xtream_profile(
+    state: State<AppState>,
+    name: String,
+    server_url: String,
+    username: String,
+    password: String,
+) -> Result<i64, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.conn.execute(
         "INSERT INTO xtream_profiles (name, server_url, username, password, enabled) VALUES (?1,?2,?3,?4,1)",
@@ -42,37 +48,57 @@ pub fn get_xtream_profiles(state: State<AppState>) -> Result<Vec<XtreamProfile>,
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = db.conn.prepare("SELECT id, name, server_url, username, password, enabled, last_synced FROM xtream_profiles")
         .map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |row| {
-        Ok(XtreamProfile {
-            id: Some(row.get(0)?),
-            name: row.get(1)?,
-            server_url: row.get(2)?,
-            username: row.get(3)?,
-            password: row.get(4)?,
-            enabled: row.get(5)?,
-            last_synced: row.get(6)?,
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(XtreamProfile {
+                id: Some(row.get(0)?),
+                name: row.get(1)?,
+                server_url: row.get(2)?,
+                username: row.get(3)?,
+                password: row.get(4)?,
+                enabled: row.get(5)?,
+                last_synced: row.get(6)?,
+            })
         })
-    }).map_err(|e| e.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn remove_xtream_profile(state: State<AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("DELETE FROM live_channels WHERE profile_id = ?1", params![id]).map_err(|e| e.to_string())?;
-    db.conn.execute("DELETE FROM xtream_profiles WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "DELETE FROM live_channels WHERE profile_id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
+    db.conn
+        .execute("DELETE FROM xtream_profiles WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn sync_xtream_streams(state: State<'_, AppState>, profile_id: i64) -> Result<serde_json::Value, String> {
+pub async fn sync_xtream_streams(
+    state: State<'_, AppState>,
+    profile_id: i64,
+) -> Result<serde_json::Value, String> {
     let profile = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db.conn.prepare("SELECT server_url, username, password FROM xtream_profiles WHERE id = ?1")
+        let mut stmt = db
+            .conn
+            .prepare("SELECT server_url, username, password FROM xtream_profiles WHERE id = ?1")
             .map_err(|e| e.to_string())?;
         stmt.query_row(params![profile_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-        }).map_err(|e| e.to_string())?
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
     };
 
     let (server_url, username, password) = profile;
@@ -83,16 +109,30 @@ pub async fn sync_xtream_streams(state: State<'_, AppState>, profile_id: i64) ->
     let channels: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("DELETE FROM live_channels WHERE profile_id = ?1", params![profile_id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "DELETE FROM live_channels WHERE profile_id = ?1",
+            params![profile_id],
+        )
+        .map_err(|e| e.to_string())?;
 
     let mut count = 0u64;
     for ch in &channels {
         let name = ch.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
         let stream_id = ch.get("stream_id").and_then(|v| v.as_u64()).unwrap_or(0);
         let stream_url = build_live_stream_url(&server_url, &username, &password, stream_id);
-        let logo = ch.get("stream_icon").and_then(|v| v.as_str()).map(String::from);
-        let group = ch.get("category_name").and_then(|v| v.as_str()).map(String::from);
-        let epg = ch.get("epg_channel_id").and_then(|v| v.as_str()).map(String::from);
+        let logo = ch
+            .get("stream_icon")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let group = ch
+            .get("category_name")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let epg = ch
+            .get("epg_channel_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         db.conn.execute(
             "INSERT INTO live_channels (profile_id, name, stream_url, logo_url, group_name, epg_id) VALUES (?1,?2,?3,?4,?5,?6)",
@@ -102,20 +142,35 @@ pub async fn sync_xtream_streams(state: State<'_, AppState>, profile_id: i64) ->
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    db.conn.execute("UPDATE xtream_profiles SET last_synced = ?1 WHERE id = ?2", params![now, profile_id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "UPDATE xtream_profiles SET last_synced = ?1 WHERE id = ?2",
+            params![now, profile_id],
+        )
+        .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({ "channels_synced": count }))
 }
 
 #[tauri::command]
-pub async fn sync_epg(state: State<'_, AppState>, profile_id: i64) -> Result<serde_json::Value, String> {
+pub async fn sync_epg(
+    state: State<'_, AppState>,
+    profile_id: i64,
+) -> Result<serde_json::Value, String> {
     let profile = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db.conn.prepare("SELECT server_url, username, password FROM xtream_profiles WHERE id = ?1")
+        let mut stmt = db
+            .conn
+            .prepare("SELECT server_url, username, password FROM xtream_profiles WHERE id = ?1")
             .map_err(|e| e.to_string())?;
         stmt.query_row(params![profile_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-        }).map_err(|e| e.to_string())?
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
     };
 
     let (server_url, username, password) = profile;
@@ -129,7 +184,10 @@ pub async fn sync_epg(state: State<'_, AppState>, profile_id: i64) -> Result<ser
 }
 
 #[tauri::command]
-pub fn get_live_channels(state: State<AppState>, profile_id: Option<i64>) -> Result<Vec<LiveChannel>, String> {
+pub fn get_live_channels(
+    state: State<AppState>,
+    profile_id: Option<i64>,
+) -> Result<Vec<LiveChannel>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let sql = match profile_id {
         Some(_) => "SELECT id, profile_id, name, stream_url, logo_url, group_name, epg_id FROM live_channels WHERE profile_id = ?1 ORDER BY name",
@@ -138,11 +196,17 @@ pub fn get_live_channels(state: State<AppState>, profile_id: Option<i64>) -> Res
     let mut stmt = db.conn.prepare(sql).map_err(|e| e.to_string())?;
 
     if let Some(pid) = profile_id {
-        let rows = stmt.query_map(params![pid], row_to_live_channel).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let rows = stmt
+            .query_map(params![pid], row_to_live_channel)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     } else {
-        let rows = stmt.query_map([], row_to_live_channel).map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let rows = stmt
+            .query_map([], row_to_live_channel)
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -181,7 +245,12 @@ fn build_epg_url(server_url: &str, username: &str, password: &str) -> String {
     )
 }
 
-fn build_live_stream_url(server_url: &str, username: &str, password: &str, stream_id: u64) -> String {
+fn build_live_stream_url(
+    server_url: &str,
+    username: &str,
+    password: &str,
+    stream_id: u64,
+) -> String {
     format!(
         "{}/live/{}/{}/{}.ts",
         normalize_server_base(server_url),
