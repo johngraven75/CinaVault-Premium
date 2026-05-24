@@ -18,17 +18,28 @@ interface DuplicateGroup {
   items: DuplicateItem[];
 }
 
+type SelectionState =
+  | { mode: "manual"; ids: Set<number> }
+  | { mode: "all"; excludedIds: Set<number> };
+
+const BULK_DELETE_BATCH_SIZE = 50;
+
 export default function DuplicateToolsTab() {
   const { addStatusMessage } = useAppStore();
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
-  const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
+  const [selection, setSelection] = useState<SelectionState>({ mode: "manual", ids: new Set() });
   const [matchBy, setMatchBy] = useState("name_size");
   const [toleranceMb, setToleranceMb] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
   const duplicateCount = groups.reduce((total, group) => total + group.items.length, 0);
   const removableItems = useMemo(() => groups.flatMap((group) => group.items.slice(1)), [groups]);
-  const selectedCount = selectedItems.size;
-  const allRemovableSelected = removableItems.length > 0 && removableItems.every((item) => selectedItems.has(item.id));
+  const removableIds = useMemo(() => new Set(removableItems.map((item) => item.id)), [removableItems]);
+  const selectedCount = selection.mode === "all"
+    ? Math.max(0, removableItems.length - selection.excludedIds.size)
+    : selection.ids.size;
+  const allRemovableSelected = removableItems.length > 0 && selection.mode === "all" && selection.excludedIds.size === 0;
+  const bulkBusy = busy === "bulk-remove" || busy === "bulk-delete";
 
   const loadGroups = async () => {
     const result = await invoke<DuplicateGroup[]>("get_duplicate_groups");
@@ -40,12 +51,16 @@ export default function DuplicateToolsTab() {
   }, []);
 
   useEffect(() => {
-    const visibleIds = new Set(groups.flatMap((group) => group.items.map((item) => item.id)));
-    setSelectedItems((current) => {
-      const pruned = new Set([...current].filter((id) => visibleIds.has(id)));
-      return pruned.size === current.size ? current : pruned;
+    setSelection((current) => {
+      if (current.mode === "all") {
+        const excludedIds = new Set([...current.excludedIds].filter((id) => removableIds.has(id)));
+        return excludedIds.size === current.excludedIds.size ? current : { mode: "all", excludedIds };
+      }
+
+      const ids = new Set([...current.ids].filter((id) => removableIds.has(id)));
+      return ids.size === current.ids.size ? current : { mode: "manual", ids };
     });
-  }, [groups]);
+  }, [removableIds]);
 
   const findDuplicates = async () => {
     setBusy("scan");
@@ -68,10 +83,16 @@ export default function DuplicateToolsTab() {
     try {
       await invoke("remove_duplicate", { itemId: item.id, deleteFile });
       await loadGroups();
-      setSelectedItems((current) => {
-        const next = new Set(current);
-        next.delete(item.id);
-        return next;
+      setSelection((current) => {
+        if (current.mode === "all") {
+          const excludedIds = new Set(current.excludedIds);
+          excludedIds.add(item.id);
+          return { mode: "all", excludedIds };
+        }
+
+        const ids = new Set(current.ids);
+        ids.delete(item.id);
+        return { mode: "manual", ids };
       });
       addStatusMessage(deleteFile ? `Duplicate file deleted: ${item.title || item.file_path}` : `Duplicate removed from library: ${item.title || item.file_path}`);
     } catch (e) {
@@ -81,43 +102,76 @@ export default function DuplicateToolsTab() {
     }
   };
 
+  const isItemSelected = (itemId: number) => {
+    return selection.mode === "all" ? !selection.excludedIds.has(itemId) && removableIds.has(itemId) : selection.ids.has(itemId);
+  };
+
   const toggleSelection = (item: DuplicateItem) => {
-    setSelectedItems((current) => {
-      const next = new Set(current);
-      if (next.has(item.id)) {
-        next.delete(item.id);
-      } else {
-        next.add(item.id);
+    if (!removableIds.has(item.id)) {
+      return;
+    }
+
+    setSelection((current) => {
+      if (current.mode === "all") {
+        const excludedIds = new Set(current.excludedIds);
+        if (excludedIds.has(item.id)) {
+          excludedIds.delete(item.id);
+        } else {
+          excludedIds.add(item.id);
+        }
+        return { mode: "all", excludedIds };
       }
-      return next;
+
+      const ids = new Set(current.ids);
+      if (ids.has(item.id)) {
+        ids.delete(item.id);
+      } else {
+        ids.add(item.id);
+      }
+      return { mode: "manual", ids };
     });
   };
 
   const selectAllDuplicates = () => {
-    setSelectedItems(new Set(removableItems.map((item) => item.id)));
+    setSelection({ mode: "all", excludedIds: new Set() });
   };
 
   const clearSelection = () => {
-    setSelectedItems(new Set());
+    setSelection({ mode: "manual", ids: new Set() });
   };
 
   const removeSelected = async (deleteFile: boolean, all: boolean = false) => {
-    const itemIds = all ? removableItems.map((item) => item.id) : [...selectedItems];
+    const itemIds = all
+      ? removableItems.map((item) => item.id)
+      : selection.mode === "all"
+        ? removableItems.filter((item) => !selection.excludedIds.has(item.id)).map((item) => item.id)
+        : [...selection.ids];
     if (itemIds.length === 0) {
       addStatusMessage("No duplicate rows selected");
       return;
     }
 
     setBusy(deleteFile ? "bulk-delete" : "bulk-remove");
+    setBulkProgress(`Preparing ${itemIds.length} duplicate rows`);
     try {
-      const result = await invoke<{ removed: number; missing: number }>("remove_duplicates", { itemIds, deleteFile });
+      let removed = 0;
+      let missing = 0;
+      for (let index = 0; index < itemIds.length; index += BULK_DELETE_BATCH_SIZE) {
+        const batch = itemIds.slice(index, index + BULK_DELETE_BATCH_SIZE);
+        setBulkProgress(`Cleaning ${Math.min(index + batch.length, itemIds.length)} of ${itemIds.length}`);
+        const result = await invoke<{ removed: number; missing: number }>("remove_duplicates", { itemIds: batch, deleteFile });
+        removed += result.removed;
+        missing += result.missing;
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      }
       await loadGroups();
       clearSelection();
       const action = deleteFile ? "deleted from disk and library" : "removed from library";
-      addStatusMessage(`Duplicate cleanup complete: ${result.removed} ${action}${result.missing ? `, ${result.missing} already gone` : ""}`);
+      addStatusMessage(`Duplicate cleanup complete: ${removed} ${action}${missing ? `, ${missing} already gone` : ""}`);
     } catch (e) {
       addStatusMessage(`Duplicate removal failed: ${e}`);
     } finally {
+      setBulkProgress(null);
       setBusy(null);
     }
   };
@@ -169,36 +223,36 @@ export default function DuplicateToolsTab() {
         {groups.length > 0 && (
           <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between gap-3 flex-wrap">
             <div className="text-xs text-cv-subtext">
-              {selectedCount} selected · {removableItems.length} removable duplicates
+              {bulkProgress || `${selectedCount} selected · ${removableItems.length} removable duplicates`}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={selectAllDuplicates}
-                disabled={removableItems.length === 0 || allRemovableSelected}
+                disabled={removableItems.length === 0 || allRemovableSelected || bulkBusy}
                 className="cv-btn cv-btn-secondary text-xs"
               >
                 <CheckSquare size={13} /> Select All
               </button>
-              <button onClick={clearSelection} disabled={selectedCount === 0} className="cv-btn cv-btn-secondary text-xs">
+              <button onClick={clearSelection} disabled={selectedCount === 0 || bulkBusy} className="cv-btn cv-btn-secondary text-xs">
                 <X size={13} /> Clear
               </button>
               <button
                 onClick={() => void removeSelected(false)}
-                disabled={selectedCount === 0 || busy === "bulk-remove" || busy === "bulk-delete"}
+                disabled={selectedCount === 0 || bulkBusy}
                 className="cv-btn cv-btn-secondary text-xs"
               >
                 <Trash2 size={13} /> Remove Selected Rows
               </button>
               <button
                 onClick={() => void removeSelected(true)}
-                disabled={selectedCount === 0 || busy === "bulk-remove" || busy === "bulk-delete"}
+                disabled={selectedCount === 0 || bulkBusy}
                 className="cv-btn cv-btn-danger text-xs"
               >
                 <Trash2 size={13} /> Delete Selected Files
               </button>
               <button
                 onClick={() => void removeSelected(true, true)}
-                disabled={removableItems.length === 0 || busy === "bulk-remove" || busy === "bulk-delete"}
+                disabled={removableItems.length === 0 || bulkBusy}
                 className="cv-btn cv-btn-danger text-xs"
               >
                 <Trash2 size={13} /> Delete All
@@ -233,7 +287,7 @@ export default function DuplicateToolsTab() {
                         title={index === 0 ? "Keep copy" : "Select duplicate"}
                         className="mt-0.5 text-cv-subtext hover:text-cv-text disabled:opacity-40 disabled:hover:text-cv-subtext"
                       >
-                        {selectedItems.has(item.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                        {isItemSelected(item.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                       </button>
                       <div className="min-w-0">
                         <div className="text-sm font-semibold truncate">{item.title || "Untitled media"}</div>

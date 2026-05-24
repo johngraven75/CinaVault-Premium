@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::Read;
 use tauri::State;
 
+const DUPLICATE_BULK_BATCH_LIMIT: usize = 100;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DuplicateGroup {
     pub id: i64,
@@ -141,10 +143,18 @@ pub async fn find_duplicates(
 #[tauri::command]
 pub fn get_duplicate_groups(state: State<AppState>) -> Result<Vec<DuplicateGroup>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    cleanup_stale_duplicate_groups(&db.conn)?;
 
     let mut group_stmt = db
         .conn
-        .prepare("SELECT id, group_hash FROM duplicate_groups ORDER BY id")
+        .prepare(
+            "SELECT dg.id, dg.group_hash
+             FROM duplicate_groups dg
+             JOIN duplicate_items di ON di.group_id = dg.id
+             GROUP BY dg.id, dg.group_hash
+             HAVING COUNT(di.id) > 1
+             ORDER BY dg.id",
+        )
         .map_err(|e| e.to_string())?;
 
     let groups: Vec<(i64, String)> = group_stmt
@@ -205,6 +215,12 @@ pub fn remove_duplicates(
     item_ids: Vec<i64>,
     delete_file: bool,
 ) -> Result<serde_json::Value, String> {
+    if item_ids.len() > DUPLICATE_BULK_BATCH_LIMIT {
+        return Err(format!(
+            "Duplicate cleanup is limited to {DUPLICATE_BULK_BATCH_LIMIT} rows per batch"
+        ));
+    }
+
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut removed = 0usize;
     let mut missing = 0usize;
@@ -220,6 +236,7 @@ pub fn remove_duplicates(
         "removed": removed,
         "missing": missing,
         "delete_file": delete_file,
+        "batch_limit": DUPLICATE_BULK_BATCH_LIMIT,
     }))
 }
 
@@ -289,6 +306,30 @@ fn prune_duplicate_group(conn: &Connection, group_id: i64) -> Result<(), String>
     Ok(())
 }
 
+fn cleanup_stale_duplicate_groups(conn: &Connection) -> Result<usize, String> {
+    let duplicate_items_removed = conn
+        .execute(
+            "DELETE FROM duplicate_items
+             WHERE group_id IN (
+                 SELECT group_id
+                 FROM duplicate_items
+                 GROUP BY group_id
+                 HAVING COUNT(*) <= 1
+             )",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    let groups_removed = conn
+        .execute(
+            "DELETE FROM duplicate_groups
+             WHERE id NOT IN (SELECT DISTINCT group_id FROM duplicate_items)",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(duplicate_items_removed + groups_removed)
+}
+
 fn partial_hash(path: &str) -> Result<String, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut buffer = vec![0u8; 1_048_576]; // 1MB
@@ -300,7 +341,7 @@ fn partial_hash(path: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::remove_duplicate_item_data;
+    use super::{cleanup_stale_duplicate_groups, remove_duplicate_item_data};
     use crate::db::{Database, MediaItem};
     use rusqlite::params;
     use std::fs;
@@ -423,6 +464,54 @@ mod tests {
             remaining_duplicate_items, 0,
             "singleton duplicate item should be pruned"
         );
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn stale_singleton_duplicate_groups_are_pruned() {
+        let db_path = test_db_path("stale-singleton-prune");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let keep = sample_item("Movie", r"C:\media\movie-a.mkv", 100);
+        let keep_id = db
+            .add_media_item_data(&keep)
+            .expect("keep insert should succeed");
+        db.conn
+            .execute(
+                "INSERT INTO duplicate_groups (group_hash, created_at) VALUES ('stale', 'now')",
+                [],
+            )
+            .expect("group insert should succeed");
+        let group_id = db.conn.last_insert_rowid();
+        db.conn
+            .execute(
+                "INSERT INTO duplicate_items (group_id, media_id, file_path, file_size) VALUES (?1, ?2, ?3, 100)",
+                params![group_id, keep_id, keep.file_path],
+            )
+            .expect("duplicate insert should succeed");
+
+        let removed = cleanup_stale_duplicate_groups(&db.conn).expect("cleanup should succeed");
+        assert_eq!(
+            removed, 2,
+            "one singleton item and its group should be removed"
+        );
+
+        let remaining_groups = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM duplicate_groups", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("group count should load");
+        let remaining_duplicate_items = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM duplicate_items", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("duplicate item count should load");
+        assert_eq!(remaining_groups, 0);
+        assert_eq!(remaining_duplicate_items, 0);
 
         drop(db);
         let _ = fs::remove_file(db_path);

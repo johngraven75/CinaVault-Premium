@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 128)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 129)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -61,7 +61,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 128 initialized successfully");
+            log::info!("CinaVault Premium Build 129 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -371,8 +371,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
-        "version": "1.0.0-16",
-        "build_tag": "Build 128 Duplicate Removal Fix (Premium Edition)",
+        "version": "1.0.0-17",
+        "build_tag": "Build 129 Duplicate Bulk Stability (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
