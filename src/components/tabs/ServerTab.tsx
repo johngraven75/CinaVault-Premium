@@ -53,6 +53,9 @@ export default function ServerTab() {
     try {
       const result = await invoke<any>("start_server", { serverType });
       addStatusMessage(`Server ${result.status}: ${result.path}`);
+      if (Array.isArray(result.preparation) && result.preparation.length > 0) {
+        result.preparation.forEach((message: string) => addStatusMessage(message));
+      }
       setTimeout(checkServer, 3000);
     } catch (e) { addStatusMessage(`Start failed: ${e}`); }
   };

@@ -19,6 +19,9 @@ import {
   Copy,
   RotateCw,
   Power,
+  BookOpen,
+  ServerCog,
+  BadgeCheck,
 } from "lucide-react";
 
 type SecureMode = "required" | "preferred" | "disabled";
@@ -59,6 +62,25 @@ const secureOptions: { value: SecureMode; label: string; desc: string }[] = [
   { value: "required", label: "Required", desc: "Only encrypted remote connections are allowed." },
   { value: "preferred", label: "Preferred", desc: "Use secure remote connections when possible." },
   { value: "disabled", label: "Disabled", desc: "Allow insecure remote connections." },
+];
+
+const connectionSteps = [
+  {
+    title: "Server address",
+    body: "Enter the CinaVault media server URL exactly as issued, including http or https and the port when one is provided.",
+  },
+  {
+    title: "User ID and password",
+    body: "Use the assigned user ID or email with the password from the server owner. Password login proves the account is active.",
+  },
+  {
+    title: "Access token",
+    body: "Paste the issued token or access key when a client asks for API key, token, or key access. Tokens can be rotated by the server owner.",
+  },
+  {
+    title: "Confirm access",
+    body: "Run an access check, then open the remote library. If login works but media does not load, verify the server URL and public port.",
+  },
 ];
 
 export function isRemoteAccessConfigurationValid(
@@ -341,6 +363,37 @@ export default function RemoteAccessTab() {
               Last accepted: {lastPrincipal ? `${lastPrincipal.email} via ${lastPrincipal.auth_method}` : "None"}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="glass-panel p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="text-sm font-bold flex items-center gap-2">
+            <BookOpen size={16} className="text-cv-accent" /> How to Connect to a Remote Server
+          </h3>
+          <div className="text-[11px] text-cv-subtext flex items-center gap-1">
+            <ServerCog size={12} />
+            ID, password, and token access
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          {connectionSteps.map((step, index) => (
+            <div key={step.title} className="rounded-lg border border-white/10 bg-white/[0.02] p-4 min-h-[148px]">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-7 h-7 rounded-lg bg-cv-accent/15 text-cv-accent flex items-center justify-center text-xs font-bold">
+                  {index + 1}
+                </div>
+                <div className="text-sm font-semibold">{step.title}</div>
+              </div>
+              <p className="text-xs text-cv-subtext leading-relaxed">{step.body}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 rounded-lg border border-green-500/20 bg-green-500/10 p-3 text-xs text-cv-subtext flex items-start gap-2">
+          <BadgeCheck size={14} className="text-green-400 mt-0.5 shrink-0" />
+          <span>
+            Keep all three issued values together: server URL, user ID/password, and token. The token is for trusted clients and should be replaced if it is shared by mistake.
+          </span>
         </div>
       </div>
 

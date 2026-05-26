@@ -7,7 +7,6 @@ import "./styles/index.css";
 const splash = document.getElementById("splash");
 const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
 const splashStatus = document.getElementById("splash-status") as HTMLDivElement;
-const brandSplash = document.getElementById("brand-splash") as HTMLDivElement;
 
 const stages = [
   { pct: 15, text: "Loading core engine..." },
@@ -29,16 +28,7 @@ const advanceSplash = () => {
   } else {
     setTimeout(() => {
       if (splash) splash.classList.add("hidden");
-      setTimeout(() => {
-        splash?.remove();
-        if (brandSplash) {
-          brandSplash.classList.add("visible");
-          setTimeout(() => {
-            brandSplash.classList.remove("visible");
-            setTimeout(() => brandSplash.remove(), 700);
-          }, 1900);
-        }
-      }, 760);
+      setTimeout(() => splash?.remove(), 760);
     }, 260);
   }
 };

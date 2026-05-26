@@ -26,9 +26,48 @@
       #splash.hidden { opacity: 0; pointer-events: none; }
       #splash h1 {
         font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 2.7rem;
-        background: linear-gradient(135deg, #46f6ff, #00d4ff, #ff4d6d);
+        background: linear-gradient(135deg, #ffffff, #8ff5ff 44%, #19d7ff 100%);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        margin-bottom: 2rem; letter-spacing: -0.02em;
+        margin: 1rem 0 2rem; letter-spacing: -0.02em;
+        text-shadow: 0 0 24px rgba(60, 220, 255, 0.32);
+      }
+      #splash-logo-wrap {
+        position: relative;
+        width: min(86vw, 980px);
+        aspect-ratio: 3 / 2;
+        display: grid;
+        place-items: center;
+        isolation: isolate;
+        animation: splashFloat 3.2s ease-in-out infinite;
+      }
+      #splash-logo-wrap::before {
+        content: "";
+        position: absolute;
+        inset: 8% 4% 2%;
+        z-index: -1;
+        background:
+          radial-gradient(circle at 30% 48%, rgba(108, 229, 255, 0.45), transparent 38%),
+          radial-gradient(circle at 70% 48%, rgba(40, 150, 255, 0.32), transparent 46%);
+        filter: blur(30px);
+        animation: splashPulse 2.4s ease-in-out infinite;
+      }
+      #splash-logo-wrap::after {
+        content: "";
+        position: absolute;
+        left: 7%;
+        right: 7%;
+        bottom: 5%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(154, 243, 255, 0.9), transparent);
+        box-shadow: 0 0 24px rgba(79, 207, 255, 0.92);
+      }
+      #splash-logo {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        filter:
+          drop-shadow(0 26px 38px rgba(0, 8, 22, 0.78))
+          drop-shadow(0 0 22px rgba(43, 198, 255, 0.35));
       }
       #splash-bar-track {
         width: 320px; height: 4px; background: rgba(255,255,255,0.1);
@@ -43,38 +82,23 @@
         color: rgba(255,255,255,0.4); font-size: 0.75rem;
         margin-top: 1rem; font-family: 'JetBrains Mono', monospace;
       }
-      #brand-splash {
-        position: fixed; inset: 0; z-index: 9998;
-        display: flex; align-items: center; justify-content: center;
-        background:
-          radial-gradient(circle at 16% 22%, rgba(74, 180, 255, 0.34), transparent 46%),
-          radial-gradient(circle at 86% 20%, rgba(255, 133, 30, 0.3), transparent 48%),
-          linear-gradient(140deg, #03101e 0%, #102035 50%, #261107 100%);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.7s ease-out;
+      @keyframes splashFloat {
+        0%, 100% { transform: translateY(0) scale(1); }
+        50% { transform: translateY(-8px) scale(1.012); }
       }
-      #brand-splash.visible {
-        opacity: 1;
-        pointer-events: auto;
-      }
-      #brand-splash img {
-        width: min(78vw, 920px);
-        max-height: 76vh;
-        object-fit: contain;
-        filter: drop-shadow(0 22px 42px rgba(0, 0, 0, 0.55));
-        border-radius: 10px;
+      @keyframes splashPulse {
+        0%, 100% { opacity: 0.68; transform: scale(0.98); }
+        50% { opacity: 1; transform: scale(1.04); }
       }
     </style>
   </head>
   <body>
     <div id="splash">
-      <h1>CinaVault Premium</h1>
+      <div id="splash-logo-wrap">
+        <img id="splash-logo" src="/branding/cinavault-premium-brand-full.png" alt="CineVault Media Server Pro Edition" />
+      </div>
       <div id="splash-bar-track"><div id="splash-bar"></div></div>
       <div id="splash-status">Initializing systems...</div>
-    </div>
-    <div id="brand-splash" aria-hidden="true">
-      <img src="/branding/cinavault-premium-brand-full.png" alt="CinaVault Premium Media Server branding" />
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

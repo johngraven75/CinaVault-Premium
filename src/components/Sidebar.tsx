@@ -43,9 +43,9 @@ export default function Sidebar() {
       {/* Logo / Brand */}
       <div className="h-20 flex items-center px-3 gap-3 border-b border-white/5 shrink-0 overflow-hidden">
         <img
-          src="/branding/cinavault-premium-mark.png"
+          src="/branding/cinavault-premium-brand-full.png"
           alt="CinaVault Premium"
-          className="w-12 h-12 rounded-xl object-cover border border-white/10 shadow-[0_10px_22px_rgba(0,0,0,0.45)] shrink-0"
+          className="w-12 h-12 rounded-xl object-contain border border-white/10 bg-black/20 shadow-[0_10px_22px_rgba(0,0,0,0.45)] shrink-0"
         />
         {!sidebarCollapsed && (
           <motion.div

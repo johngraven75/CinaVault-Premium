@@ -1,7 +1,11 @@
 // CinaVault Premium — Jellyfin/Emby Server Management
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,6 +24,8 @@ pub async fn start_server(server_type: String) -> Result<serde_json::Value, Stri
         "emby" => "EmbyServer.exe",
         _ => return Err("Unknown server type".into()),
     };
+
+    let preparation = prepare_server_startup_config(&server_type);
 
     // Try common install paths
     let paths = vec![
@@ -49,6 +55,7 @@ pub async fn start_server(server_type: String) -> Result<serde_json::Value, Stri
                 "status": "started",
                 "server": server_type,
                 "path": exe_path,
+                "preparation": preparation,
             }));
         }
     }
@@ -57,6 +64,215 @@ pub async fn start_server(server_type: String) -> Result<serde_json::Value, Stri
         "{} server executable not found in standard paths",
         server_type
     ))
+}
+
+fn prepare_server_startup_config(server_type: &str) -> Vec<String> {
+    let mut actions = Vec::new();
+    for root in server_data_roots(server_type) {
+        if let Some(action) = patch_network_config(&root) {
+            actions.push(action);
+        }
+        actions.extend(disable_heavy_startup_tasks(&root));
+    }
+    actions
+}
+
+fn server_data_roots(server_type: &str) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut push_existing = |path: PathBuf| {
+        if path.exists() && !roots.iter().any(|root| root == &path) {
+            roots.push(path);
+        }
+    };
+
+    match server_type {
+        "jellyfin" => {
+            if let Some(local) = env::var_os("LOCALAPPDATA") {
+                push_existing(PathBuf::from(local).join("jellyfin"));
+            }
+            if let Some(program_data) = env::var_os("PROGRAMDATA") {
+                push_existing(PathBuf::from(program_data).join("Jellyfin").join("Server"));
+            }
+        }
+        "emby" => {
+            if let Some(app_data) = env::var_os("APPDATA") {
+                let app_data = PathBuf::from(app_data);
+                push_existing(app_data.join("Emby-Server").join("programdata"));
+                push_existing(app_data.join("Emby-Server"));
+            }
+            if let Some(local) = env::var_os("LOCALAPPDATA") {
+                push_existing(PathBuf::from(local).join("Emby-Server"));
+            }
+            if let Some(program_data) = env::var_os("PROGRAMDATA") {
+                push_existing(PathBuf::from(program_data).join("Emby-Server"));
+            }
+        }
+        _ => {}
+    }
+
+    roots
+}
+
+fn patch_network_config(root: &Path) -> Option<String> {
+    let path = root.join("config").join("network.xml");
+    let original = fs::read_to_string(&path).ok()?;
+    let mut updated = original.clone();
+    updated = set_xml_bool(&updated, "AutoDiscovery", false);
+    updated = set_xml_bool(&updated, "EnableUPnP", false);
+
+    if updated == original {
+        return None;
+    }
+
+    if let Err(error) = backup_once(&path).and_then(|_| fs::write(&path, updated.as_bytes())) {
+        return Some(format!(
+            "Could not update network discovery settings at {}: {}",
+            path.display(),
+            error
+        ));
+    }
+
+    Some(format!(
+        "Disabled server auto discovery/UPnP at {}",
+        path.display()
+    ))
+}
+
+fn set_xml_bool(content: &str, tag: &str, value: bool) -> String {
+    let desired = if value { "true" } else { "false" };
+    content
+        .replace(
+            &format!("<{}>true</{}>", tag, tag),
+            &format!("<{}>{}</{}>", tag, desired, tag),
+        )
+        .replace(
+            &format!("<{}>True</{}>", tag, tag),
+            &format!("<{}>{}</{}>", tag, desired, tag),
+        )
+}
+
+fn disable_heavy_startup_tasks(root: &Path) -> Vec<String> {
+    let mut actions = Vec::new();
+    let data_dir = root.join("data").join("ScheduledTasks");
+    let config_dir = root.join("config").join("ScheduledTasks");
+    if !data_dir.exists() || !config_dir.exists() {
+        return actions;
+    }
+
+    let heavy_task_keys = ["RefreshPeople", "RefreshTrickplayImages"];
+    let Ok(entries) = fs::read_dir(&data_dir) else {
+        return actions;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let key = value.get("Key").and_then(|v| v.as_str()).unwrap_or("");
+        if !heavy_task_keys.contains(&key) {
+            continue;
+        }
+        let Some(id) = value.get("Id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if let Some(config_path) = find_scheduled_task_config(&config_dir, id) {
+            if let Some(action) = remove_startup_trigger_from_task(&config_path, key) {
+                actions.push(action);
+            }
+        }
+    }
+
+    actions
+}
+
+fn find_scheduled_task_config(config_dir: &Path, id: &str) -> Option<PathBuf> {
+    let normalized_id = id.replace('-', "");
+    let entries = fs::read_dir(config_dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let stem = path.file_stem()?.to_string_lossy().replace('-', "");
+        if stem.eq_ignore_ascii_case(&normalized_id) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn remove_startup_trigger_from_task(path: &Path, task_key: &str) -> Option<String> {
+    let original = fs::read_to_string(path).ok()?;
+    let updated = remove_startup_trigger_json(&original)?;
+    if updated == original {
+        return None;
+    }
+
+    if let Err(error) = backup_once(path).and_then(|_| fs::write(path, updated.as_bytes())) {
+        return Some(format!(
+            "Could not update {} startup trigger at {}: {}",
+            task_key,
+            path.display(),
+            error
+        ));
+    }
+
+    Some(format!(
+        "Removed startup trigger for {} at {}",
+        task_key,
+        path.display()
+    ))
+}
+
+fn remove_startup_trigger_json(raw: &str) -> Option<String> {
+    let mut triggers = serde_json::from_str::<Vec<serde_json::Value>>(raw).ok()?;
+    let before = triggers.len();
+    triggers.retain(|trigger| {
+        trigger
+            .get("Type")
+            .and_then(|value| value.as_str())
+            .map(|kind| kind != "StartupTrigger")
+            .unwrap_or(true)
+    });
+    if triggers.len() == before {
+        return Some(raw.to_string());
+    }
+    serde_json::to_string(&triggers).ok()
+}
+
+fn backup_once(path: &Path) -> std::io::Result<()> {
+    let file_name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "config".to_string());
+    let backup = path.with_file_name(format!("{}.cinavault.bak", file_name));
+    if !backup.exists() {
+        fs::copy(path, backup)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{remove_startup_trigger_json, set_xml_bool};
+
+    #[test]
+    fn disables_xml_boolean_settings() {
+        let xml = "<NetworkConfiguration><AutoDiscovery>true</AutoDiscovery><EnableUPnP>True</EnableUPnP></NetworkConfiguration>";
+        let xml = set_xml_bool(xml, "AutoDiscovery", false);
+        let xml = set_xml_bool(&xml, "EnableUPnP", false);
+        assert!(xml.contains("<AutoDiscovery>false</AutoDiscovery>"));
+        assert!(xml.contains("<EnableUPnP>false</EnableUPnP>"));
+    }
+
+    #[test]
+    fn removes_only_startup_trigger_from_task_json() {
+        let raw = r#"[{"Type":"IntervalTrigger","IntervalTicks":6048000000000},{"Type":"StartupTrigger"}]"#;
+        let updated = remove_startup_trigger_json(raw).expect("task json should parse");
+        assert!(!updated.contains("StartupTrigger"));
+        assert!(updated.contains("IntervalTrigger"));
+    }
 }
 
 #[tauri::command]
