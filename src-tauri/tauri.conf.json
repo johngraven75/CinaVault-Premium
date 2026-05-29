@@ -49,6 +49,9 @@
         "installMode": "both",
         "displayLanguageSelector": false
       }
+    },
+    "iOS": {
+      "bundleVersion": "130"
     }
   },
   "plugins": {

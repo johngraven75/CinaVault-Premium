@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 function read(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+}
+
+function readBackendEntry() {
+  const libUrl = new URL("../src-tauri/src/lib.rs", import.meta.url);
+  return existsSync(libUrl) ? read("src-tauri/src/lib.rs") : read("src-tauri/src/main.rs");
 }
 
 test("duplicate finder and deleter stay visible in the app shell", () => {
@@ -51,7 +56,7 @@ test("WD MyCloud remains a visible media-source path", () => {
 test("metadata provider tab exposes API key save and test controls", () => {
   const pluginsTab = read("src/components/tabs/PluginsTab.tsx");
   const metadata = read("src-tauri/src/metadata.rs");
-  const main = read("src-tauri/src/main.rs");
+  const backend = readBackendEntry();
 
   assert.match(pluginsTab, /get_api_keys/);
   assert.match(pluginsTab, /set_api_key/);
@@ -60,9 +65,9 @@ test("metadata provider tab exposes API key save and test controls", () => {
   assert.match(metadata, /pub fn set_api_key/);
   assert.match(metadata, /pub fn get_api_keys/);
   assert.match(metadata, /pub async fn test_api_key/);
-  assert.match(main, /metadata::set_api_key/);
-  assert.match(main, /metadata::get_api_keys/);
-  assert.match(main, /metadata::test_api_key/);
+  assert.match(backend, /metadata::set_api_key/);
+  assert.match(backend, /metadata::get_api_keys/);
+  assert.match(backend, /metadata::test_api_key/);
 });
 
 test("PhoenixAdult remains an active local adult metadata provider", () => {
@@ -120,15 +125,15 @@ test("all adult metadata providers are enabled by default", () => {
 });
 
 test("built-in VPN and antivirus controls are real command surfaces", () => {
-  const main = read("src-tauri/src/main.rs");
+  const backend = readBackendEntry();
   const vpnb = read("src-tauri/src/vpnb.rs");
   const avb = read("src-tauri/src/avb.rs");
   const security = read("src/components/tabs/SecurityTab.tsx");
 
-  assert.match(main, /vpnb::vpnb_status/);
-  assert.match(main, /vpnb::vpnb_connect/);
-  assert.match(main, /avb::avb_status/);
-  assert.match(main, /avb::avb_scan_path/);
+  assert.match(backend, /vpnb::vpnb_status/);
+  assert.match(backend, /vpnb::vpnb_connect/);
+  assert.match(backend, /avb::avb_status/);
+  assert.match(backend, /avb::avb_scan_path/);
   assert.match(vpnb, /wireguard\.exe/);
   assert.match(vpnb, /wg-quick/);
   assert.match(avb, /Start-MpScan/);
@@ -140,14 +145,14 @@ test("built-in VPN and antivirus controls are real command surfaces", () => {
 test("each media card exposes an isolated one-item metadata check action", () => {
   const homeTab = read("src/components/tabs/HomeTab.tsx");
   const ai = read("src-tauri/src/ai.rs");
-  const main = read("src-tauri/src/main.rs");
+  const backend = readBackendEntry();
 
   assert.match(homeTab, /onCheckMetadata/);
   assert.match(homeTab, /check_media_item_metadata/);
   assert.match(homeTab, /Check metadata/);
   assert.match(homeTab, /stopPropagation/);
   assert.match(ai, /pub async fn check_media_item_metadata/);
-  assert.match(main, /ai::check_media_item_metadata/);
+  assert.match(backend, /ai::check_media_item_metadata/);
 });
 
 test("local poster files are renderable through the Tauri asset protocol", () => {
