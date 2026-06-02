@@ -12,6 +12,15 @@ export default defineConfig({
   build: {
     target: "esnext",
     minify: "esbuild",
-    sourcemap: false,
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom", "framer-motion"],
+          ui: ["lucide-react"],
+          tauri: ["@tauri-apps/api"],
+        },
+      },
+    },
   },
 });
