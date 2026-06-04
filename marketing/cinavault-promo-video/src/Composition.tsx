@@ -11,163 +11,195 @@ import {
 } from "remotion";
 import { scenes, type PromoScene } from "./timeline";
 
-const colors = {
-  ink: "#07111f",
-  panel: "#0d2030",
-  cyan: "#38d4ff",
-  aqua: "#1cae9d",
-  red: "#ff4936",
-  amber: "#f4a84f",
-  text: "#f6fbff",
-  muted: "#aebbc8",
+const C = {
+  black: "#030711",
+  deep: "#07121f",
+  glass: "rgba(8, 20, 34, 0.76)",
+  cyan: "#34dbff",
+  blue: "#2368ff",
+  red: "#ff3b30",
+  amber: "#ffb24b",
+  green: "#3df2ad",
+  white: "#f8fbff",
+  muted: "#a8b7c8",
 };
 
-const ease = (frame: number, start: number, end: number) =>
-  interpolate(frame, [start, end], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+const clamp = {
+  extrapolateLeft: "clamp" as const,
+  extrapolateRight: "clamp" as const,
+};
 
 const sceneFrames = (scene: PromoScene) => ({
   from: Math.round(scene.start * 30),
   duration: Math.round((scene.end - scene.start) * 30),
 });
 
-const Shell: React.FC<{ children: React.ReactNode; scene: PromoScene }> = ({
-  children,
-  scene,
-}) => {
-  const frame = useCurrentFrame();
-  const duration = sceneFrames(scene).duration;
-  const fadeIn = ease(frame, 0, 14);
-  const fadeOut = 1 - ease(frame, duration - 14, duration);
-  const opacity = Math.min(fadeIn, fadeOut);
-
-  return (
-    <AbsoluteFill style={{ opacity, backgroundColor: colors.ink }}>
-      <Backdrop />
-      <Spotlight />
-      {children}
-      <KnowledgeRail scene={scene} />
-      <LowerThird scene={scene} />
-    </AbsoluteFill>
+const fade = (frame: number, duration: number) =>
+  Math.min(
+    interpolate(frame, [0, 18], [0, 1], clamp),
+    1 - interpolate(frame, [duration - 18, duration], [0, 1], clamp),
   );
-};
 
-const Backdrop: React.FC = () => {
+const BrandBug = () => (
+  <div
+    style={{
+      position: "absolute",
+      top: 52,
+      left: 62,
+      display: "flex",
+      alignItems: "center",
+      gap: 18,
+      zIndex: 10,
+    }}
+  >
+    <Img
+      src={staticFile("assets/cinavault-premium-mark.png")}
+      style={{ width: 82, height: 82, filter: "drop-shadow(0 0 22px #ff3b30)" }}
+    />
+    <div>
+      <div style={{ color: C.white, fontSize: 31, fontWeight: 950 }}>CinaVault</div>
+      <div style={{ color: C.red, fontSize: 15, fontWeight: 950 }}>
+        PREMIUM MEDIA SERVER
+      </div>
+    </div>
+  </div>
+);
+
+const CinematicBackdrop = () => {
   const frame = useCurrentFrame();
-  const drift = frame * 0.18;
+  const drift = frame * 0.45;
+  const sweep = interpolate(Math.sin(frame / 42), [-1, 1], [-240, 1580]);
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={{ backgroundColor: C.black, overflow: "hidden" }}>
       <div
         style={{
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(118deg, #07111f 0%, #102235 36%, #113b40 62%, #32160e 100%)",
+            "radial-gradient(circle at 18% 24%, rgba(255,59,48,0.42), transparent 28%), radial-gradient(circle at 78% 22%, rgba(52,219,255,0.34), transparent 26%), radial-gradient(circle at 56% 78%, rgba(61,242,173,0.22), transparent 32%), linear-gradient(128deg, #030711 0%, #07121f 38%, #102d38 66%, #240e12 100%)",
         }}
       />
       <div
         style={{
           position: "absolute",
           inset: 0,
-          opacity: 0.35,
+          opacity: 0.34,
           backgroundImage:
-            "linear-gradient(90deg, rgba(56,212,255,0.16) 1px, transparent 1px), linear-gradient(0deg, rgba(255,255,255,0.10) 1px, transparent 1px)",
-          backgroundSize: "72px 72px",
+            "linear-gradient(90deg, rgba(52,219,255,0.22) 1px, transparent 1px), linear-gradient(0deg, rgba(255,255,255,0.10) 1px, transparent 1px)",
+          backgroundSize: "64px 64px",
           transform: `translateY(${-drift}px)`,
         }}
       />
+      {Array.from({ length: 46 }).map((_, i) => {
+        const x = (i * 97 + frame * (0.7 + (i % 5) * 0.1)) % 1920;
+        const y = (i * 53 + frame * (0.24 + (i % 3) * 0.08)) % 1080;
+        const size = 3 + (i % 5);
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: x,
+              top: y,
+              width: size,
+              height: size,
+              backgroundColor: i % 3 === 0 ? C.amber : i % 3 === 1 ? C.cyan : C.green,
+              boxShadow: "0 0 18px currentColor",
+              opacity: 0.42,
+            }}
+          />
+        );
+      })}
       <div
         style={{
           position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: 170,
+          top: -260,
+          left: sweep,
+          width: 360,
+          height: 1600,
+          transform: "rotate(21deg)",
           background:
-            "linear-gradient(0deg, rgba(7,17,31,0.96), rgba(7,17,31,0))",
+            "linear-gradient(90deg, transparent, rgba(255,255,255,0.24), rgba(52,219,255,0.28), transparent)",
+          opacity: 0.52,
         }}
       />
       <div
         style={{
           position: "absolute",
           inset: 0,
-          opacity: 0.08,
-          backgroundImage:
-            "repeating-linear-gradient(0deg, #ffffff 0px, #ffffff 1px, transparent 1px, transparent 7px)",
+          background:
+            "linear-gradient(180deg, rgba(3,7,17,0.22), transparent 42%, rgba(3,7,17,0.88))",
         }}
       />
     </AbsoluteFill>
   );
 };
 
-const Spotlight: React.FC = () => {
+const SceneShell: React.FC<{ scene: PromoScene; children: React.ReactNode }> = ({
+  scene,
+  children,
+}) => {
   const frame = useCurrentFrame();
-  const x = interpolate(Math.sin(frame / 28), [-1, 1], [8, 72]);
+  const duration = sceneFrames(scene).duration;
   return (
-    <div
-      style={{
-        position: "absolute",
-        left: `${x}%`,
-        top: "-18%",
-        width: 560,
-        height: 1420,
-        opacity: 0.28,
-        transform: `rotate(${18 + Math.sin(frame / 40) * 5}deg)`,
-        background:
-          "linear-gradient(90deg, rgba(56,212,255,0), rgba(56,212,255,0.32), rgba(244,168,79,0))",
-      }}
-    />
+    <AbsoluteFill style={{ opacity: fade(frame, duration), backgroundColor: C.black }}>
+      <CinematicBackdrop />
+      <BrandBug />
+      {children}
+      <KnowledgePanel scene={scene} />
+      <Caption scene={scene} />
+      <TitleBlock scene={scene} />
+    </AbsoluteFill>
   );
 };
 
-const LowerThird: React.FC<{ scene: PromoScene }> = ({ scene }) => {
+const TitleBlock = ({ scene }: { scene: PromoScene }) => {
   const frame = useCurrentFrame();
   const enter = spring({
     frame,
     fps: 30,
-    config: { damping: 24, stiffness: 140 },
+    config: { damping: 22, stiffness: 135 },
   });
   return (
     <div
       style={{
         position: "absolute",
-        left: 82,
-        bottom: 74,
-        width: 940,
-        transform: `translateY(${(1 - enter) * 28}px)`,
+        left: 76,
+        bottom: 150,
+        width: 1020,
+        transform: `translateY(${(1 - enter) * 42}px)`,
       }}
     >
       <div
         style={{
-          color: colors.amber,
+          color: C.amber,
           fontSize: 24,
-          fontWeight: 800,
-          marginBottom: 14,
+          fontWeight: 950,
+          marginBottom: 16,
+          letterSpacing: 0,
         }}
       >
-        {scene.id.replace("-", " ").toUpperCase()}
+        {scene.kicker}
       </div>
       <div
         style={{
-          color: colors.text,
-          fontSize: 58,
-          fontWeight: 900,
-          lineHeight: 1.02,
-          maxWidth: 980,
+          color: C.white,
+          fontSize: 72,
+          fontWeight: 1000,
+          lineHeight: 1,
+          textShadow: "0 0 24px rgba(52,219,255,0.26)",
         }}
       >
         {scene.title}
       </div>
       <div
         style={{
-          color: colors.muted,
-          fontSize: 27,
-          fontWeight: 600,
-          marginTop: 16,
+          color: C.muted,
+          fontSize: 30,
+          fontWeight: 700,
+          lineHeight: 1.25,
+          marginTop: 18,
           maxWidth: 900,
-          lineHeight: 1.28,
         }}
       >
         {scene.subtitle}
@@ -176,52 +208,51 @@ const LowerThird: React.FC<{ scene: PromoScene }> = ({ scene }) => {
   );
 };
 
-const KnowledgeRail: React.FC<{ scene: PromoScene }> = ({ scene }) => {
+const KnowledgePanel = ({ scene }: { scene: PromoScene }) => {
   const frame = useCurrentFrame();
   return (
     <div
       style={{
         position: "absolute",
-        right: 74,
-        top: 62,
-        width: 420,
+        right: 62,
+        top: 58,
+        width: 470,
         display: "grid",
         gap: 14,
+        zIndex: 20,
       }}
     >
-      {scene.facts.map((fact, index) => {
+      {scene.facts.map((fact, i) => {
         const enter = spring({
-          frame: frame - index * 8,
+          frame: frame - i * 8,
           fps: 30,
-          config: { damping: 18, stiffness: 150 },
+          config: { damping: 17, stiffness: 150 },
         });
-        const shimmer = Math.sin((frame + index * 23) / 14) * 0.5 + 0.5;
         return (
           <div
             key={fact}
             style={{
-              transform: `translateX(${(1 - enter) * 80}px)`,
-              opacity: enter,
-              minHeight: 58,
+              minHeight: 66,
               display: "flex",
               alignItems: "center",
               gap: 16,
-              padding: "0 18px",
-              color: colors.text,
-              fontSize: 21,
-              fontWeight: 850,
-              backgroundColor: "rgba(13,32,48,0.78)",
-              border: "1px solid rgba(56,212,255,0.46)",
-              boxShadow: `0 0 ${12 + shimmer * 26}px rgba(56,212,255,0.20)`,
+              padding: "0 20px",
+              transform: `translateX(${(1 - enter) * 90}px)`,
+              opacity: enter,
+              color: C.white,
+              fontSize: 22,
+              fontWeight: 900,
+              backgroundColor: C.glass,
+              border: `1px solid ${i === 0 ? C.red : i === 1 ? C.cyan : C.amber}`,
+              boxShadow: `0 0 28px ${i === 0 ? "rgba(255,59,48,0.28)" : i === 1 ? "rgba(52,219,255,0.25)" : "rgba(255,178,75,0.24)"}`,
             }}
           >
-            <span
+            <div
               style={{
-                width: 13,
-                height: 13,
-                backgroundColor:
-                  index === 0 ? colors.red : index === 1 ? colors.cyan : colors.amber,
-                boxShadow: "0 0 16px currentColor",
+                width: 16,
+                height: 16,
+                backgroundColor: i === 0 ? C.red : i === 1 ? C.cyan : C.amber,
+                boxShadow: "0 0 18px currentColor",
               }}
             />
             {fact}
@@ -232,496 +263,373 @@ const KnowledgeRail: React.FC<{ scene: PromoScene }> = ({ scene }) => {
   );
 };
 
-const HeaderBrand: React.FC = () => (
+const Caption = ({ scene }: { scene: PromoScene }) => (
   <div
     style={{
       position: "absolute",
-      left: 70,
-      top: 54,
-      display: "flex",
-      alignItems: "center",
-      gap: 18,
+      left: 76,
+      right: 76,
+      bottom: 52,
+      minHeight: 58,
+      padding: "12px 22px",
+      color: "#dceeff",
+      fontSize: 25,
+      fontWeight: 750,
+      lineHeight: 1.22,
+      backgroundColor: "rgba(3,7,17,0.72)",
+      border: "1px solid rgba(52,219,255,0.32)",
+      zIndex: 30,
     }}
   >
-    <Img
-      src={staticFile("assets/cinavault-premium-mark.png")}
-      style={{ width: 72, height: 72, objectFit: "contain" }}
-    />
-    <div>
-      <div style={{ color: colors.text, fontSize: 28, fontWeight: 900 }}>
-        CinaVault
-      </div>
-      <div style={{ color: colors.red, fontSize: 15, fontWeight: 900 }}>
-        PREMIUM MEDIA SERVER
-      </div>
-    </div>
+    {scene.voiceover}
   </div>
 );
 
-const MediaTiles: React.FC = () => {
+const HoloCore = ({ compact = false }: { compact?: boolean }) => {
   const frame = useCurrentFrame();
-  const titles = [
-    "Movies",
-    "Live TV",
-    "Series",
-    "NAS",
-    "Cloud",
-    "Posters",
-    "Metadata",
-    "Remote",
-    "Duplicates",
-    "Security",
-  ];
-  return (
-    <Shell scene={scenes[0]}>
-      <HeaderBrand />
-      <div
-        style={{
-          position: "absolute",
-          top: 188,
-          left: 92,
-          right: 92,
-          display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
-          gap: 18,
-        }}
-      >
-        {titles.map((title, index) => {
-          const local = frame - index * 4;
-          const y = interpolate(local, [0, 50], [120, 0], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-          });
-          const glow = Math.sin((frame + index * 11) / 16) * 0.5 + 0.5;
-          return (
-            <div
-              key={title}
-              style={{
-                height: 118,
-                border: "1px solid rgba(56,212,255,0.45)",
-                backgroundColor: "rgba(13,32,48,0.82)",
-                transform: `translateY(${y}px)`,
-                boxShadow: `0 0 ${18 + glow * 22}px rgba(56,212,255,0.22)`,
-                padding: 18,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-              }}
-            >
-              <div style={{ color: colors.text, fontSize: 23, fontWeight: 800 }}>
-                {title}
-              </div>
-              <div
-                style={{
-                  height: 7,
-                  width: `${42 + ((frame + index * 17) % 54)}%`,
-                  backgroundColor: index % 3 === 0 ? colors.red : colors.cyan,
-                }}
-              />
-            </div>
-          );
-        })}
-      </div>
-      <Counter />
-    </Shell>
-  );
-};
-
-const Counter: React.FC = () => {
-  const frame = useCurrentFrame();
-  const count = Math.round(interpolate(frame, [0, 130], [240, 11064], {
-    extrapolateRight: "clamp",
-  }));
+  const spin = frame * 0.7;
+  const pulse = Math.sin(frame / 10) * 0.5 + 0.5;
   return (
     <div
       style={{
         position: "absolute",
-        right: 96,
-        bottom: 242,
-        color: colors.text,
-        fontSize: 82,
-        fontWeight: 950,
+        left: compact ? 770 : 700,
+        top: compact ? 305 : 235,
+        width: compact ? 380 : 520,
+        height: compact ? 380 : 520,
       }}
     >
-      {count.toLocaleString()}
-      <div style={{ color: colors.muted, fontSize: 25, fontWeight: 700 }}>
-        items indexed
+      {[0, 1, 2].map((ring) => (
+        <div
+          key={ring}
+          style={{
+            position: "absolute",
+            inset: 34 + ring * 46,
+            borderRadius: 999,
+            border: `3px solid ${ring === 0 ? C.cyan : ring === 1 ? C.red : C.amber}`,
+            opacity: 0.42 + pulse * 0.18,
+            transform: `rotate(${spin * (ring % 2 === 0 ? 1 : -1)}deg)`,
+            boxShadow: "0 0 34px currentColor",
+          }}
+        />
+      ))}
+      <div
+        style={{
+          position: "absolute",
+          inset: compact ? 120 : 170,
+          display: "grid",
+          placeItems: "center",
+          backgroundColor: "rgba(3,7,17,0.88)",
+          border: "2px solid rgba(255,255,255,0.26)",
+          boxShadow: "0 0 90px rgba(52,219,255,0.42)",
+        }}
+      >
+        <Img
+          src={staticFile("assets/cinavault-premium-mark.png")}
+          style={{ width: compact ? 118 : 150 }}
+        />
       </div>
     </div>
   );
 };
 
-const NetworkReveal: React.FC = () => {
+const OpeningScene = () => {
   const frame = useCurrentFrame();
-  const pulse = Math.sin(frame / 12) * 0.5 + 0.5;
-  const nodes = [
-    ["Library", 720, 250],
-    ["NAS", 950, 340],
-    ["Cloud", 845, 520],
-    ["Remote", 1110, 500],
-    ["Live TV", 1130, 210],
-  ] as const;
+  const count = Math.round(interpolate(frame, [0, 170], [880, 11064], clamp));
   return (
-    <Shell scene={scenes[1]}>
-      <HeaderBrand />
-      <Img
-        src={staticFile("assets/cinavault-premium-brand-full.png")}
-        style={{
-          position: "absolute",
-          left: 92,
-          top: 244,
-          width: 560,
-          objectFit: "contain",
-          filter: "drop-shadow(0 30px 56px rgba(0,0,0,0.45))",
-        }}
-      />
+    <SceneShell scene={scenes[0]}>
+      <HoloCore />
       <div
         style={{
           position: "absolute",
-          left: 690,
-          top: 170,
-          width: 560,
-          height: 480,
+          right: 650,
+          top: 210,
+          color: C.white,
+          fontSize: 96,
+          fontWeight: 1000,
+          textAlign: "right",
+          textShadow: "0 0 30px rgba(52,219,255,0.42)",
         }}
       >
-        {nodes.map(([label, x, y], index) => (
-          <div key={label}>
+        {count.toLocaleString()}
+        <div style={{ color: C.muted, fontSize: 28, fontWeight: 850 }}>
+          titles under command
+        </div>
+      </div>
+      <TileStorm />
+    </SceneShell>
+  );
+};
+
+const TileStorm = () => {
+  const frame = useCurrentFrame();
+  const labels = ["MOVIES", "SERIES", "LIVE TV", "POSTERS", "NAS", "CLOUD", "REMOTE", "AI"];
+  return (
+    <>
+      {labels.map((label, i) => {
+        const x = interpolate(frame, [0, 160], [-260 + i * 80, 1170 + i * 24], clamp);
+        const y = 700 - (i % 4) * 96 + Math.sin((frame + i * 18) / 17) * 18;
+        return (
+          <div
+            key={label}
+            style={{
+              position: "absolute",
+              left: x,
+              top: y,
+              width: 220,
+              height: 74,
+              display: "grid",
+              placeItems: "center",
+              color: C.white,
+              fontSize: 24,
+              fontWeight: 950,
+              backgroundColor: "rgba(8,20,34,0.78)",
+              border: `1px solid ${i % 2 === 0 ? C.cyan : C.red}`,
+              boxShadow: "0 0 28px rgba(52,219,255,0.18)",
+            }}
+          >
+            {label}
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+const CommandCenterScene = () => {
+  const nodes = ["Local", "NAS", "Cloud", "Live TV", "Remote", "Security", "Plugins"];
+  const frame = useCurrentFrame();
+  return (
+    <SceneShell scene={scenes[1]}>
+      <HoloCore compact />
+      {nodes.map((node, i) => {
+        const angle = (Math.PI * 2 * i) / nodes.length + frame / 90;
+        const x = 960 + Math.cos(angle) * 520;
+        const y = 500 + Math.sin(angle) * 260;
+        return (
+          <div key={node}>
             <div
               style={{
                 position: "absolute",
-                left: 280,
-                top: 240,
-                width: Math.hypot(x - 970, y - 410),
-                height: 2,
-                backgroundColor: "rgba(56,212,255,0.35)",
+                left: 960,
+                top: 500,
+                width: Math.hypot(x - 960, y - 500),
+                height: 3,
+                backgroundColor: "rgba(52,219,255,0.34)",
                 transformOrigin: "0 50%",
-                transform: `rotate(${Math.atan2(y - 410, x - 970)}rad)`,
+                transform: `rotate(${Math.atan2(y - 500, x - 960)}rad)`,
               }}
             />
             <div
               style={{
                 position: "absolute",
-                left: x - 690,
-                top: y - 170,
-                transform: `scale(${0.94 + pulse * 0.06})`,
-                width: 132,
-                height: 58,
+                left: x - 86,
+                top: y - 42,
+                width: 172,
+                height: 84,
                 display: "grid",
                 placeItems: "center",
-                color: colors.text,
-                fontSize: 22,
-                fontWeight: 850,
-                backgroundColor:
-                  index % 2 === 0 ? "rgba(28,174,157,0.76)" : "rgba(244,168,79,0.78)",
+                color: C.white,
+                fontSize: 25,
+                fontWeight: 950,
+                backgroundColor: i % 3 === 0 ? "rgba(255,59,48,0.76)" : i % 3 === 1 ? "rgba(52,219,255,0.70)" : "rgba(61,242,173,0.70)",
                 border: "1px solid rgba(255,255,255,0.28)",
+                boxShadow: "0 0 30px rgba(255,255,255,0.13)",
               }}
             >
-              {label}
+              {node}
             </div>
           </div>
-        ))}
-        <div
-          style={{
-            position: "absolute",
-            left: 210,
-            top: 168,
-            width: 142,
-            height: 142,
-            borderRadius: 999,
-            display: "grid",
-            placeItems: "center",
-            backgroundColor: "rgba(13,32,48,0.92)",
-            border: "2px solid rgba(56,212,255,0.9)",
-            boxShadow: `0 0 ${40 + pulse * 30}px rgba(56,212,255,0.42)`,
-          }}
-        >
-          <Img
-            src={staticFile("assets/cinavault-premium-mark.png")}
-            style={{ width: 86, height: 86 }}
-          />
-        </div>
-      </div>
-    </Shell>
+        );
+      })}
+    </SceneShell>
   );
 };
 
-const FeatureAutomation: React.FC = () => {
+const IntelligenceScene = () => {
   const frame = useCurrentFrame();
-  const features = [
-    ["AI metadata", "Provider lookup and embedded-title fallback"],
-    ["Poster discovery", "Artwork appears on the forward UI"],
-    ["Duplicate cleanup", "Child rows removed before media rows"],
-    ["Diagnostics", "Network, sources, providers, enrichment"],
+  const rows = [
+    ["AI metadata gather", "Provider lookup + local fallback"],
+    ["Poster recovery", "Forward-facing artwork populated"],
+    ["Embedded titles", "Filename noise cleaned"],
+    ["Diagnostics", "Network, source, provider visibility"],
   ];
   return (
-    <Shell scene={scenes[2]}>
-      <HeaderBrand />
-      <div style={{ position: "absolute", left: 112, top: 176, right: 112 }}>
-        {features.map(([name, detail], index) => {
-          const local = frame - index * 18;
-          const fill = interpolate(local, [0, 52], [0, 1], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-          });
+    <SceneShell scene={scenes[2]}>
+      <div style={{ position: "absolute", left: 130, top: 205, width: 1160 }}>
+        {rows.map(([name, detail], i) => {
+          const fill = interpolate(frame - i * 20, [0, 82], [0, 1], clamp);
           return (
             <div
               key={name}
               style={{
-                height: 104,
+                height: 112,
                 marginBottom: 22,
-                backgroundColor: "rgba(13,32,48,0.84)",
-                border: "1px solid rgba(255,255,255,0.18)",
                 display: "grid",
-                gridTemplateColumns: "300px 1fr 104px",
+                gridTemplateColumns: "340px 1fr 110px",
                 alignItems: "center",
                 padding: "0 28px",
+                backgroundColor: C.glass,
+                border: "1px solid rgba(52,219,255,0.34)",
+                boxShadow: "0 0 34px rgba(52,219,255,0.12)",
               }}
             >
-              <div style={{ color: colors.text, fontSize: 30, fontWeight: 900 }}>
-                {name}
-              </div>
+              <div style={{ color: C.white, fontSize: 29, fontWeight: 950 }}>{name}</div>
               <div>
-                <div style={{ color: colors.muted, fontSize: 21, marginBottom: 14 }}>
+                <div style={{ color: C.muted, fontSize: 21, fontWeight: 750, marginBottom: 14 }}>
                   {detail}
                 </div>
-                <div
-                  style={{
-                    height: 10,
-                    backgroundColor: "rgba(255,255,255,0.12)",
-                    overflow: "hidden",
-                  }}
-                >
+                <div style={{ height: 14, backgroundColor: "rgba(255,255,255,0.12)" }}>
                   <div
                     style={{
                       width: `${fill * 100}%`,
                       height: "100%",
-                      backgroundColor: index % 2 === 0 ? colors.cyan : colors.amber,
+                      background:
+                        i % 2 === 0
+                          ? `linear-gradient(90deg, ${C.cyan}, ${C.green})`
+                          : `linear-gradient(90deg, ${C.red}, ${C.amber})`,
+                      boxShadow: "0 0 22px currentColor",
                     }}
                   />
                 </div>
               </div>
               <div
                 style={{
-                  color: fill > 0.98 ? colors.aqua : colors.muted,
-                  fontSize: 28,
-                  fontWeight: 900,
+                  color: fill > 0.96 ? C.green : C.amber,
+                  fontSize: 25,
+                  fontWeight: 950,
                   textAlign: "right",
                 }}
               >
-                {fill > 0.98 ? "DONE" : `${Math.round(fill * 100)}%`}
+                {fill > 0.96 ? "LOCKED" : `${Math.round(fill * 100)}%`}
               </div>
             </div>
           );
         })}
       </div>
-    </Shell>
+    </SceneShell>
   );
 };
 
-const AccessLayer: React.FC = () => {
+const ScaleScene = () => {
   const frame = useCurrentFrame();
-  const items = ["Local", "NAS", "Cloud", "Live TV", "Remote", "Security"];
   return (
-    <Shell scene={scenes[3]}>
-      <HeaderBrand />
-      <div
-        style={{
-          position: "absolute",
-          left: 190,
-          top: 160,
-          right: 190,
-          height: 500,
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            transform: "translate(-50%, -50%)",
-            width: 220,
-            height: 220,
-            display: "grid",
-            placeItems: "center",
-            backgroundColor: "rgba(13,32,48,0.95)",
-            border: "2px solid rgba(56,212,255,0.8)",
-            boxShadow: "0 0 70px rgba(56,212,255,0.26)",
-          }}
-        >
-          <Img
-            src={staticFile("assets/cinavault-premium-mark.png")}
-            style={{ width: 128 }}
-          />
-        </div>
-        {items.map((item, index) => {
-          const angle = (Math.PI * 2 * index) / items.length + frame / 220;
-          const x = Math.cos(angle) * 390;
-          const y = Math.sin(angle) * 190;
-          return (
-            <div
-              key={item}
-              style={{
-                position: "absolute",
-                left: `calc(50% + ${x}px - 82px)`,
-                top: `calc(50% + ${y}px - 42px)`,
-                width: 164,
-                height: 84,
-                display: "grid",
-                placeItems: "center",
-                color: colors.text,
-                fontSize: 26,
-                fontWeight: 900,
-                backgroundColor:
-                  index % 2 === 0 ? "rgba(28,174,157,0.74)" : "rgba(255,73,54,0.7)",
-                border: "1px solid rgba(255,255,255,0.25)",
-              }}
-            >
-              {item}
-            </div>
-          );
-        })}
-      </div>
-    </Shell>
-  );
-};
-
-const Scalability: React.FC = () => {
-  const frame = useCurrentFrame();
-  const local = frame;
-  const legacy = interpolate(local, [0, 95], [22, 62], {
-    extrapolateRight: "clamp",
-  });
-  const cv = interpolate(local, [0, 95], [38, 95], {
-    extrapolateRight: "clamp",
-  });
-  return (
-    <Shell scene={scenes[4]}>
-      <HeaderBrand />
+    <SceneShell scene={scenes[3]}>
       <div
         style={{
           position: "absolute",
           left: 170,
-          top: 170,
-          right: 170,
-          height: 430,
-          backgroundColor: "rgba(13,32,48,0.8)",
-          border: "1px solid rgba(56,212,255,0.35)",
-          padding: 54,
+          top: 210,
+          width: 1120,
+          height: 468,
+          padding: 44,
+          backgroundColor: C.glass,
+          border: "1px solid rgba(52,219,255,0.42)",
+          boxShadow: "0 0 65px rgba(52,219,255,0.18)",
         }}
       >
-        <MetricBar label="Legacy workflow" value={legacy} color="#7f8b98" />
-        <MetricBar label="CinaVault responsive path" value={cv} color={colors.aqua} />
+        <SystemBar label="Legacy full-library reload" value={interpolate(frame, [0, 210], [72, 42], clamp)} color="#8b95a2" />
+        <SystemBar label="CinaVault paged responsive flow" value={interpolate(frame, [0, 210], [46, 96], clamp)} color={C.green} />
+        <SystemBar label="Poster cache stability" value={interpolate(frame, [0, 210], [34, 91], clamp)} color={C.amber} />
         <div
           style={{
-            marginTop: 52,
+            marginTop: 34,
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 24,
+            gap: 18,
           }}
         >
-          {["Paged loading", "Poster cache", "Provider checks"].map((name) => (
+          {["Source health", "Task progress", "Safer cleanup"].map((text) => (
             <div
-              key={name}
+              key={text}
               style={{
-                height: 104,
-                color: colors.text,
-                fontSize: 26,
-                fontWeight: 900,
+                height: 82,
                 display: "grid",
                 placeItems: "center",
+                color: C.white,
+                fontSize: 25,
+                fontWeight: 950,
+                backgroundColor: "rgba(255,255,255,0.08)",
                 border: "1px solid rgba(255,255,255,0.22)",
-                backgroundColor: "rgba(244,168,79,0.2)",
               }}
             >
-              {name}
+              {text}
             </div>
           ))}
         </div>
       </div>
-    </Shell>
+    </SceneShell>
   );
 };
 
-const MetricBar: React.FC<{ label: string; value: number; color: string }> = ({
-  label,
-  value,
-  color,
-}) => (
-  <div style={{ marginBottom: 36 }}>
+const SystemBar = ({ label, value, color }: { label: string; value: number; color: string }) => (
+  <div style={{ marginBottom: 28 }}>
     <div
       style={{
         display: "flex",
         justifyContent: "space-between",
-        color: colors.text,
-        fontSize: 28,
+        color: C.white,
+        fontSize: 26,
         fontWeight: 900,
-        marginBottom: 14,
+        marginBottom: 12,
       }}
     >
       <span>{label}</span>
       <span>{Math.round(value)}%</span>
     </div>
-    <div style={{ height: 28, backgroundColor: "rgba(255,255,255,0.12)" }}>
+    <div style={{ height: 22, backgroundColor: "rgba(255,255,255,0.12)" }}>
       <div style={{ height: "100%", width: `${value}%`, backgroundColor: color }} />
     </div>
   </div>
 );
 
-const InterfaceProof: React.FC = () => {
+const RealUiScene = () => {
   const frame = useCurrentFrame();
-  const local = frame;
-  const zoom = interpolate(local, [0, 150], [1.06, 1.16], {
-    extrapolateRight: "clamp",
-  });
+  const zoom = interpolate(frame, [0, 240], [1.04, 1.16], clamp);
   return (
-    <Shell scene={scenes[5]}>
+    <SceneShell scene={scenes[4]}>
       <div
         style={{
           position: "absolute",
-          inset: 42,
+          left: 74,
+          top: 142,
+          width: 1380,
+          height: 724,
           overflow: "hidden",
-          border: "1px solid rgba(56,212,255,0.46)",
-          boxShadow: "0 34px 90px rgba(0,0,0,0.54)",
+          border: "2px solid rgba(52,219,255,0.62)",
+          boxShadow: "0 0 80px rgba(52,219,255,0.26)",
         }}
       >
         <Img
           src={staticFile("assets/cinavault-ui-build-127.png")}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transform: `scale(${zoom})`,
-          }}
+          style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})` }}
         />
       </div>
       <div
         style={{
           position: "absolute",
-          left: 74,
-          top: 70,
-          padding: "14px 24px",
-          color: colors.text,
-          fontSize: 24,
-          fontWeight: 900,
-          backgroundColor: "rgba(7,17,31,0.72)",
-          border: "1px solid rgba(255,255,255,0.2)",
+          left: 120,
+          top: 186,
+          color: C.white,
+          fontSize: 29,
+          fontWeight: 950,
+          padding: "14px 22px",
+          backgroundColor: "rgba(3,7,17,0.78)",
+          border: `1px solid ${C.red}`,
+          boxShadow: "0 0 26px rgba(255,59,48,0.35)",
         }}
       >
-        Real product interface
+        REAL CINA VAULT INTERFACE
       </div>
-    </Shell>
+    </SceneShell>
   );
 };
 
-const Cta: React.FC = () => {
+const FinalScene = () => {
   const frame = useCurrentFrame();
-  const pop = spring({
-    frame,
-    fps: 30,
-    config: { damping: 18, stiffness: 120 },
-  });
+  const pop = spring({ frame, fps: 30, config: { damping: 18, stiffness: 120 } });
   return (
-    <Shell scene={scenes[6]}>
+    <SceneShell scene={scenes[5]}>
       <div
         style={{
           position: "absolute",
@@ -734,24 +642,17 @@ const Cta: React.FC = () => {
         <div style={{ transform: `scale(${0.82 + pop * 0.18})` }}>
           <Img
             src={staticFile("assets/cinavault-premium-brand-full.png")}
-            style={{ width: 720, objectFit: "contain", marginBottom: 42 }}
+            style={{ width: 790, marginBottom: 46, filter: "drop-shadow(0 0 42px rgba(52,219,255,0.45))" }}
           />
-          <div style={{ color: colors.text, fontSize: 68, fontWeight: 950 }}>
-            Upgrade to CinaVault today
+          <div style={{ color: C.white, fontSize: 82, fontWeight: 1000 }}>
+            Upgrade to CinaVault Premium
           </div>
-          <div
-            style={{
-              color: colors.amber,
-              fontSize: 32,
-              fontWeight: 900,
-              marginTop: 22,
-            }}
-          >
-            Learn more at your CinaVault site
+          <div style={{ color: C.amber, fontSize: 34, fontWeight: 950, marginTop: 24 }}>
+            High-tech control for the library you built.
           </div>
         </div>
       </div>
-    </Shell>
+    </SceneShell>
   );
 };
 
@@ -762,29 +663,26 @@ export const CinaVaultPromo = () => {
   }
 
   return (
-    <AbsoluteFill style={{ backgroundColor: colors.ink }}>
-      <Audio src={staticFile("audio/cinavault-energy-bed.wav")} volume={0.12} />
-      <Audio src={staticFile("audio/cinavault-promo-voiceover.wav")} />
+    <AbsoluteFill style={{ backgroundColor: C.black }}>
+      <Audio src={staticFile("audio/cinavault-energy-bed-v2.wav")} volume={0.16} />
+      <Audio src={staticFile("audio/cinavault-promo-voiceover-v2.mp3")} volume={1} />
       <Sequence from={sceneFrames(scenes[0]).from} durationInFrames={sceneFrames(scenes[0]).duration}>
-        <MediaTiles />
+        <OpeningScene />
       </Sequence>
       <Sequence from={sceneFrames(scenes[1]).from} durationInFrames={sceneFrames(scenes[1]).duration}>
-        <NetworkReveal />
+        <CommandCenterScene />
       </Sequence>
       <Sequence from={sceneFrames(scenes[2]).from} durationInFrames={sceneFrames(scenes[2]).duration}>
-        <FeatureAutomation />
+        <IntelligenceScene />
       </Sequence>
       <Sequence from={sceneFrames(scenes[3]).from} durationInFrames={sceneFrames(scenes[3]).duration}>
-        <AccessLayer />
+        <ScaleScene />
       </Sequence>
       <Sequence from={sceneFrames(scenes[4]).from} durationInFrames={sceneFrames(scenes[4]).duration}>
-        <Scalability />
+        <RealUiScene />
       </Sequence>
       <Sequence from={sceneFrames(scenes[5]).from} durationInFrames={sceneFrames(scenes[5]).duration}>
-        <InterfaceProof />
-      </Sequence>
-      <Sequence from={sceneFrames(scenes[6]).from} durationInFrames={sceneFrames(scenes[6]).duration}>
-        <Cta />
+        <FinalScene />
       </Sequence>
     </AbsoluteFill>
   );

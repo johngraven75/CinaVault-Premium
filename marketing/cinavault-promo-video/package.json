@@ -1,7 +1,7 @@
 {
   "name": "cinavault-promo-video",
   "version": "1.0.0",
-  "description": "Renderable CinaVault 40-second promotional video",
+  "description": "Renderable CinaVault high-tech promotional video",
   "repository": {},
   "license": "UNLICENSED",
   "private": true,
@@ -24,8 +24,8 @@
   "scripts": {
     "dev": "remotion studio",
     "build": "remotion bundle",
-    "render": "remotion render CinaVaultPromo output/cinavault-promo-v1.mp4",
-    "still": "remotion still CinaVaultPromo output/cinavault-promo-check.png --frame=965 --scale=0.5",
+    "render": "remotion render CinaVaultPromo output/cinavault-promo-v2.mp4",
+    "still": "remotion still CinaVaultPromo output/cinavault-promo-v2-check.png --frame=1080 --scale=0.5",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc"
   },
