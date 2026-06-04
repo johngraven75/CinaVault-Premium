@@ -25,7 +25,7 @@
     "dev": "remotion studio",
     "build": "remotion bundle",
     "render": "remotion render CinaVaultPromo output/cinavault-promo-v2.mp4",
-    "still": "remotion still CinaVaultPromo output/cinavault-promo-v2-check.png --frame=1080 --scale=0.5",
+    "still": "remotion still CinaVaultPromo output/cinavault-promo-v2-check.png --frame=1260 --scale=0.5",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc"
   },

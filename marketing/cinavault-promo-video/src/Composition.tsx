@@ -53,15 +53,15 @@ const BrandBug = () => (
     }}
   >
     <Img
-      src={staticFile("assets/cinavault-premium-mark.png")}
-      style={{ width: 82, height: 82, filter: "drop-shadow(0 0 22px #ff3b30)" }}
+      src={staticFile("assets/cinavault-build-130-logo.png")}
+      style={{
+        width: 250,
+        height: 82,
+        objectFit: "cover",
+        objectPosition: "left center",
+        filter: "drop-shadow(0 0 22px rgba(52,219,255,0.58))",
+      }}
     />
-    <div>
-      <div style={{ color: C.white, fontSize: 31, fontWeight: 950 }}>CinaVault</div>
-      <div style={{ color: C.red, fontSize: 15, fontWeight: 950 }}>
-        PREMIUM MEDIA SERVER
-      </div>
-    </div>
   </div>
 );
 
@@ -129,6 +129,15 @@ const CinematicBackdrop = () => {
           inset: 0,
           background:
             "linear-gradient(180deg, rgba(3,7,17,0.22), transparent 42%, rgba(3,7,17,0.88))",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          opacity: 0.1,
+          backgroundImage:
+            "repeating-linear-gradient(0deg, #ffffff 0px, #ffffff 1px, transparent 1px, transparent 8px)",
         }}
       />
     </AbsoluteFill>
@@ -270,10 +279,10 @@ const Caption = ({ scene }: { scene: PromoScene }) => (
       left: 76,
       right: 76,
       bottom: 52,
-      minHeight: 58,
-      padding: "12px 22px",
+      minHeight: 88,
+      padding: "15px 24px",
       color: "#dceeff",
-      fontSize: 25,
+      fontSize: 23,
       fontWeight: 750,
       lineHeight: 1.22,
       backgroundColor: "rgba(3,7,17,0.72)",
@@ -325,8 +334,13 @@ const HoloCore = ({ compact = false }: { compact?: boolean }) => {
         }}
       >
         <Img
-          src={staticFile("assets/cinavault-premium-mark.png")}
-          style={{ width: compact ? 118 : 150 }}
+          src={staticFile("assets/cinavault-build-130-logo.png")}
+          style={{
+            width: compact ? 168 : 220,
+            height: compact ? 118 : 150,
+            objectFit: "cover",
+            objectPosition: "left center",
+          }}
         />
       </div>
     </div>
@@ -619,9 +633,101 @@ const RealUiScene = () => {
           boxShadow: "0 0 26px rgba(255,59,48,0.35)",
         }}
       >
-        REAL CINA VAULT INTERFACE
+        REAL CINAVAULT INTERFACE
       </div>
     </SceneShell>
+  );
+};
+
+const TransitionBlasts = () => {
+  const frame = useCurrentFrame();
+  const cutFrames = scenes.slice(1).map((scene) => Math.round(scene.start * 30));
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none", overflow: "hidden", zIndex: 80 }}>
+      {cutFrames.map((cut, index) => {
+        const local = frame - cut;
+        const active = local >= -12 && local <= 30;
+        if (!active) {
+          return null;
+        }
+        const strength = Math.max(0, 1 - Math.abs(local - 4) / 34);
+        const wipe = interpolate(local, [-10, 28], [-420, 2040], clamp);
+        return (
+          <div key={cut}>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                opacity: strength * 0.42,
+                background:
+                  index % 2 === 0
+                    ? "linear-gradient(90deg, transparent, rgba(52,219,255,0.9), rgba(255,255,255,0.9), transparent)"
+                    : "linear-gradient(90deg, transparent, rgba(255,59,48,0.82), rgba(255,178,75,0.86), transparent)",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: wipe,
+                top: -260,
+                width: 360,
+                height: 1600,
+                transform: "rotate(18deg)",
+                opacity: Math.min(1, strength + 0.18),
+                background:
+                  "linear-gradient(90deg, transparent, rgba(255,255,255,0.95), rgba(52,219,255,0.8), transparent)",
+                boxShadow: "0 0 70px rgba(52,219,255,0.55)",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: 960 - strength * 520,
+                top: 540 - strength * 520,
+                width: strength * 1040,
+                height: strength * 1040,
+                borderRadius: 999,
+                border: `5px solid ${index % 2 === 0 ? C.cyan : C.amber}`,
+                opacity: strength * 0.65,
+                boxShadow: "0 0 80px currentColor",
+              }}
+            />
+          </div>
+        );
+      })}
+    </AbsoluteFill>
+  );
+};
+
+const DataRibbons = () => {
+  const frame = useCurrentFrame();
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none", overflow: "hidden", zIndex: 12 }}>
+      {Array.from({ length: 9 }).map((_, i) => {
+        const y = 142 + i * 86 + Math.sin((frame + i * 24) / 22) * 12;
+        const x = ((frame * (5 + i * 0.65) + i * 230) % 2500) - 520;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: x,
+              top: y,
+              width: 420,
+              height: 3,
+              opacity: 0.22 + (i % 3) * 0.08,
+              background:
+                i % 3 === 0
+                  ? `linear-gradient(90deg, transparent, ${C.cyan}, transparent)`
+                  : i % 3 === 1
+                    ? `linear-gradient(90deg, transparent, ${C.red}, transparent)`
+                    : `linear-gradient(90deg, transparent, ${C.green}, transparent)`,
+              boxShadow: "0 0 22px currentColor",
+            }}
+          />
+        );
+      })}
+    </AbsoluteFill>
   );
 };
 
@@ -634,22 +740,29 @@ const FinalScene = () => {
         style={{
           position: "absolute",
           inset: 0,
-          display: "grid",
-          placeItems: "center",
           textAlign: "center",
         }}
       >
-        <div style={{ transform: `scale(${0.82 + pop * 0.18})` }}>
+        <div
+          style={{
+            position: "absolute",
+            top: 286,
+            right: 124,
+            transform: `scale(${0.82 + pop * 0.18})`,
+            display: "grid",
+            placeItems: "center",
+            gap: 26,
+            filter: "drop-shadow(0 0 52px rgba(52,219,255,0.55))",
+          }}
+        >
           <Img
-            src={staticFile("assets/cinavault-premium-brand-full.png")}
-            style={{ width: 790, marginBottom: 46, filter: "drop-shadow(0 0 42px rgba(52,219,255,0.45))" }}
+            src={staticFile("assets/cinavault-build-130-logo.png")}
+            style={{
+              width: 680,
+              border: `2px solid rgba(112,220,255,0.62)`,
+              boxShadow: `0 0 42px rgba(52,219,255,0.55), 0 0 72px rgba(255,255,255,0.18)`,
+            }}
           />
-          <div style={{ color: C.white, fontSize: 82, fontWeight: 1000 }}>
-            Upgrade to CinaVault Premium
-          </div>
-          <div style={{ color: C.amber, fontSize: 34, fontWeight: 950, marginTop: 24 }}>
-            High-tech control for the library you built.
-          </div>
         </div>
       </div>
     </SceneShell>
@@ -666,6 +779,7 @@ export const CinaVaultPromo = () => {
     <AbsoluteFill style={{ backgroundColor: C.black }}>
       <Audio src={staticFile("audio/cinavault-energy-bed-v2.wav")} volume={0.16} />
       <Audio src={staticFile("audio/cinavault-promo-voiceover-v2.mp3")} volume={1} />
+      <DataRibbons />
       <Sequence from={sceneFrames(scenes[0]).from} durationInFrames={sceneFrames(scenes[0]).duration}>
         <OpeningScene />
       </Sequence>
@@ -684,6 +798,7 @@ export const CinaVaultPromo = () => {
       <Sequence from={sceneFrames(scenes[5]).from} durationInFrames={sceneFrames(scenes[5]).duration}>
         <FinalScene />
       </Sequence>
+      <TransitionBlasts />
     </AbsoluteFill>
   );
 };

@@ -1,5 +1,5 @@
 export const fps = 30;
-export const durationSeconds = 50;
+export const durationSeconds = 61;
 export const durationInFrames = fps * durationSeconds;
 
 export type PromoScene = {
@@ -17,7 +17,7 @@ export const scenes: PromoScene[] = [
   {
     id: "opening-wow",
     start: 0,
-    end: 6,
+    end: 7,
     kicker: "HIGH-VOLUME LIBRARY CONTROL",
     title: "Your library should feel instant.",
     subtitle: "Not scattered. Not sluggish. Not stuck in yesterday.",
@@ -27,8 +27,8 @@ export const scenes: PromoScene[] = [
   },
   {
     id: "command-center",
-    start: 6,
-    end: 14,
+    start: 7,
+    end: 16,
     kicker: "ONE POLISHED COMMAND CENTER",
     title: "CinaVault brings every source together.",
     subtitle: "Local drives, NAS shares, cloud folders, live TV, and remote access.",
@@ -38,8 +38,8 @@ export const scenes: PromoScene[] = [
   },
   {
     id: "library-intelligence",
-    start: 14,
-    end: 24,
+    start: 16,
+    end: 28,
     kicker: "LIBRARY INTELLIGENCE",
     title: "Metadata, posters, titles, and provider checks.",
     subtitle: "A smarter library without constant manual cleanup.",
@@ -49,8 +49,8 @@ export const scenes: PromoScene[] = [
   },
   {
     id: "scale-architecture",
-    start: 24,
-    end: 34,
+    start: 28,
+    end: 40,
     kicker: "BUILT TO SCALE",
     title: "No guessing. No frozen library screen.",
     subtitle: "Architecture that keeps large collections moving.",
@@ -60,8 +60,8 @@ export const scenes: PromoScene[] = [
   },
   {
     id: "real-ui",
-    start: 34,
-    end: 42,
+    start: 40,
+    end: 51,
     kicker: "REAL PRODUCT PROOF",
     title: "The dashboard tells you what is happening.",
     subtitle: "Diagnostics, enrichment, source checks, and visible progress.",
@@ -71,8 +71,8 @@ export const scenes: PromoScene[] = [
   },
   {
     id: "final-cta",
-    start: 42,
-    end: 50,
+    start: 51,
+    end: 61,
     kicker: "STEP INTO THE FUTURE",
     title: "Give your library the vault it deserves.",
     subtitle: "Upgrade to CinaVault Premium Media Server.",
