@@ -769,6 +769,97 @@ const FinalScene = () => {
   );
 };
 
+const AvailabilityScene = () => {
+  const frame = useCurrentFrame();
+  const logoIn = spring({ frame, fps: 30, config: { damping: 20, stiffness: 110 } });
+  const shimmer = interpolate(Math.sin(frame / 18), [-1, 1], [0.18, 0.44]);
+  return (
+    <AbsoluteFill style={{ opacity: fade(frame, sceneFrames(scenes[6]).duration), backgroundColor: C.black }}>
+      <CinematicBackdrop />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(circle at 50% 44%, rgba(52,219,255,0.28), transparent 34%), radial-gradient(circle at 50% 88%, rgba(255,255,255,0.16), transparent 28%)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: 210,
+          right: 210,
+          top: 98,
+          height: 488,
+          display: "grid",
+          placeItems: "center",
+          transform: `scale(${0.88 + logoIn * 0.12})`,
+          opacity: logoIn,
+          backgroundColor: "rgba(3,7,17,0.42)",
+          border: "2px solid rgba(112,220,255,0.72)",
+          boxShadow: "0 0 86px rgba(52,219,255,0.42), inset 0 0 70px rgba(52,219,255,0.16)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: shimmer,
+            background:
+              "linear-gradient(115deg, transparent 0%, rgba(255,255,255,0.62) 48%, rgba(52,219,255,0.32) 52%, transparent 72%)",
+            transform: `translateX(${interpolate(frame, [0, 210], [-900, 980], clamp)}px)`,
+          }}
+        />
+        <Img
+          src={staticFile("assets/cinavault-build-130-logo.png")}
+          style={{
+            width: 1180,
+            maxHeight: 430,
+            objectFit: "contain",
+            filter: "drop-shadow(0 0 42px rgba(52,219,255,0.6))",
+          }}
+        />
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: 96,
+          right: 96,
+          bottom: 178,
+          color: C.white,
+          fontSize: 60,
+          fontWeight: 1000,
+          lineHeight: 1.08,
+          textAlign: "center",
+          textShadow: "0 0 28px rgba(52,219,255,0.38)",
+        }}
+      >
+        Available on Android, Windows, and iOS systems.
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          left: 210,
+          right: 210,
+          bottom: 86,
+          minHeight: 68,
+          display: "grid",
+          placeItems: "center",
+          color: "#dceeff",
+          fontSize: 32,
+          fontWeight: 850,
+          backgroundColor: "rgba(3,7,17,0.72)",
+          border: "1px solid rgba(52,219,255,0.45)",
+          boxShadow: "0 0 44px rgba(52,219,255,0.16)",
+        }}
+      >
+        For downloads, check your applicable app store.
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 export const CinaVaultPromo = () => {
   const { fps: videoFps } = useVideoConfig();
   if (videoFps !== 30) {
@@ -797,6 +888,9 @@ export const CinaVaultPromo = () => {
       </Sequence>
       <Sequence from={sceneFrames(scenes[5]).from} durationInFrames={sceneFrames(scenes[5]).duration}>
         <FinalScene />
+      </Sequence>
+      <Sequence from={sceneFrames(scenes[6]).from} durationInFrames={sceneFrames(scenes[6]).duration}>
+        <AvailabilityScene />
       </Sequence>
       <TransitionBlasts />
     </AbsoluteFill>

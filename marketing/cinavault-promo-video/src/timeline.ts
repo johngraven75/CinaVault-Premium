@@ -1,5 +1,5 @@
 export const fps = 30;
-export const durationSeconds = 61;
+export const durationSeconds = 68;
 export const durationInFrames = fps * durationSeconds;
 
 export type PromoScene = {
@@ -80,6 +80,16 @@ export const scenes: PromoScene[] = [
       "Don't settle for yesterday's media server. Step into CinaVault, and give your library the vault it deserves.",
     facts: ["Premium media control", "Cleaner libraries", "Ready for growth"],
   },
+  {
+    id: "platform-availability",
+    start: 61,
+    end: 68,
+    kicker: "AVAILABLE EVERYWHERE YOU WATCH",
+    title: "Available on Android, Windows, and iOS systems.",
+    subtitle: "For downloads, check your applicable app store.",
+    voiceover: "",
+    facts: ["Android", "Windows", "iOS"],
+  },
 ];
 
-export const fullVoiceover = scenes.map((scene) => scene.voiceover).join(" ");
+export const fullVoiceover = scenes.map((scene) => scene.voiceover).filter(Boolean).join(" ");

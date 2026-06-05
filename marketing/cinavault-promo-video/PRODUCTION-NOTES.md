@@ -4,7 +4,7 @@ Date: 2026-06-04
 Source branch: `codex/cinavault-promo-video-v2`
 Project folder in repo: `marketing\cinavault-promo-video`
 Composition: `CinaVaultPromo`
-Runtime: 61 seconds at 30 fps, 1920x1080
+Runtime: 68 seconds at 30 fps, 1920x1080
 Primary export: `output\cinavault-promo-v2.mp4`
 
 ## Final Narration Script
@@ -31,6 +31,7 @@ Don't settle for yesterday's media server. Step into CinaVault, and give your li
 | 0:28-0:40 | Scale architecture | Legacy-vs-CinaVault progress bars and responsive flow metrics | Paged loading, poster cache stability, safer duplicate cleanup |
 | 0:40-0:51 | Real UI proof | Product dashboard screenshot with cinematic push-in and proof badges | Real CinaVault UI, diagnostics, enrichment, active progress |
 | 0:51-1:01 | Final CTA | Brand lockup, neon shard transitions, future-tech color hits | Premium control, cleaner libraries, ready for growth |
+| 1:01-1:08 | Platform availability | Full-screen Build 130 logo shot, glowing frame, shimmer pass, large download copy | Available on Android, Windows, and iOS systems; check applicable app store |
 
 ## Assets
 
@@ -47,7 +48,7 @@ Don't settle for yesterday's media server. Step into CinaVault, and give your li
 - Lint and typecheck: `npm run lint`
 - Still-frame check: `npm run still`
 - Render MP4: `npm run render`
-- Contact sheet: `ffmpeg -y -i output\cinavault-promo-v2.mp4 -vf "fps=1/6,scale=384:-1,tile=5x2" -update 1 output\cinavault-promo-v2-contact-sheet.jpg`
+- Contact sheet: `ffmpeg -y -i output\cinavault-promo-v2.mp4 -vf "fps=1/6.8,scale=384:-1,tile=5x2" -update 1 output\cinavault-promo-v2-contact-sheet.jpg`
 
 ## Verification Results
 
@@ -55,17 +56,21 @@ Don't settle for yesterday's media server. Step into CinaVault, and give your li
 - `npm run still`: passed; generated `output\cinavault-promo-v2-check.png`.
 - `npm run render`: passed; generated `output\cinavault-promo-v2.mp4`.
 - Voiceover: generated with `edge-tts` using `en-US-ChristopherNeural`, rate `-8%`, pitch `-10Hz`; duration 60.648 seconds.
-- Music bed: generated locally with FFmpeg synthesis; duration 61.000 seconds.
-- Final MP4: 35,883,669 bytes.
-- MP4 probe: H.264 video, 1920x1080, 30 fps, 1830 frames, AAC stereo audio, 61.056 seconds.
+- Music bed: generated locally with FFmpeg synthesis, extended to 68.000 seconds with a final fadeout.
+- Final MP4: 39,662,435 bytes.
+- MP4 probe: H.264 video, 1920x1080, 30 fps, 2040 frames, AAC stereo audio, 68.053333 seconds.
 - Contact sheet: `output\cinavault-promo-v2-contact-sheet.jpg` regenerated and visually checked across the runtime.
+- Platform end-card proof: `output\cinavault-promo-v2-platform-end.png` generated and visually checked before final render.
+- Final frame from rendered MP4: `output\cinavault-promo-v2-final-frame-from-mp4.png` extracted at 65 seconds and visually checked.
 - Build 130 logo asset: copied from tag `build-130`; SHA256 `702CBAC06539A7E0A8230FFED56EE3998AEEE32110903EAAE1D0D1902143D9AB`.
-- Final MP4 SHA256: `3C1243232ADA4AE7FCCEBBD276C92F80FF8BB7497B055AF7F81A785F297578FB`.
+- Music bed SHA256: `A2857ECC2023A636F1546ADA45DD9191C434543028BD364C90D5B5A5B942CF0F`.
+- Final MP4 SHA256: `8ED42C84B9248D79C4E50E9D74D4FB47CA5DECA455BA9A15A3D3C36958CC0EAB`.
 
 ## Notes
 
 - This v2 pass replaces the calmer v1 approach with a heavier cinematic technology look: animated HUD layers, diagonal light blasts, source telemetry, data ribbons, transition flashes, and a more aggressive motion cadence.
 - The final render uses the Build 130 blue CineVault Media Server Pro Edition logo asset rather than the older red promo mark.
+- A final full-screen platform availability card was added with: "Available on Android, Windows, and iOS systems. For downloads, check your applicable app store."
 - The requested regional Southern voice was not directly available in the installed Windows voices or the fetched Edge TTS voice list. The final voiceover uses the deepest clear US neural male voice found locally, slowed and pitched down for a steadier, easier cadence.
 - `edge-tts` was acquired with Python pip to improve voice quality over the earlier Windows desktop speech synthesis.
 - `npm install` reported two low-severity audit findings from scaffold dependencies. No force fix was applied because that could change generated Remotion dependency versions.
