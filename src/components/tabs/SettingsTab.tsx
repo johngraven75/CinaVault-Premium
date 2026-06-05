@@ -229,16 +229,16 @@ export default function SettingsTab() {
             <>
               <div className="cv-card p-3">
                 <img
-                  src="/branding/cinavault-premium-banner.png"
-                  alt="CinaVault Premium Media Server brand"
+                  src="/branding/cinavault-android-logo.png"
+                  alt="CinaVault Media Server Pro Edition Android Version"
                   className="w-full rounded-lg border border-white/10"
                 />
               </div>
               <div className="cv-card p-6 text-center">
                 <div className="text-3xl mb-2">🎬</div>
                 <h2 className="text-xl font-bold mb-1" style={{ color: "var(--cv-text)" }}>CinaVault Premium</h2>
-                <p className="text-sm font-medium mb-0.5" style={{ color: "var(--cv-accent)" }}>Fusion Edition</p>
-                <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>v1.0.0-18 · Build 130 · Tauri v2 + React 18</p>
+                <p className="text-sm font-medium mb-0.5" style={{ color: "var(--cv-accent)" }}>Pro Edition Android Version</p>
+                <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>v1.0.0-18 · Build 130 Android · Tauri v2 + React 18</p>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-white/3">
                     <div className="text-lg font-bold" style={{ color: "var(--cv-accent)" }}>150+</div>

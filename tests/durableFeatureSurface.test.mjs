@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 function read(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -52,6 +52,8 @@ test("metadata provider tab exposes API key save and test controls", () => {
   const pluginsTab = read("src/components/tabs/PluginsTab.tsx");
   const metadata = read("src-tauri/src/metadata.rs");
   const main = read("src-tauri/src/main.rs");
+  const lib = read("src-tauri/src/lib.rs");
+  const tauriEntrypoints = `${main}\n${lib}`;
 
   assert.match(pluginsTab, /get_api_keys/);
   assert.match(pluginsTab, /set_api_key/);
@@ -60,9 +62,45 @@ test("metadata provider tab exposes API key save and test controls", () => {
   assert.match(metadata, /pub fn set_api_key/);
   assert.match(metadata, /pub fn get_api_keys/);
   assert.match(metadata, /pub async fn test_api_key/);
-  assert.match(main, /metadata::set_api_key/);
-  assert.match(main, /metadata::get_api_keys/);
-  assert.match(main, /metadata::test_api_key/);
+  assert.match(metadata, /INSERT OR REPLACE INTO api_keys/);
+  assert.match(metadata, /SELECT provider, api_key FROM api_keys/);
+  assert.match(tauriEntrypoints, /metadata::set_api_key/);
+  assert.match(tauriEntrypoints, /metadata::get_api_keys/);
+  assert.match(tauriEntrypoints, /metadata::test_api_key/);
+});
+
+test("plugin JSON config persists across Android catalog and runtime updates", () => {
+  const pluginsTab = read("src/components/tabs/PluginsTab.tsx");
+  const pluginAdapter = read("src/data/pluginAdapter.ts");
+  const plugins = read("src-tauri/src/plugins.rs");
+  const db = read("src-tauri/src/db.rs");
+
+  assert.match(db, /config_json TEXT DEFAULT '\{\}'/);
+  assert.match(db, /ensure_column\("plugins", "plugin_key", "TEXT"\)/);
+  assert.match(pluginAdapter, /setPluginConfig/);
+  assert.match(pluginAdapter, /action: "configure"/);
+  assert.match(pluginAdapter, /config: JSON\.stringify\(config\)/);
+  assert.match(pluginsTab, /setConfigText\(JSON\.stringify\(pluginEngine\.getPluginConfig\(plugin\.id\), null, 2\)\)/);
+  assert.match(plugins, /config_json = COALESCE\(NULLIF\(config_json, ''\), '\{\}'\)/);
+  assert.match(plugins, /Invalid plugin JSON config/);
+  assert.match(plugins, /INSERT INTO plugins[\s\S]*config_json/);
+  assert.doesNotMatch(plugins, /INSERT OR REPLACE INTO plugins[\s\S]*config_json\)[\s\S]*'\{\}'/);
+});
+
+test("Android branding assets drive splash, app UI, and launcher resources", () => {
+  const html = read("index.html");
+  const header = read("src/components/Header.tsx");
+  const sidebar = read("src/components/Sidebar.tsx");
+  const settings = read("src/components/tabs/SettingsTab.tsx");
+  const root = new URL("../", import.meta.url);
+
+  assert.match(html, /cinavault-android-logo\.png/);
+  assert.match(header, /cinavault-android-icon\.png/);
+  assert.match(sidebar, /cinavault-android-icon\.png/);
+  assert.match(settings, /cinavault-android-logo\.png/);
+  assert.ok(existsSync(new URL("public/branding/cinavault-android-logo.png", root)));
+  assert.ok(existsSync(new URL("public/branding/cinavault-android-icon.png", root)));
+  assert.ok(existsSync(new URL("src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png", root)));
 });
 
 test("PhoenixAdult remains an active local adult metadata provider", () => {
@@ -121,14 +159,16 @@ test("all adult metadata providers are enabled by default", () => {
 
 test("built-in VPN and antivirus controls are real command surfaces", () => {
   const main = read("src-tauri/src/main.rs");
+  const lib = read("src-tauri/src/lib.rs");
+  const tauriEntrypoints = `${main}\n${lib}`;
   const vpnb = read("src-tauri/src/vpnb.rs");
   const avb = read("src-tauri/src/avb.rs");
   const security = read("src/components/tabs/SecurityTab.tsx");
 
-  assert.match(main, /vpnb::vpnb_status/);
-  assert.match(main, /vpnb::vpnb_connect/);
-  assert.match(main, /avb::avb_status/);
-  assert.match(main, /avb::avb_scan_path/);
+  assert.match(tauriEntrypoints, /vpnb::vpnb_status/);
+  assert.match(tauriEntrypoints, /vpnb::vpnb_connect/);
+  assert.match(tauriEntrypoints, /avb::avb_status/);
+  assert.match(tauriEntrypoints, /avb::avb_scan_path/);
   assert.match(vpnb, /wireguard\.exe/);
   assert.match(vpnb, /wg-quick/);
   assert.match(avb, /Start-MpScan/);
@@ -141,13 +181,14 @@ test("each media card exposes an isolated one-item metadata check action", () =>
   const homeTab = read("src/components/tabs/HomeTab.tsx");
   const ai = read("src-tauri/src/ai.rs");
   const main = read("src-tauri/src/main.rs");
+  const lib = read("src-tauri/src/lib.rs");
 
   assert.match(homeTab, /onCheckMetadata/);
   assert.match(homeTab, /check_media_item_metadata/);
   assert.match(homeTab, /Check metadata/);
   assert.match(homeTab, /stopPropagation/);
   assert.match(ai, /pub async fn check_media_item_metadata/);
-  assert.match(main, /ai::check_media_item_metadata/);
+  assert.match(`${main}\n${lib}`, /ai::check_media_item_metadata/);
 });
 
 test("local poster files are renderable through the Tauri asset protocol", () => {

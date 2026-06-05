@@ -1,6 +1,8 @@
 // CinaVault Premium — Built-in antivirus bridge.
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
 fn run_powershell(script: &str) -> Result<(bool, String, String), String> {
     let output = Command::new("powershell")
         .args([

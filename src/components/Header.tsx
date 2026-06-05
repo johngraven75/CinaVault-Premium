@@ -168,7 +168,7 @@ export default function Header() {
         {/* Tab title */}
         <div className="flex items-center gap-3">
           <img
-            src="/branding/cinavault-premium-brand-full.png"
+            src="/branding/cinavault-android-icon.png"
             alt="CinaVault brand"
             className="w-20 h-10 rounded-md object-contain border border-white/10 bg-black/20 shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
           />

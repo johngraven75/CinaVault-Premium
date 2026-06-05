@@ -130,11 +130,27 @@ pub async fn sync_plugin_catalog(
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        db.conn.execute(
-            "INSERT OR REPLACE INTO plugins (name, version, description, author, repo_id, installed, config_json) \
-             VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT installed FROM plugins WHERE name = ?1 AND repo_id = ?5), 0), '{}')",
-            params![name, version, desc, author, repo_id],
-        ).map_err(|e| e.to_string())?;
+        let updated = db
+            .conn
+            .execute(
+                "UPDATE plugins
+             SET version = ?2,
+                 description = ?3,
+                 author = ?4,
+                 repo_id = ?5,
+                 config_json = COALESCE(NULLIF(config_json, ''), '{}')
+             WHERE name = ?1 AND repo_id = ?5",
+                params![name, version, desc, author, repo_id],
+            )
+            .map_err(|e| e.to_string())?;
+
+        if updated == 0 {
+            db.conn.execute(
+                "INSERT INTO plugins (name, version, description, author, repo_id, installed, config_json) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0, '{}')",
+                params![name, version, desc, author, repo_id],
+            ).map_err(|e| e.to_string())?;
+        }
         count += 1;
     }
 
@@ -202,7 +218,7 @@ pub fn install_plugin(
                  platform = ?4,
                  install_path = ?5,
                  repo_url = ?6
-             WHERE plugin_key = ?1",
+             WHERE plugin_key = ?1 OR name = ?2",
             params![plugin_id, name, version, platform, install_path, repo_url],
         )
         .map_err(|e| e.to_string())?;
@@ -246,12 +262,25 @@ pub fn run_plugin(
     match action.as_str() {
         "configure" => {
             let config = config.unwrap_or_else(|| "{}".to_string());
-            db.conn
+            serde_json::from_str::<serde_json::Value>(&config)
+                .map_err(|e| format!("Invalid plugin JSON config: {e}"))?;
+            let updated = db
+                .conn
                 .execute(
                     "UPDATE plugins SET config_json = ?2 WHERE plugin_key = ?1 OR name = ?1",
                     params![plugin_id, config],
                 )
                 .map_err(|e| e.to_string())?;
+            if updated == 0 {
+                db.conn
+                    .execute(
+                        "INSERT INTO plugins
+                         (plugin_key, name, version, description, author, repo_id, installed, config_json, platform, install_path, enabled, repo_url)
+                         VALUES (?1, ?1, NULL, NULL, NULL, NULL, 1, ?2, 'cinavault', 'plugins/cinavault/' || ?1, 1, '')",
+                        params![plugin_id, config],
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
         }
         "enable" | "start" => {
             db.conn

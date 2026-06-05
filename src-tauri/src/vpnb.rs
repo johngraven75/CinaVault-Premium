@@ -2,6 +2,7 @@
 use std::env::temp_dir;
 use std::fs::File;
 use std::io::Write;
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
 use std::process::Command;
 

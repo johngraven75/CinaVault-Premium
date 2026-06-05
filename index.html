@@ -24,6 +24,14 @@
         transition: opacity 0.8s ease-out;
       }
       #splash.hidden { opacity: 0; pointer-events: none; }
+      #splash img {
+        width: min(82vw, 860px);
+        max-height: 58vh;
+        object-fit: contain;
+        filter: drop-shadow(0 24px 46px rgba(0, 0, 0, 0.62));
+        border-radius: 10px;
+        margin-bottom: 1.6rem;
+      }
       #splash h1 {
         font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 2.7rem;
         background: linear-gradient(135deg, #ffffff, #8ff5ff 44%, #19d7ff 100%);
@@ -95,7 +103,7 @@
   <body>
     <div id="splash">
       <div id="splash-logo-wrap">
-        <img id="splash-logo" src="/branding/cinavault-premium-brand-full.png" alt="CineVault Media Server Pro Edition" />
+        <img id="splash-logo" src="/branding/cinavault-android-logo.png" alt="CineVault Media Server Pro Edition" />
       </div>
       <div id="splash-bar-track"><div id="splash-bar"></div></div>
       <div id="splash-status">Initializing systems...</div>

@@ -311,7 +311,7 @@ async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
         .output();
     #[cfg(not(target_os = "windows"))]
     let ping = std::process::Command::new("ping")
-        .args(&["-c", "3", "8.8.8.8"])
+        .args(["-c", "3", "8.8.8.8"])
         .output();
 
     results.insert(

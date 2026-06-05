@@ -43,7 +43,7 @@ export default function Sidebar() {
       {/* Logo / Brand */}
       <div className="h-20 flex items-center px-3 gap-3 border-b border-white/5 shrink-0 overflow-hidden">
         <img
-          src="/branding/cinavault-premium-brand-full.png"
+          src="/branding/cinavault-android-icon.png"
           alt="CinaVault Premium"
           className="w-12 h-12 rounded-xl object-contain border border-white/10 bg-black/20 shadow-[0_10px_22px_rgba(0,0,0,0.45)] shrink-0"
         />
@@ -58,7 +58,7 @@ export default function Sidebar() {
               CinaVault
             </span>
             <span className="text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--cv-accent)" }}>
-              Premium Media Server
+              Android Media Server
             </span>
           </motion.div>
         )}
