@@ -12,6 +12,13 @@ export const PGMA_DEFAULT_CONFIG = {
   defaultTarget: "cinavault-staging",
   notes: "Leave plexPluginPath blank to deploy into CinaVault's local Plex plugin staging folder. Set it only when you want to deploy directly into a real Plex Plug-ins folder.",
   requiresPlexRestart: true,
+  nativeToolchain: "native-rust-pgma-bridge",
+  metadataSources: ["nfo", "localArtwork"],
+  downloadArtwork: true,
+  overwriteExistingMetadata: false,
+  limit: 5000,
+  autoDeployBundlesOnInstall: true,
+  autoRefreshLibraryAfterDeploy: false,
 };
 
 // ── Adapter configuration per-platform ──
@@ -37,7 +44,7 @@ export interface InstalledPlugin {
 // ── Platform adapters ──
 
 const JELLYFIN_DLL_MAP: Record<string, string> = {
-  "jf-opensubtitles": "Jellyfin.Plugin.OpenSubTitles.dll",
+  "jf-opensubtitles": "Jellyfin.Plugin.OpenSubtitles.dll",
   "jf-trakt": "Jellyfin.Plugin.Trakt.dll",
   "jf-fanart": "Jellyfin.Plugin.Fanart.dll",
   "jf-tvdb": "Jellyfin.Plugin.TheTvdb.dll",
@@ -65,6 +72,14 @@ function defaultConfigForPlugin(pluginId: string): Record<string, any> {
 
 function normalizePlatform(platform: any): PluginPlatform {
   return ["jellyfin", "emby", "plex", "cinavault"].includes(platform) ? platform : "cinavault";
+}
+
+function isPgmaDeployAction(action: string): boolean {
+  return ["deploy", "install", "update", "upgrade"].includes(action);
+}
+
+function isPgmaRefreshAction(action: string): boolean {
+  return ["start", "run", "refresh", "refresh_library", "refreshLibrary"].includes(action);
 }
 
 export class PluginAdapterEngine {
@@ -111,22 +126,36 @@ export class PluginAdapterEngine {
         repoUrl: plugin.repo || "",
       });
 
+      let deployResult: any = null;
       if (plugin.id === PGMA_PLUGIN_ID) {
         await invoke("run_plugin", {
           pluginId: plugin.id,
           action: "configure",
           config: JSON.stringify(defaultConfig),
         });
+        if (defaultConfig.autoDeployBundlesOnInstall) {
+          deployResult = await invoke("run_plugin", {
+            pluginId: plugin.id,
+            action: "deploy",
+            config: JSON.stringify(defaultConfig),
+          });
+        }
       }
 
-      const installPath = this.resolveInstallPath(plugin);
+      const installPath = plugin.id === PGMA_PLUGIN_ID && deployResult?.targetPath
+        ? deployResult.targetPath
+        : this.resolveInstallPath(plugin);
       const installed: InstalledPlugin = {
         id: plugin.id,
         name: plugin.name,
         platform: plugin.platforms[0],
         version: plugin.version,
         installPath,
-        configJson: JSON.stringify(defaultConfig),
+        configJson: JSON.stringify({
+          ...defaultConfig,
+          lastDeployTarget: deployResult?.targetPath,
+          deployedBundles: deployResult?.bundles,
+        }),
         enabled: true,
         lastRun: new Date().toISOString(),
       };
@@ -172,23 +201,40 @@ export class PluginAdapterEngine {
 
   // ── Run / activate a plugin ──
   async runPlugin(pluginId: string, action: string = "start"): Promise<any> {
-    const effectiveAction = pluginId === PGMA_PLUGIN_ID && action === "run" ? "deploy" : action;
-    const config = pluginId === PGMA_PLUGIN_ID ? JSON.stringify({ ...PGMA_DEFAULT_CONFIG, ...this.getPluginConfig(pluginId) }) : undefined;
+    const configObject = pluginId === PGMA_PLUGIN_ID ? { ...PGMA_DEFAULT_CONFIG, ...this.getPluginConfig(pluginId) } : undefined;
+    const config = configObject ? JSON.stringify(configObject) : undefined;
     try {
-      const result = await invoke("run_plugin", { pluginId, action: effectiveAction, config });
+      let result: any;
+      if (pluginId === PGMA_PLUGIN_ID && isPgmaRefreshAction(action)) {
+        result = await invoke("refresh_pgma_library", { config });
+      } else if (pluginId === PGMA_PLUGIN_ID && isPgmaDeployAction(action)) {
+        result = await invoke("run_plugin", { pluginId, action: "deploy", config });
+      } else {
+        result = await invoke("run_plugin", { pluginId, action, config });
+      }
+
       if (pluginId === PGMA_PLUGIN_ID && result && typeof result === "object") {
         const current = this.installed.get(pluginId);
         const nextConfig = {
           ...PGMA_DEFAULT_CONFIG,
           ...this.getPluginConfig(pluginId),
-          lastDeployTarget: (result as any).targetPath,
-          deployedBundles: (result as any).bundles,
-          requiresPlexRestart: true,
+          lastDeployTarget: result.targetPath,
+          deployedBundles: result.bundles,
+          lastRefreshStats: result.scanned !== undefined ? {
+            scanned: result.scanned,
+            matched: result.matched,
+            updated: result.updated,
+            artworkDownloaded: result.artworkDownloaded,
+            skipped: result.skipped,
+            errors: result.errors,
+            message: result.message,
+          } : undefined,
+          requiresPlexRestart: result.requiresPlexRestart ?? true,
         };
         if (current) {
           this.installed.set(pluginId, {
             ...current,
-            installPath: (result as any).targetPath || current.installPath,
+            installPath: result.targetPath || current.installPath,
             configJson: JSON.stringify(nextConfig),
             enabled: true,
             lastRun: new Date().toISOString(),
@@ -245,7 +291,7 @@ export class PluginAdapterEngine {
   // ── Check compatibility ──
   checkCompatibility(plugin: PluginEntry): { compatible: boolean; reason: string } {
     if (plugin.id === PGMA_PLUGIN_ID) {
-      return { compatible: true, reason: "Native Plex .bundle deployer" };
+      return { compatible: true, reason: "Native bundle deployer + CinaVault metadata bridge" };
     }
 
     // CinaVault native plugins are always compatible
