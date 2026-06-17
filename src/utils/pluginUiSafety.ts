@@ -6,7 +6,7 @@ export const PGMA_PLUGIN_ID = "px-pgma-modernized";
 const PGMA_CATALOG_ENTRY: PluginEntry = {
   id: PGMA_PLUGIN_ID,
   name: "PGMA Modernized",
-  description: "Preinstalled Plex bundle deployer that downloads PGMA Modernized, extracts only .bundle folders, and stages them locally unless a Plex Plug-ins path is configured.",
+  description: "Preinstalled PGMA integration with Plex bundle deployment plus a native CinaVault metadata bridge that reads local sidecar/artwork data and writes matching fields into the library.",
   version: "master",
   author: "CodyBerenson / CinaVault",
   platforms: ["plex", "cinavault"],
@@ -17,7 +17,7 @@ const PGMA_CATALOG_ENTRY: PluginEntry = {
   configurable: true,
   premium: false,
   cinavaultNative: true,
-  tags: ["plex", "metadata", "bundle", "pgma", "staging"],
+  tags: ["plex", "metadata", "bundle", "pgma", "library", "artwork"],
 };
 
 type MetadataProviderLike = Partial<MetadataProvider> | null | undefined;
