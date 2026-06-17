@@ -1,0 +1,48 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/cinavault-pgma-plex-plugin
+
+jobs:
+  build-windows-installer:
+    name: Build CinaVault Premium Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build installer with one-step PowerShell script
+        shell: pwsh
+        run: .\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
+
+      - name: Stage installer artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifact -Force | Out-Null
+          Get-ChildItem -Path src-tauri\target\release\bundle -Recurse -File -Include *.exe,*.msi,*.zip | Copy-Item -Destination artifact -Force
+          Copy-Item BUILD_NOTES_PGMA.md artifact\BUILD_NOTES_PGMA.md -Force
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CinaVault-Premium-Windows-Installer-PGMA
+          path: artifact/*
+          if-no-files-found: error

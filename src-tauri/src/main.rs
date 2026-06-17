@@ -18,6 +18,7 @@ mod ai;
 mod enrichment;
 mod task_progress;
 mod library_artifacts;
+mod pgma_bridge;
 
 use db::Database;
 use std::sync::Mutex;
@@ -120,6 +121,7 @@ fn main() {
             plugins::uninstall_plugin,
             plugins::run_plugin,
             plugins::get_installed_plugins,
+            pgma_bridge::refresh_pgma_library,
             // Player
             player::play_media,
             player::get_available_players,
