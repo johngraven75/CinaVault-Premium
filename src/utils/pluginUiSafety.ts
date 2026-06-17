@@ -1,6 +1,25 @@
 import type { PluginEntry } from "../data/pluginRegistry";
 import type { MetadataProvider } from "../store/appStore";
 
+export const PGMA_PLUGIN_ID = "px-pgma-modernized";
+
+const PGMA_CATALOG_ENTRY: PluginEntry = {
+  id: PGMA_PLUGIN_ID,
+  name: "PGMA Modernized",
+  description: "Preinstalled Plex bundle deployer that downloads PGMA Modernized, extracts only .bundle folders, and stages them locally unless a Plex Plug-ins path is configured.",
+  version: "master",
+  author: "CodyBerenson / CinaVault",
+  platforms: ["plex", "cinavault"],
+  category: "metadata",
+  status: "active",
+  icon: "🧩",
+  repo: "https://github.com/CodyBerenson/PGMA-Modernized",
+  configurable: true,
+  premium: false,
+  cinavaultNative: true,
+  tags: ["plex", "metadata", "bundle", "pgma", "staging"],
+};
+
 type MetadataProviderLike = Partial<MetadataProvider> | null | undefined;
 type PluginSearchCandidate = Partial<Pick<PluginEntry, "name" | "description" | "tags">>;
 type PluginRuntimeState = { id?: unknown; enabled?: unknown } | null | undefined;
@@ -77,7 +96,11 @@ export function applyPluginRuntimeState<T extends PluginStatusCandidate>(
     });
   }
 
-  return registry.map((plugin) => {
+  const registryWithPreinstalled = registry.some((plugin) => plugin.id === PGMA_PLUGIN_ID)
+    ? registry
+    : [...registry, PGMA_CATALOG_ENTRY as unknown as T];
+
+  return registryWithPreinstalled.map((plugin) => {
     const runtime = installedById.get(plugin.id);
     if (!runtime) return { ...plugin };
 
