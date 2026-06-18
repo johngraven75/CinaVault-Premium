@@ -1,0 +1,3 @@
+Build 132 run 8 trigger
+Date: 2026-06-18
+Fix: normal TypeScript config allows legacy unused imports and App shell hard errors are fixed
