@@ -34,6 +34,22 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Refresh patched npm lockfile
+        shell: pwsh
+        run: |
+          npm install --package-lock-only
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 1) {
+            git commit -m 'Refresh npm security lockfile for Build ${{ env.BUILD_NUMBER }}'
+            git push
+          } else {
+            Write-Host 'No package lock refresh needed.'
+          }
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
