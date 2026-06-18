@@ -1,0 +1,3 @@
+Build 132 run 7 trigger
+Date: 2026-06-18
+Fix: pgma_bridge local artwork candidate lifetime
