@@ -1,0 +1,111 @@
+name: Build 131 Windows Installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  BUILD_NUMBER: '131'
+  BUILD_OUTPUT_DIR: releases/build-131
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build131
+
+jobs:
+  build-windows-installer:
+    name: Build CinaVault Premium Build 131 installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build installer
+        shell: pwsh
+        run: .\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
+
+      - name: Stage installer artifacts
+        shell: pwsh
+        run: |
+          $artifact = 'artifact'
+          New-Item -ItemType Directory -Path $artifact -Force | Out-Null
+
+          $bundle = 'src-tauri\target\release\bundle'
+          if (-not (Test-Path $bundle)) {
+            throw "Installer bundle directory not found: $bundle"
+          }
+
+          $installerFiles = Get-ChildItem -Path $bundle -Recurse -File |
+            Where-Object { $_.Extension -in '.exe', '.msi', '.zip' } |
+            Sort-Object LastWriteTime -Descending
+
+          if (-not $installerFiles) {
+            throw "No installer artifacts were found under $bundle."
+          }
+
+          foreach ($file in $installerFiles) {
+            Copy-Item -Path $file.FullName -Destination $artifact -Force
+          }
+
+          if (Test-Path 'BUILD_NOTES_PGMA.md') {
+            Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
+          }
+
+          $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
+          $hashLines = foreach ($file in $files) {
+            $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
+            "$($hash.Hash)  $($file.Name)"
+          }
+          $hashLines | Set-Content -Path "$artifact\SHA256SUMS.txt" -Encoding UTF8
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.INSTALLER_ARTIFACT_NAME }}
+          path: artifact/*
+          if-no-files-found: error
+
+      - name: Publish installer files to repository
+        shell: pwsh
+        run: |
+          $destination = '${{ env.BUILD_OUTPUT_DIR }}'
+          New-Item -ItemType Directory -Path $destination -Force | Out-Null
+          Copy-Item artifact\* $destination -Force
+
+          @(
+            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Installer Artifacts',
+            '',
+            'Build: ${{ env.BUILD_NUMBER }}',
+            "Source commit: $env:GITHUB_SHA",
+            "Workflow run: $env:GITHUB_RUN_ID",
+            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
+            '',
+            'The generated installer files and SHA256 manifest in this folder were produced by the dedicated manual Build 131 Windows installer workflow.'
+          ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $destination
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 1) {
+            git commit -m 'Upload Build 131 Windows installer artifacts'
+            git push
+          } else {
+            Write-Host 'No installer artifact changes to publish.'
+          }
