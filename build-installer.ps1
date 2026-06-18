@@ -30,6 +30,33 @@ function Require-Command {
     }
 }
 
+function Show-Npm-Debug-Log {
+    $CandidateRoots = @()
+    if ($env:npm_config_cache) {
+        $CandidateRoots += (Join-Path $env:npm_config_cache "_logs")
+    }
+    $CandidateRoots += "C:\npm\cache\_logs"
+    $CandidateRoots += (Join-Path $env:LOCALAPPDATA "npm-cache\_logs")
+
+    $LatestLog = $null
+    foreach ($Root in $CandidateRoots | Where-Object { $_ -and (Test-Path $_) }) {
+        $Log = Get-ChildItem -Path $Root -Filter "*.log" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($Log -and (-not $LatestLog -or $Log.LastWriteTime -gt $LatestLog.LastWriteTime)) {
+            $LatestLog = $Log
+        }
+    }
+
+    if ($LatestLog) {
+        Write-Host ""
+        Write-Host "Latest npm debug log: $($LatestLog.FullName)" -ForegroundColor Yellow
+        Get-Content -Path $LatestLog.FullName -Tail 160
+    } else {
+        Write-Host "No npm debug log was found." -ForegroundColor Yellow
+    }
+}
+
 function Invoke-Checked {
     param(
         [string]$Command,
@@ -39,6 +66,9 @@ function Invoke-Checked {
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) {
         $ArgumentText = $Arguments -join ' '
+        if ($Command -eq "npm") {
+            Show-Npm-Debug-Log
+        }
         throw ('Command failed with exit code {0}: {1} {2}' -f $LASTEXITCODE, $Command, $ArgumentText)
     }
 }
@@ -52,8 +82,12 @@ Require-Command "npm" "Install Node.js LTS from https://nodejs.org/."
 Require-Command "cargo" "Install Rust from https://rustup.rs/."
 Require-Command "rustc" "Install Rust from https://rustup.rs/."
 
-Write-Step "Installing JavaScript dependencies from patched manifest"
-Invoke-Checked "npm" @("install")
+if (Test-Path (Join-Path $RepoRoot "node_modules")) {
+    Write-Step "Using preinstalled JavaScript dependencies"
+} else {
+    Write-Step "Installing JavaScript dependencies from patched manifest"
+    Invoke-Checked "npm" @("install", "--legacy-peer-deps", "--loglevel", "verbose")
+}
 
 Write-Step "Running TypeScript build"
 Invoke-Checked "npm" @("run", "build")
