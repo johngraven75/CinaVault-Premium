@@ -38,7 +38,8 @@ function Invoke-Checked {
 
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code $LASTEXITCODE: $Command $($Arguments -join ' ')"
+        $ArgumentText = $Arguments -join ' '
+        throw ('Command failed with exit code {0}: {1} {2}' -f $LASTEXITCODE, $Command, $ArgumentText)
     }
 }
 
