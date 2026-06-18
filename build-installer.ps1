@@ -61,8 +61,9 @@ function Show-Tauri-Diagnostics {
     Write-Host ""
     Write-Host "Tauri diagnostic info" -ForegroundColor Yellow
     & npx tauri info
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "tauri info exited with code $LASTEXITCODE" -ForegroundColor Yellow
+    $InfoExitCode = $LASTEXITCODE
+    if ($InfoExitCode -ne 0) {
+        Write-Host "tauri info exited with code $InfoExitCode" -ForegroundColor Yellow
     }
 
     Write-Host ""
@@ -85,7 +86,8 @@ function Invoke-Checked {
     )
 
     & $Command @Arguments
-    if ($LASTEXITCODE -ne 0) {
+    $ExitCode = $LASTEXITCODE
+    if ($ExitCode -ne 0) {
         $ArgumentText = $Arguments -join ' '
         if ($TauriDiagnostics) {
             Show-Tauri-Diagnostics
@@ -93,7 +95,7 @@ function Invoke-Checked {
         if ($Command -eq "npm" -or $Command -eq "npx") {
             Show-Npm-Debug-Log
         }
-        throw ('Command failed with exit code {0}: {1} {2}' -f $LASTEXITCODE, $Command, $ArgumentText)
+        throw ('Command failed with exit code {0}: {1} {2}' -f $ExitCode, $Command, $ArgumentText)
     }
 }
 
