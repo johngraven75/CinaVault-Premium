@@ -3,7 +3,10 @@ use regex::Regex;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tauri::{AppHandle, Manager, State};
 
 #[derive(Debug, Deserialize)]
@@ -64,14 +67,14 @@ pub async fn refresh_pgma_library(
         .metadata_sources
         .unwrap_or_else(|| vec!["nfo".to_string(), "localArtwork".to_string()]);
     let use_nfo = sources.iter().any(|source| source.eq_ignore_ascii_case("nfo"));
-    let use_local_artwork = sources
-        .iter()
-        .any(|source| source.eq_ignore_ascii_case("localArtwork") || source.eq_ignore_ascii_case("local_artwork"));
+    let use_local_artwork = sources.iter().any(|source| {
+        source.eq_ignore_ascii_case("localArtwork") || source.eq_ignore_ascii_case("local_artwork")
+    });
     let limit = config.limit.unwrap_or(5000).max(1);
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
 
     let items = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let db = state.db.lock().map_err(|error| error.to_string())?;
         let mut stmt = db
             .conn
             .prepare(
@@ -81,7 +84,7 @@ pub async fn refresh_pgma_library(
                  ORDER BY date_added DESC
                  LIMIT ?1",
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| error.to_string())?;
         let rows = stmt
             .query_map(params![limit as i64], |row| {
                 Ok(LibraryItem {
@@ -95,8 +98,11 @@ pub async fn refresh_pgma_library(
                     genre: row.get(7)?,
                 })
             })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            .map_err(|error| error.to_string())?;
+        let collected_items = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        collected_items
     };
 
     let client = reqwest::Client::new();
@@ -157,7 +163,7 @@ pub async fn refresh_pgma_library(
         }
 
         let write_result = {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let db = state.db.lock().map_err(|error| error.to_string())?;
             db.conn.execute(
                 "UPDATE media_items
                  SET title = ?2,
@@ -218,12 +224,14 @@ fn read_sidecar_metadata(media_path: &Path) -> Option<MetadataPatch> {
 
 fn find_sidecar_nfo(media_path: &Path) -> Option<PathBuf> {
     let parent = media_path.parent()?;
-    let mut candidates = Vec::new();
-    candidates.push(media_path.with_extension("nfo"));
-    candidates.push(parent.join("movie.nfo"));
-    candidates.push(parent.join("metadata.nfo"));
+    let candidates = vec![
+        media_path.with_extension("nfo"),
+        parent.join("movie.nfo"),
+        parent.join("metadata.nfo"),
+    ];
 
-    candidates.into_iter().find(|candidate| candidate.is_file())
+    let found = candidates.into_iter().find(|candidate| candidate.is_file());
+    found
 }
 
 fn parse_nfo_metadata(xml: &str, base_dir: &Path) -> MetadataPatch {
@@ -261,7 +269,9 @@ fn tag_text(xml: &str, tag: &str) -> Option<String> {
 
 fn tag_values(xml: &str, tag: &str) -> Vec<String> {
     let pattern = format!(r"(?is)<{}\b[^>]*>(.*?)</{}>", regex::escape(tag), regex::escape(tag));
-    let Ok(re) = Regex::new(&pattern) else { return Vec::new(); };
+    let Ok(re) = Regex::new(&pattern) else {
+        return Vec::new();
+    };
     re.captures_iter(xml)
         .filter_map(|captures| captures.get(1).map(|match_| clean_xml_text(match_.as_str())))
         .filter(|value| !value.trim().is_empty())
@@ -287,7 +297,8 @@ fn xml_unescape(value: &str) -> String {
 
 fn first_year(value: &str) -> Option<i32> {
     let re = Regex::new(r"\b(19|20)\d{2}\b").ok()?;
-    re.find(value).and_then(|match_| match_.as_str().parse::<i32>().ok())
+    re.find(value)
+        .and_then(|match_| match_.as_str().parse::<i32>().ok())
 }
 
 fn normalize_artwork_reference(value: &str, base_dir: &Path) -> Option<String> {
@@ -306,7 +317,7 @@ fn normalize_artwork_reference(value: &str, base_dir: &Path) -> Option<String> {
 fn find_local_artwork(media_path: &Path) -> Option<String> {
     let parent = media_path.parent()?;
     let stem = media_path.file_stem()?.to_string_lossy();
-    let mut candidates = vec![
+    let candidates = vec![
         parent.join(format!("{stem}.jpg")),
         parent.join(format!("{stem}.jpeg")),
         parent.join(format!("{stem}.png")),
@@ -317,9 +328,11 @@ fn find_local_artwork(media_path: &Path) -> Option<String> {
         parent.join("cover.jpg"),
     ];
 
-    candidates.drain(..)
+    let found = candidates
+        .into_iter()
         .find(|candidate| candidate.is_file())
-        .map(|path| path.display().to_string())
+        .map(|path| path.display().to_string());
+    found
 }
 
 async fn resolve_artwork_path(
@@ -391,7 +404,7 @@ fn merge_patches(current: MetadataPatch, incoming: MetadataPatch) -> MetadataPat
 
 fn choose_text(current: &Option<String>, incoming: &Option<String>, overwrite: bool) -> Option<String> {
     if let Some(value) = incoming.as_ref().filter(|value| !value.trim().is_empty()) {
-        if overwrite || current.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
+        if overwrite || current.as_ref().map(|value| value.trim().is_empty()).unwrap_or(true) {
             return Some(value.trim().to_string());
         }
     }
