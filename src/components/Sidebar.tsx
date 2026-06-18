@@ -17,12 +17,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Router,
+  type LucideIcon,
 } from "lucide-react";
 
 interface NavItem {
   id: TabId;
   label: string;
-  icon: React.FC<{ size?: number; className?: string }>;
+  icon: LucideIcon;
   signal: string;
 }
 
@@ -51,10 +52,10 @@ export default function Sidebar(): JSX.Element {
       transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.16),transparent_28%),radial-gradient(circle_at_70%_18%,rgba(0,234,255,0.14),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.015))]" />
-      <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-[var(--cv-accent)]/45 to-transparent" />
+      <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-[rgba(0,234,255,0.45)] to-transparent" />
 
       <div className="relative z-10 flex h-full flex-col">
-        <div className="flex h-24 shrink-0 items-center gap-3 border-b border-white/10 px-3 overflow-hidden">
+        <div className="flex h-24 shrink-0 items-center gap-3 overflow-hidden border-b border-white/10 px-3">
           <motion.div
             className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/[0.06] shadow-[0_0_28px_rgba(0,234,255,0.18)]"
             whileHover={{ scale: 1.04, rotate: -1 }}
@@ -123,7 +124,7 @@ export default function Sidebar(): JSX.Element {
                   {isActive && (
                     <motion.span
                       layoutId="sidebar-active-rail"
-                      className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-[var(--cv-accent)] shadow-[0_0_16px_var(--cv-accent)]"
+                      className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-cyan-300 shadow-[0_0_16px_rgba(0,234,255,0.85)]"
                     />
                   )}
 
