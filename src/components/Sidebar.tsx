@@ -1,5 +1,5 @@
 // CinaVault Premium — Build 132 Futuristic Sidebar Navigation
-import React from "react";
+import type { JSX } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import {
