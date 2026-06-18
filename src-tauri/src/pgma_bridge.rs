@@ -300,7 +300,7 @@ fn normalize_artwork_reference(value: &str, base_dir: &Path) -> Option<String> {
     }
     let path = PathBuf::from(trimmed);
     let resolved = if path.is_absolute() { path } else { base_dir.join(path) };
-    resolved.is_file().then(|| resolved.to_string_lossy().to_string())
+    resolved.is_file().then(|| resolved.display().to_string())
 }
 
 fn find_local_artwork(media_path: &Path) -> Option<String> {
@@ -319,7 +319,7 @@ fn find_local_artwork(media_path: &Path) -> Option<String> {
 
     candidates.drain(..)
         .find(|candidate| candidate.is_file())
-        .map(|path| path.to_string_lossy().to_string())
+        .map(|path| path.display().to_string())
 }
 
 async fn resolve_artwork_path(
@@ -356,7 +356,7 @@ async fn resolve_artwork_path(
     fs::create_dir_all(&artwork_dir).map_err(|error| error.to_string())?;
     let output_path = artwork_dir.join(format!("{}.{}", &hash[..24], ext));
     fs::write(&output_path, bytes).map_err(|error| error.to_string())?;
-    Ok((Some(output_path.to_string_lossy().to_string()), true))
+    Ok((Some(output_path.display().to_string()), true))
 }
 
 fn extension_from_url(url: &str) -> Option<&'static str> {
