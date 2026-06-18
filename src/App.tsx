@@ -139,20 +139,24 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [activeTab, currentTheme, sidebarCollapsed, saveState]);
 
-  const handleWheel = useCallback((event: WheelEvent): void => {
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>): void => {
     if (!(event.target instanceof Element)) return;
 
     const root = mainScrollRef.current;
     if (!root) return;
 
     const scrollable = findScrollableAncestor(event.target, root);
-    const deltaPixels = getWheelDeltaPixels(event);
+    const deltaPixels = getWheelDeltaPixels(event.deltaY, event.deltaMode, root.clientHeight);
 
     if (!canScrollInDirection(scrollable, deltaPixels)) {
       const parentScroll = findScrollableAncestor(scrollable.parentElement || root, root);
       if (canScrollInDirection(parentScroll, deltaPixels)) {
-        const wheelScrolledTop = getWheelScrolledTop(event);
-        parentScroll.scrollTop += wheelScrolledTop;
+        parentScroll.scrollTop = getWheelScrolledTop(
+          parentScroll.scrollTop,
+          deltaPixels,
+          parentScroll.scrollHeight,
+          parentScroll.clientHeight,
+        );
         event.preventDefault();
       }
     }
