@@ -57,15 +57,39 @@ function Show-Npm-Debug-Log {
     }
 }
 
+function Show-Tauri-Diagnostics {
+    Write-Host ""
+    Write-Host "Tauri diagnostic info" -ForegroundColor Yellow
+    & npx tauri info
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "tauri info exited with code $LASTEXITCODE" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "Recent bundle directory contents" -ForegroundColor Yellow
+    $BundleRoot = Join-Path $RepoRoot "src-tauri\target\release\bundle"
+    if (Test-Path $BundleRoot) {
+        Get-ChildItem -Path $BundleRoot -Recurse -Force | Select-Object -First 200 | ForEach-Object {
+            Write-Host $_.FullName
+        }
+    } else {
+        Write-Host "Bundle directory does not exist yet: $BundleRoot"
+    }
+}
+
 function Invoke-Checked {
     param(
         [string]$Command,
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [switch]$TauriDiagnostics
     )
 
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) {
         $ArgumentText = $Arguments -join ' '
+        if ($TauriDiagnostics) {
+            Show-Tauri-Diagnostics
+        }
         if ($Command -eq "npm" -or $Command -eq "npx") {
             Show-Npm-Debug-Log
         }
@@ -110,7 +134,9 @@ if (-not $SkipTests) {
 }
 
 Write-Step "Building Windows installer with Tauri"
-Invoke-Checked "npm" @("run", "tauri", "--", "build")
+$env:RUST_BACKTRACE = "full"
+$env:TAURI_DEBUG = "true"
+Invoke-Checked "npx" @("tauri", "build") -TauriDiagnostics
 
 Write-Step "Finding installer outputs"
 $Installers = @()
