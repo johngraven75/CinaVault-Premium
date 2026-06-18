@@ -1,5 +1,6 @@
 // CinaVault Premium — Build 132 Cinematic Command Header
-import React, { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState } from "react";
+import type { JSX } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore, TabId } from "../store/appStore";
 import { Search, Bell, Maximize2, Activity, RadioTower, Sparkles } from "lucide-react";
