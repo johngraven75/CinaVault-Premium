@@ -2,6 +2,19 @@
 
 Branch: `codex/cinavault-pgma-plex-plugin`
 
+## Build 131 installer request
+
+Build 131 is the current requested Windows installer build.
+
+Expected GitHub Actions output:
+
+- Artifact name: `CinaVault-Premium-Windows-Installer-Build131`
+- Repository output folder: `releases/build-131/`
+- Hash manifest: `releases/build-131/SHA256SUMS.txt`
+- Upload report: `releases/build-131/INSTALLER-UPLOAD-REPORT.md`
+
+This note is intentionally kept outside `releases/**` so a normal push to `main` can trigger the Windows installer workflow.
+
 ## One-step Windows build command
 
 From the repository root in PowerShell:
