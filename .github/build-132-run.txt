@@ -1,0 +1,11 @@
+CinaVault Premium Build 132 workflow trigger
+
+Purpose: trigger the Windows installer workflow from a non-release path after dependency security fixes.
+Requested by: Johnathan
+Date: 2026-06-18
+
+Expected workflow:
+- .github/workflows/windows-installer.yml
+- Build number: 132
+- Artifact: CinaVault-Premium-Windows-Installer-Build132
+- Output directory: releases/build-132
