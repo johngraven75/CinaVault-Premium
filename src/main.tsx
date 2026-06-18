@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./data/pluginAdapterInitialize";
 import App from "./App";
 import "./styles/index.css";
 
-// Splash screen animation
 const splash = document.getElementById("splash");
 const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
 const splashStatus = document.getElementById("splash-status") as HTMLDivElement;
@@ -19,29 +19,32 @@ const stages = [
 ];
 
 let stageIdx = 0;
-const advanceSplash = () => {
+
+function advanceSplash(): void {
   if (stageIdx < stages.length) {
-    const s = stages[stageIdx];
-    if (splashBar) splashBar.style.width = `${s.pct}%`;
-    if (splashStatus) splashStatus.textContent = s.text;
-    stageIdx++;
-    setTimeout(advanceSplash, 300 + Math.random() * 200);
-  } else {
-    setTimeout(() => {
-      if (splash) splash.classList.add("hidden");
-      setTimeout(() => {
-        splash?.remove();
-        if (brandSplash) {
-          brandSplash.classList.add("visible");
-          setTimeout(() => {
-            brandSplash.classList.remove("visible");
-            setTimeout(() => brandSplash.remove(), 700);
-          }, 1900);
-        }
-      }, 760);
-    }, 260);
+    const stage = stages[stageIdx];
+    if (splashBar) splashBar.style.width = `${stage.pct}%`;
+    if (splashStatus) splashStatus.textContent = stage.text;
+    stageIdx += 1;
+    window.setTimeout(advanceSplash, 300 + Math.random() * 200);
+    return;
   }
-};
+
+  window.setTimeout(() => {
+    if (splash) splash.classList.add("hidden");
+    window.setTimeout(() => {
+      splash?.remove();
+      if (brandSplash) {
+        brandSplash.classList.add("visible");
+        window.setTimeout(() => {
+          brandSplash.classList.remove("visible");
+          window.setTimeout(() => brandSplash.remove(), 700);
+        }, 1900);
+      }
+    }, 760);
+  }, 260);
+}
+
 advanceSplash();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
