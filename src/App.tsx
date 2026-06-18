@@ -70,6 +70,17 @@ function canScrollInDirection(element: HTMLElement, deltaPixels: number): boolea
   return false;
 }
 
+function readLocalPersistedState(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem("cinavault_state");
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 async function saveAllSettingsToBackend(state: Record<string, string>): Promise<void> {
   try {
     for (const [key, value] of Object.entries(state)) {
@@ -95,7 +106,7 @@ export default function App(): JSX.Element {
   } = useAppStore();
 
   const isSaving = useRef<boolean>(false);
-  const mainScrollRef = useRef<HTMLElement | null>(null);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
 
   const saveState = useCallback(async (): Promise<void> => {
     if (isSaving.current) return;
@@ -117,7 +128,7 @@ export default function App(): JSX.Element {
 
     const initializeApplication = async (): Promise<void> => {
       try {
-        await restorePersistedState();
+        restorePersistedState(readLocalPersistedState());
         if (cancelled) return;
 
         applyTheme(currentTheme);
