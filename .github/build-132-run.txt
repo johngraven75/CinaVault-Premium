@@ -1,9 +1,9 @@
 CinaVault Premium Build 132 workflow trigger
 
-Purpose: trigger the Windows installer workflow from a non-release path after the PowerShell parser fix and dependency security fixes.
+Purpose: trigger the Windows installer workflow from a non-release path after the verified PowerShell parser fix and dependency security fixes.
 Requested by: Johnathan
 Date: 2026-06-18
-Run revision: 2
+Run revision: 3
 
 Expected workflow:
 - .github/workflows/windows-installer.yml
