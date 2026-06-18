@@ -1,4 +1,4 @@
-// CinaVault Premium — Main Application Shell
+// CinaVault Premium — Build 132 Futuristic Application Shell
 import React, { useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -35,6 +35,12 @@ const TAB_COMPONENTS: Record<TabId, React.FC> = {
   plugins: PluginsTab,
   ai: AIDiagnosticsTab,
   settings: SettingsTab,
+};
+
+const TAB_MOTION = {
+  initial: { opacity: 0, y: 18, scale: 0.985, filter: "blur(8px)" },
+  animate: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" },
+  exit: { opacity: 0, y: -16, scale: 0.992, filter: "blur(8px)" },
 };
 
 function findScrollableAncestor(target: Element, root: HTMLElement): HTMLElement {
@@ -165,32 +171,47 @@ export default function App(): JSX.Element {
   const CurrentTabComponent = TAB_COMPONENTS[activeTab];
 
   return (
-    <div className="cv-app min-h-screen flex overflow-hidden" style={{ background: "var(--cv-bg-primary)" }}>
-      <Sidebar />
+    <div className="app-shell cv-app min-h-screen flex overflow-hidden" style={{ background: "var(--cv-bg-primary)" }}>
+      <div className="app-shell-orb app-shell-orb-a" />
+      <div className="app-shell-orb app-shell-orb-b" />
+      <div className="app-shell-orb app-shell-orb-c" />
+      <div className="app-shell-noise" />
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <Header />
+      <motion.div
+        className="relative z-10 flex h-screen w-full overflow-hidden p-3 gap-3"
+        initial={{ opacity: 0, scale: 0.992 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <Sidebar />
 
-        <div
-          ref={mainScrollRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden"
-          onWheel={handleWheel}
-          style={{ background: "var(--cv-bg-secondary)" }}
-        >
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.15 }}
-              className="p-6"
-            >
-              {CurrentTabComponent ? <CurrentTabComponent /> : <div>Tab not found</div>}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </main>
+        <main className="relative flex-1 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+          <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgba(255,255,255,0.16),transparent_32%),radial-gradient(circle_at_100%_18%,rgba(0,234,255,0.13),transparent_30%)]" />
+          <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+
+          <Header />
+
+          <div
+            ref={mainScrollRef}
+            className="app-main-scroll relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-3"
+            onWheel={handleWheel}
+          >
+            <AnimatePresence mode="wait">
+              <motion.section
+                key={activeTab}
+                initial={TAB_MOTION.initial}
+                animate={TAB_MOTION.animate}
+                exit={TAB_MOTION.exit}
+                transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+                className="relative min-h-full rounded-2xl border border-white/[0.08] bg-[linear-gradient(145deg,rgba(255,255,255,0.055),rgba(255,255,255,0.018))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md"
+              >
+                <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-[var(--cv-accent)]/55 to-transparent" />
+                {CurrentTabComponent ? <CurrentTabComponent /> : <div>Tab not found</div>}
+              </motion.section>
+            </AnimatePresence>
+          </div>
+        </main>
+      </motion.div>
     </div>
   );
 }
