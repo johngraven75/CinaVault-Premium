@@ -66,7 +66,7 @@ function Invoke-Checked {
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) {
         $ArgumentText = $Arguments -join ' '
-        if ($Command -eq "npm") {
+        if ($Command -eq "npm" -or $Command -eq "npx") {
             Show-Npm-Debug-Log
         }
         throw ('Command failed with exit code {0}: {1} {2}' -f $LASTEXITCODE, $Command, $ArgumentText)
@@ -79,6 +79,7 @@ Write-Host "Repository: $RepoRoot"
 Write-Step "Checking required tools"
 Require-Command "node" "Install Node.js LTS from https://nodejs.org/."
 Require-Command "npm" "Install Node.js LTS from https://nodejs.org/."
+Require-Command "npx" "Install Node.js LTS from https://nodejs.org/."
 Require-Command "cargo" "Install Rust from https://rustup.rs/."
 Require-Command "rustc" "Install Rust from https://rustup.rs/."
 
@@ -89,8 +90,11 @@ if (Test-Path (Join-Path $RepoRoot "node_modules")) {
     Invoke-Checked "npm" @("install", "--legacy-peer-deps", "--loglevel", "verbose")
 }
 
-Write-Step "Running TypeScript build"
-Invoke-Checked "npm" @("run", "build")
+Write-Step "Running TypeScript simulation build"
+Invoke-Checked "npx" @("tsc", "-p", "tsconfig.build.json")
+
+Write-Step "Running Vite production build"
+Invoke-Checked "npx" @("vite", "build")
 
 if (-not $SkipTests) {
     Write-Step "Running Rust compile check"
