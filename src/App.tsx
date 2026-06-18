@@ -1,5 +1,6 @@
 // CinaVault Premium — Build 132 Futuristic Application Shell
-import React, { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef } from "react";
+import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
@@ -22,7 +23,7 @@ import SettingsTab from "./components/tabs/SettingsTab";
 import { pluginEngine } from "./data/pluginAdapter";
 import { getWheelDeltaPixels, getWheelScrolledTop } from "./utils/pageWheelScroll";
 
-const TAB_COMPONENTS: Record<TabId, React.FC> = {
+const TAB_COMPONENTS: Record<TabId, FC> = {
   home: HomeTab,
   sources: MediaSourcesTab,
   downloads: DownloadsTab,
@@ -74,7 +75,7 @@ async function saveAllSettingsToBackend(state: Record<string, string>): Promise<
     for (const [key, value] of Object.entries(state)) {
       await invoke("set_setting", { key, value });
     }
-  } catch (error) {
+  } catch {
     try {
       localStorage.setItem("cinavault_state", JSON.stringify(state));
     } catch (storageError) {
@@ -145,7 +146,7 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [activeTab, currentTheme, sidebarCollapsed, saveState]);
 
-  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>): void => {
+  const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>): void => {
     if (!(event.target instanceof Element)) return;
 
     const root = mainScrollRef.current;
