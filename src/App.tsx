@@ -1,4 +1,4 @@
-// CinaVault Premium — Main Application Shell (with Error Handling)
+// CinaVault Premium — Main Application Shell
 import React, { useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -39,6 +39,7 @@ const TAB_COMPONENTS: Record<TabId, React.FC> = {
 
 function findScrollableAncestor(target: Element, root: HTMLElement): HTMLElement {
   let node: HTMLElement | null = target instanceof HTMLElement ? target : target.parentElement;
+
   while (node && node !== root) {
     const style = window.getComputedStyle(node);
     if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) {
@@ -46,6 +47,7 @@ function findScrollableAncestor(target: Element, root: HTMLElement): HTMLElement
     }
     node = node.parentElement;
   }
+
   return root;
 }
 
@@ -53,23 +55,22 @@ function canScrollInDirection(element: HTMLElement, deltaPixels: number): boolea
   if (deltaPixels > 0) {
     return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
   }
+
   if (deltaPixels < 0) {
     return element.scrollTop > 0;
   }
+
   return false;
 }
 
-// ── Save all settings to Tauri backend ──
 async function saveAllSettingsToBackend(state: Record<string, string>): Promise<void> {
   try {
-    const entries = Object.entries(state);
-    for (const [key, value] of entries) {
+    for (const [key, value] of Object.entries(state)) {
       await invoke("set_setting", { key, value });
     }
   } catch (error) {
-    // Dev mode fallback — save to localStorage
-    try { 
-      localStorage.setItem("cinavault_state", JSON.stringify(state)); 
+    try {
+      localStorage.setItem("cinavault_state", JSON.stringify(state));
     } catch (storageError) {
       console.warn("Failed to save state:", storageError);
     }
@@ -78,17 +79,20 @@ async function saveAllSettingsToBackend(state: Record<string, string>): Promise<
 
 export default function App(): JSX.Element {
   const {
-    activeTab, currentTheme, sidebarCollapsed,
-    setSettings, setTheme, addStatusMessage,
-    getPersistedState, restorePersistedState,
+    activeTab,
+    currentTheme,
+    sidebarCollapsed,
+    addStatusMessage,
+    getPersistedState,
+    restorePersistedState,
   } = useAppStore();
 
   const isSaving = useRef<boolean>(false);
   const mainScrollRef = useRef<HTMLElement | null>(null);
 
-  // ── Persist: Save all settings on demand ──
   const saveState = useCallback(async (): Promise<void> => {
     if (isSaving.current) return;
+
     isSaving.current = true;
     try {
       const state = getPersistedState();
@@ -101,46 +105,55 @@ export default function App(): JSX.Element {
     }
   }, [getPersistedState, addStatusMessage]);
 
-  // ── Init: Restore and setup ──
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    const initializeApplication = async (): Promise<void> => {
       try {
         await restorePersistedState();
+        if (cancelled) return;
+
         applyTheme(currentTheme);
-        pluginEngine.initialize();
-        
-        // Set window title
-        const window = await getCurrentWindow();
-        await window.setTitle("CinaVault Premium");
+        await pluginEngine.initialize();
+
+        const appWindow = getCurrentWindow();
+        await appWindow.setTitle("CinaVault Premium");
       } catch (error) {
         console.error("Initialization error:", error);
         addStatusMessage("Failed to initialize application");
       }
-    })();
+    };
+
+    void initializeApplication();
+
+    return () => {
+      cancelled = true;
+    };
   }, [restorePersistedState, currentTheme, addStatusMessage]);
 
-  // ── Auto-save on state change ──
   useEffect(() => {
-    const timer = setTimeout(() => { void saveState(); }, 1000);
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => {
+      void saveState();
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
   }, [activeTab, currentTheme, sidebarCollapsed, saveState]);
 
-  // ── Wheel scroll delegation ──
-  const handleWheel = useCallback((e: WheelEvent) => {
-    if (!(e.target instanceof Element)) return;
-    
+  const handleWheel = useCallback((event: WheelEvent): void => {
+    if (!(event.target instanceof Element)) return;
+
     const root = mainScrollRef.current;
     if (!root) return;
 
-    const scrollable = findScrollableAncestor(e.target, root);
-    const deltaPixels = getWheelDeltaPixels(e);
+    const scrollable = findScrollableAncestor(event.target, root);
+    const deltaPixels = getWheelDeltaPixels(event);
 
     if (!canScrollInDirection(scrollable, deltaPixels)) {
       const parentScroll = findScrollableAncestor(scrollable.parentElement || root, root);
       if (canScrollInDirection(parentScroll, deltaPixels)) {
-        const wheelScrolledTop = getWheelScrolledTop(e);
+        const wheelScrolledTop = getWheelScrolledTop(event);
         parentScroll.scrollTop += wheelScrolledTop;
-        e.preventDefault();
+        event.preventDefault();
       }
     }
   }, []);
@@ -149,14 +162,11 @@ export default function App(): JSX.Element {
 
   return (
     <div className="cv-app min-h-screen flex overflow-hidden" style={{ background: "var(--cv-bg-primary)" }}>
-      {/* Sidebar */}
       <Sidebar />
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
         <Header />
-        
-        {/* Scrollable Tab Area */}
+
         <div
           ref={mainScrollRef}
           className="flex-1 overflow-y-auto overflow-x-hidden"
