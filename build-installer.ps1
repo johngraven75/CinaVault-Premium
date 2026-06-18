@@ -1,3 +1,6 @@
+# CinaVault Premium — Windows Installer Build Script
+# Builds the production web app, validates the Rust/Tauri side, and creates Windows installer bundles.
+
 param(
     [switch]$SkipTests,
     [switch]$NoDesktopCopy,
@@ -5,6 +8,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $RepoRoot
 
 function Write-Step {
     param([string]$Message)
@@ -19,28 +26,24 @@ function Require-Command {
     )
 
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "Missing required tool '$Name'. $InstallHint"
+        throw "Required command '$Name' was not found. $InstallHint"
     }
 }
 
-function Get-RepoRoot {
-    if ($PSScriptRoot) {
-        return $PSScriptRoot
+function Invoke-Checked {
+    param(
+        [string]$Command,
+        [string[]]$Arguments
+    )
+
+    & $Command @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed with exit code $LASTEXITCODE: $Command $($Arguments -join ' ')"
     }
-    return (Get-Location).Path
 }
 
-$RepoRoot = Get-RepoRoot
-Set-Location $RepoRoot
-
-$BuildStamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$Desktop = [Environment]::GetFolderPath("Desktop")
-$DesktopBuildDir = Join-Path $Desktop "CinaVault-Premium-Build-$BuildStamp"
-$BundleDir = Join-Path $RepoRoot "src-tauri\target\release\bundle"
-$NotesPath = Join-Path $RepoRoot "BUILD_NOTES_PGMA.md"
-
-Write-Host "CinaVault Premium one-step installer build" -ForegroundColor Green
-Write-Host "Repo: $RepoRoot"
+Write-Host "CinaVault Premium Windows Installer Build" -ForegroundColor Magenta
+Write-Host "Repository: $RepoRoot"
 
 Write-Step "Checking required tools"
 Require-Command "node" "Install Node.js LTS from https://nodejs.org/."
@@ -48,80 +51,61 @@ Require-Command "npm" "Install Node.js LTS from https://nodejs.org/."
 Require-Command "cargo" "Install Rust from https://rustup.rs/."
 Require-Command "rustc" "Install Rust from https://rustup.rs/."
 
-Write-Step "Installing JavaScript dependencies"
-if (Test-Path (Join-Path $RepoRoot "package-lock.json")) {
-    npm ci
-} else {
-    npm install
-}
+Write-Step "Installing JavaScript dependencies from patched manifest"
+Invoke-Checked "npm" @("install")
 
 Write-Step "Running TypeScript build"
-npm run build
+Invoke-Checked "npm" @("run", "build")
 
 if (-not $SkipTests) {
     Write-Step "Running Rust compile check"
-    cargo check --manifest-path src-tauri/Cargo.toml
+    Invoke-Checked "cargo" @("check", "--manifest-path", "src-tauri/Cargo.toml")
 
     Write-Step "Running PGMA bridge tests"
-    cargo test --manifest-path src-tauri/Cargo.toml pgma_bridge -- --nocapture
+    Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "pgma_bridge", "--", "--nocapture")
 
     Write-Step "Running PGMA plugin deployer tests"
-    cargo test --manifest-path src-tauri/Cargo.toml plugins::tests -- --nocapture
+    Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "plugins::tests", "--", "--nocapture")
 } else {
     Write-Step "Skipping tests because -SkipTests was supplied"
 }
 
 Write-Step "Building Windows installer with Tauri"
-npm run tauri -- build
+Invoke-Checked "npm" @("run", "tauri", "--", "build")
 
 Write-Step "Finding installer outputs"
 $Installers = @()
-if (Test-Path $BundleDir) {
-    $Installers = Get-ChildItem -Path $BundleDir -Recurse -File |
-        Where-Object { $_.Extension -in ".exe", ".msi", ".zip" } |
-        Sort-Object LastWriteTime -Descending
+$BundleRoot = Join-Path $RepoRoot "src-tauri\target\release\bundle"
+if (Test-Path $BundleRoot) {
+    $Installers = Get-ChildItem -Path $BundleRoot -Recurse -File | Where-Object {
+        $_.Extension -in ".exe", ".msi", ".zip"
+    }
 }
 
 if (-not $Installers -or $Installers.Count -eq 0) {
-    throw "Build completed, but no installer files were found under $BundleDir. Check the Tauri build output above."
+    throw "No installer artifacts were produced under $BundleRoot."
+}
+
+Write-Host "Installer artifacts:" -ForegroundColor Green
+foreach ($Installer in $Installers) {
+    Write-Host " - $($Installer.FullName)"
 }
 
 if (-not $NoDesktopCopy) {
-    Write-Step "Copying installer and build notes to Desktop"
-    New-Item -ItemType Directory -Path $DesktopBuildDir -Force | Out-Null
+    $Desktop = [Environment]::GetFolderPath("Desktop")
+    $OutDir = Join-Path $Desktop "CinaVault-Premium-Installer"
+    New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+
     foreach ($Installer in $Installers) {
-        Copy-Item -Path $Installer.FullName -Destination $DesktopBuildDir -Force
-    }
-    if (Test-Path $NotesPath) {
-        Copy-Item -Path $NotesPath -Destination $DesktopBuildDir -Force
+        Copy-Item -Path $Installer.FullName -Destination $OutDir -Force
     }
 
-    $SummaryPath = Join-Path $DesktopBuildDir "BUILD_OUTPUT.txt"
-    @(
-        "CinaVault Premium build output",
-        "Built: $(Get-Date -Format o)",
-        "Repo: $RepoRoot",
-        "Branch: $(git branch --show-current 2>$null)",
-        "",
-        "Installer files:",
-        $Installers | ForEach-Object { "- $($_.Name)" },
-        "",
-        "Run command used:",
-        "powershell -ExecutionPolicy Bypass -File .\build-installer.ps1"
-    ) | Set-Content -Path $SummaryPath -Encoding UTF8
-
-    Write-Host ""
-    Write-Host "Installer files copied to:" -ForegroundColor Green
-    Write-Host $DesktopBuildDir -ForegroundColor Yellow
+    Write-Host "Copied installers to: $OutDir" -ForegroundColor Green
 
     if (-not $NoOpenDesktop) {
-        Start-Process explorer.exe $DesktopBuildDir
+        Start-Process explorer.exe $OutDir
     }
-} else {
-    Write-Host ""
-    Write-Host "Installer files generated under:" -ForegroundColor Green
-    Write-Host $BundleDir -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host "Done. CinaVault Premium installer build completed." -ForegroundColor Green
+Write-Host "Build complete." -ForegroundColor Green
