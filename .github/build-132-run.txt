@@ -1,9 +1,9 @@
 CinaVault Premium Build 132 workflow trigger
 
-Purpose: trigger the Windows installer workflow from a non-release path after the verified PowerShell parser fix, npm diagnostics, and TypeScript 5.4.5 simulation fix.
+Purpose: trigger the Windows installer workflow from a non-release path after App shell fixes, npm diagnostics, TypeScript 5.4.5 simulation fix, and direct simulation build script.
 Requested by: Johnathan
 Date: 2026-06-18
-Run revision: 4
+Run revision: 5
 
 Expected workflow:
 - .github/workflows/windows-installer.yml
