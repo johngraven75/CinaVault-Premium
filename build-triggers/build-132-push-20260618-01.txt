@@ -1,0 +1,3 @@
+Build 132 push trigger
+Date: 2026-06-18
+Workflow: .github/workflows/windows-installer.yml
