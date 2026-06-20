@@ -60,7 +60,7 @@ jobs:
 
       - name: Build installer with one-step PowerShell script
         shell: pwsh
-        run: .\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
+        run: .\scripts\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
 
       - name: Stage installer artifacts and hashes
         shell: pwsh
