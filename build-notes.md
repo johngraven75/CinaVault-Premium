@@ -1,0 +1,4 @@
+- Build: 132
+- Date: June 20, 2026
+- Status: Deployment pipeline update
+- Description: Documenting the fix for the Windows installer creation crash where npm encountered an EPERM permission error during cache cleanup before the 'npx tauri build' step.
