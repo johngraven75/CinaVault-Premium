@@ -1,4 +1,3 @@
-Set-Location $PSScriptRoot\..
 # CinaVault Premium — Windows Installer Build Script
 # Builds the production web app, validates the Rust/Tauri side, and creates Windows installer bundles.
 
