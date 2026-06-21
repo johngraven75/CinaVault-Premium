@@ -117,7 +117,7 @@ if (Test-Path (Join-Path $RepoRoot "node_modules")) {
 }
 
 Write-Step "Running TypeScript simulation build"
-Invoke-Checked "npx" @("tsc", "-p", "tsconfig.build.json")
+Invoke-Checked "npx" @("tsc", "-p", "../tsconfig.build.json")
 
 Write-Step "Running Vite production build"
 Invoke-Checked "npx" @("vite", "build")
