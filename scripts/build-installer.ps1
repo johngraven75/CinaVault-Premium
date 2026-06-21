@@ -11,8 +11,6 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $RepoRoot
 
 function Write-Step {
     param([string]$Message)
