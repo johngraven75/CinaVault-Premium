@@ -7,6 +7,7 @@ param(
     [switch]$NoOpenDesktop
 )
     Set-Location $PSScriptRoot\..
+    $RepoRoot = "$PSScriptRoot\.."
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
