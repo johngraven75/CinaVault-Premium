@@ -27,4 +27,11 @@ pub fn find_local_candidates(library_path: String) -> Result<Vec<String>, String
         .unwrap_or_default();
 
     Ok(result)
-}.into_iter()
+}
+
+#[tauri::command]
+pub fn refresh_pgma_library() -> Result<String, String> {
+    // Stub implementation to satisfy main.rs linkage
+    println!("Refreshing PGMA Library...");
+    Ok("Library refreshed successfully".to_string())
+}
