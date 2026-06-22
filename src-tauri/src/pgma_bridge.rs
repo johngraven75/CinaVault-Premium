@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 use tauri::State;
+use crate::scanner;
+use crate::AppState;
 
 #[tauri::command]
 pub fn find_local_candidates(library_path: String) -> Result<Vec<String>, String> {
@@ -8,30 +10,22 @@ pub fn find_local_candidates(library_path: String) -> Result<Vec<String>, String
         return Err("Invalid library path provided".to_string());
     }
 
-    let mut candidates: Vec<PathBuf> = Vec::new();
+    let mut candidates: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(base_path) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
-                candidates.push(path);
+                candidates.push(path.to_string_lossy().to_string());
             }
         }
     }
-
-    // Fixed lifetime bug by consuming the vector with into_iter() instead of draining a reference
-    let result = candidates
-        .into_iter()
-        .find(|candidate| candidate.is_file())
-        .map(|path| path.to_string_lossy().to_string())
-        .map(|single| vec![single])
-        .unwrap_or_default();
-
-    Ok(result)
+    Ok(candidates)
 }
 
 #[tauri::command]
-pub fn refresh_pgma_library() -> Result<String, String> {
-    // Stub implementation to satisfy main.rs linkage
-    println!("Refreshing PGMA Library...");
-    Ok("Library refreshed successfully".to_string())
+pub async fn refresh_pgma_library(state: State<'_, AppState>) -> Result<(), String> {
+    // Triggers a full library scan to refresh metadata and posters
+    scanner::scan_sources(state).await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
