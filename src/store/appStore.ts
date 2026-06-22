@@ -1,5 +1,6 @@
 // CinaVault Premium — Global State Store (Zustand) with Persistence
 import { create } from "zustand";
+import { ADULT_METADATA_PROVIDERS } from "../data/adultMetadataProviders";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 
 export type TabId =
@@ -41,7 +42,6 @@ export interface MediaSource {
   item_count: number;
 }
 
-// ── Metadata Provider State ──
 export interface MetadataProvider {
   id: string;
   name: string;
@@ -49,7 +49,6 @@ export interface MetadataProvider {
   enabled: boolean;
 }
 
-// ── Scheduled Task State ──
 export type TaskFrequency = "manual" | "on_scan" | "daily" | "weekly" | "on_import" | "never";
 
 export interface ScheduledTaskConfig {
@@ -78,7 +77,6 @@ export interface LibraryEnrichmentResult {
   provider_errors: string[];
 }
 
-// ── Cloud Service State ──
 export type CloudServiceStatus = "connected" | "disconnected" | "connecting" | "error";
 
 export interface CloudServiceState {
@@ -90,17 +88,14 @@ export interface CloudServiceState {
 }
 
 export interface AppState {
-  // Navigation
   activeTab: TabId;
   sidebarCollapsed: boolean;
   setActiveTab: (tab: TabId) => void;
   toggleSidebar: () => void;
 
-  // Theme
   currentTheme: string;
   setTheme: (theme: string) => void;
 
-  // Library
   mediaItems: MediaItem[];
   setMediaItems: (items: MediaItem[]) => void;
   selectedMedia: MediaItem | null;
@@ -110,79 +105,63 @@ export interface AppState {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
 
-  // Sources
   sources: MediaSource[];
   setSources: (sources: MediaSource[]) => void;
 
-  // Scanning
   scanning: boolean;
   scanProgress: { total: number; current: number };
   setScanning: (s: boolean) => void;
   setScanProgress: (p: { total: number; current: number }) => void;
 
-  // Server
   serverRunning: boolean;
   serverType: string;
   serverUrl: string;
   setServerStatus: (running: boolean, type_: string, url: string) => void;
 
-  // Downloads
   downloading: boolean;
   setDownloading: (d: boolean) => void;
 
-  // VPN
   vpnConnected: boolean;
   vpnLocation: string;
   setVpnStatus: (connected: boolean, location: string) => void;
 
-  // AI
   aiProcessing: boolean;
-  aiResult: any;
+  aiResult: unknown;
   setAiProcessing: (p: boolean) => void;
-  setAiResult: (r: any) => void;
+  setAiResult: (r: unknown) => void;
 
-  // Settings
   settings: Record<string, string>;
   setSettings: (s: Record<string, string>) => void;
   setSetting: (key: string, value: string) => void;
 
-  // Feature Settings (Advanced tab) — Premium is now default
-  featureSettings: Record<string, { enabled: boolean; config: any }>;
-  setFeatureSettings: (fs: Record<string, { enabled: boolean; config: any }>) => void;
+  featureSettings: Record<string, { enabled: boolean; config: unknown }>;
+  setFeatureSettings: (fs: Record<string, { enabled: boolean; config: unknown }>) => void;
   toggleFeature: (key: string) => void;
 
-  // Metadata Providers — selectable per-provider
   metadataProviders: MetadataProvider[];
   setMetadataProviders: (p: MetadataProvider[]) => void;
   toggleMetadataProvider: (id: string) => void;
   enableAllProviders: (category?: string) => void;
   disableAllProviders: (category?: string) => void;
 
-  // Scheduled Tasks
   scheduledTasks: ScheduledTaskConfig;
   setScheduledTasks: (t: ScheduledTaskConfig) => void;
   setTaskFrequency: (task: keyof ScheduledTaskConfig, freq: TaskFrequency) => void;
 
-  // Cloud Services
   cloudServices: Record<string, CloudServiceState>;
   setCloudService: (id: string, state: Partial<CloudServiceState>) => void;
 
-  // Status ticker
   statusMessages: string[];
   addStatusMessage: (msg: string) => void;
 
-  // Loading
   loading: boolean;
   setLoading: (l: boolean) => void;
 
-  // Persistence — collect all persistable state
   getPersistedState: () => Record<string, string>;
   restorePersistedState: (data: Record<string, string>) => void;
 }
 
-// ── Default metadata providers (all enabled by default — Premium standard) ──
-const DEFAULT_PROVIDERS: MetadataProvider[] = [
-  // Movies & TV
+const BASE_PROVIDERS: MetadataProvider[] = [
   { id: "tmdb", name: "TMDb", category: "Movies & TV", enabled: true },
   { id: "omdb", name: "OMDb", category: "Movies & TV", enabled: true },
   { id: "tvdb", name: "TVDB", category: "Movies & TV", enabled: true },
@@ -191,37 +170,39 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "rotten_tomatoes", name: "Rotten Tomatoes", category: "Movies & TV", enabled: true },
   { id: "cinemeta", name: "CINEMETA", category: "Movies & TV", enabled: true },
   { id: "tvmaze", name: "TVMaze", category: "Movies & TV", enabled: true },
-  // Music
   { id: "musicbrainz", name: "MusicBrainz", category: "Music", enabled: true },
   { id: "audiodb", name: "AudioDB", category: "Music", enabled: true },
   { id: "lastfm", name: "Last.fm", category: "Music", enabled: true },
   { id: "discogs", name: "Discogs", category: "Music", enabled: true },
-  // Anime
   { id: "anidb", name: "AniDB", category: "Anime", enabled: true },
   { id: "anilist", name: "AniList", category: "Anime", enabled: true },
   { id: "myanimelist", name: "MyAnimeList", category: "Anime", enabled: true },
   { id: "kitsu", name: "Kitsu", category: "Anime", enabled: true },
-  // Artwork
   { id: "fanarttv", name: "Fanart.tv", category: "Artwork", enabled: true },
   { id: "tmdb_images", name: "TheMovieDB Images", category: "Artwork", enabled: true },
-  // Adult
-  { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: false },
-  { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
-  { id: "phoenixadult", name: "PhoenixAdult", category: "Adult", enabled: false },
-  { id: "iafd", name: "IAFD", category: "Adult", enabled: false },
-  // Subtitles
   { id: "opensubtitles", name: "OpenSubtitles", category: "Subtitles", enabled: true },
   { id: "subscene", name: "Subscene", category: "Subtitles", enabled: true },
-  // Other
   { id: "igdb", name: "IGDB", category: "Other", enabled: true },
   { id: "openlibrary", name: "OpenLibrary", category: "Other", enabled: true },
   { id: "goodreads", name: "GoodReads", category: "Other", enabled: true },
   { id: "epg_guide", name: "EPG Guide", category: "Other", enabled: true },
-  // Agents
   { id: "plex_agents", name: "MS-A Agents", category: "Agents", enabled: true },
   { id: "emby_providers", name: "MS-B Providers", category: "Agents", enabled: true },
   { id: "jellyfin_providers", name: "MS-C Providers", category: "Agents", enabled: true },
 ];
+
+function uniqueProviders(providers: MetadataProvider[]): MetadataProvider[] {
+  const merged = new Map<string, MetadataProvider>();
+  for (const provider of providers) {
+    merged.set(provider.id, provider);
+  }
+  return Array.from(merged.values());
+}
+
+const DEFAULT_PROVIDERS: MetadataProvider[] = uniqueProviders([
+  ...BASE_PROVIDERS,
+  ...ADULT_METADATA_PROVIDERS.map(({ id, name, category, enabled }) => ({ id, name, category, enabled })),
+]);
 
 const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
   thumbnails: "on_scan",
@@ -230,8 +211,7 @@ const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
   match_unmatch: "on_import",
 };
 
-// ── Premium feature defaults (all enabled) ──
-const DEFAULT_FEATURE_SETTINGS: Record<string, { enabled: boolean; config: any }> = {
+const DEFAULT_FEATURE_SETTINGS: Record<string, { enabled: boolean; config: unknown }> = {
   smart_collections: { enabled: true, config: {} },
   poster_sync: { enabled: true, config: {} },
   unified_library: { enabled: true, config: {} },
@@ -257,7 +237,6 @@ const DEFAULT_FEATURE_SETTINGS: Record<string, { enabled: boolean; config: any }
   plugin_system: { enabled: true, config: {} },
 };
 
-// ── Premium settings defaults ──
 const DEFAULT_SETTINGS: Record<string, string> = {
   theme: "vidhub_flagship",
   splash_enabled: "true",
@@ -291,20 +270,19 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   glassmorphism: "true",
   starfield_header: "true",
   window_opacity: "100",
+  brand_logo_profile: "v125_ice_blue",
+  startup_animation: "photorealistic_ice_blue_logo",
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
-  // Navigation
   activeTab: "home",
   sidebarCollapsed: false,
   setActiveTab: (tab) => set({ activeTab: tab }),
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
-  // Theme
   currentTheme: "vidhub_flagship",
   setTheme: (theme) => set({ currentTheme: theme }),
 
-  // Library
   mediaItems: [],
   setMediaItems: (items) => set({ mediaItems: items }),
   selectedMedia: null,
@@ -314,121 +292,106 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchQuery: "",
   setSearchQuery: (q) => set({ searchQuery: q }),
 
-  // Sources
   sources: [],
   setSources: (sources) => set({ sources }),
 
-  // Scanning
   scanning: false,
   scanProgress: { total: 0, current: 0 },
   setScanning: (s) => set({ scanning: s }),
   setScanProgress: (p) => set({ scanProgress: p }),
 
-  // Server
   serverRunning: false,
   serverType: "jellyfin",
   serverUrl: "http://localhost:8096",
   setServerStatus: (running, type_, url) => set({ serverRunning: running, serverType: type_, serverUrl: url }),
 
-  // Downloads
   downloading: false,
   setDownloading: (d) => set({ downloading: d }),
 
-  // VPN
   vpnConnected: false,
   vpnLocation: "",
   setVpnStatus: (connected, location) => set({ vpnConnected: connected, vpnLocation: location }),
 
-  // AI
   aiProcessing: false,
   aiResult: null,
   setAiProcessing: (p) => set({ aiProcessing: p }),
   setAiResult: (r) => set({ aiResult: r }),
 
-  // Settings — Premium defaults applied
   settings: { ...DEFAULT_SETTINGS },
   setSettings: (s) => set({ settings: { ...DEFAULT_SETTINGS, ...s } }),
-  setSetting: (key, value) => set((s) => ({ settings: { ...s.settings, [key]: value } })),
+  setSetting: (key, value) => set((state) => ({ settings: { ...state.settings, [key]: value } })),
 
-  // Feature Settings — all Premium features ON by default
   featureSettings: { ...DEFAULT_FEATURE_SETTINGS },
   setFeatureSettings: (fs) => set({ featureSettings: fs }),
-  toggleFeature: (key) => set((s) => {
-    const current = s.featureSettings[key] || { enabled: false, config: {} };
+  toggleFeature: (key) => set((state) => {
+    const current = state.featureSettings[key] || { enabled: false, config: {} };
     return {
       featureSettings: {
-        ...s.featureSettings,
+        ...state.featureSettings,
         [key]: { ...current, enabled: !current.enabled },
       },
     };
   }),
 
-  // Metadata Providers
   metadataProviders: [...DEFAULT_PROVIDERS],
-  setMetadataProviders: (p) => set({ metadataProviders: p }),
-  toggleMetadataProvider: (id) => set((s) => ({
-    metadataProviders: s.metadataProviders.map(p =>
-      p.id === id ? { ...p, enabled: !p.enabled } : p
+  setMetadataProviders: (p) => set({ metadataProviders: sanitizeMetadataProviders(p, DEFAULT_PROVIDERS) }),
+  toggleMetadataProvider: (id) => set((state) => ({
+    metadataProviders: state.metadataProviders.map((provider) =>
+      provider.id === id ? { ...provider, enabled: !provider.enabled } : provider,
     ),
   })),
-  enableAllProviders: (category) => set((s) => ({
-    metadataProviders: s.metadataProviders.map(p =>
-      !category || p.category === category ? { ...p, enabled: true } : p
+  enableAllProviders: (category) => set((state) => ({
+    metadataProviders: state.metadataProviders.map((provider) =>
+      !category || provider.category === category ? { ...provider, enabled: true } : provider,
     ),
   })),
-  disableAllProviders: (category) => set((s) => ({
-    metadataProviders: s.metadataProviders.map(p =>
-      !category || p.category === category ? { ...p, enabled: false } : p
+  disableAllProviders: (category) => set((state) => ({
+    metadataProviders: state.metadataProviders.map((provider) =>
+      !category || provider.category === category ? { ...provider, enabled: false } : provider,
     ),
   })),
 
-  // Scheduled Tasks
   scheduledTasks: { ...DEFAULT_SCHEDULED_TASKS },
   setScheduledTasks: (t) => set({ scheduledTasks: t }),
-  setTaskFrequency: (task, freq) => set((s) => ({
-    scheduledTasks: { ...s.scheduledTasks, [task]: freq },
+  setTaskFrequency: (task, freq) => set((state) => ({
+    scheduledTasks: { ...state.scheduledTasks, [task]: freq },
   })),
 
-  // Cloud Services
   cloudServices: {
     onedrive: { id: "onedrive", status: "disconnected" },
     gdrive: { id: "gdrive", status: "disconnected" },
     dropbox: { id: "dropbox", status: "disconnected" },
   },
-  setCloudService: (id, state) => set((s) => ({
+  setCloudService: (id, cloudState) => set((state) => ({
     cloudServices: {
-      ...s.cloudServices,
-      [id]: { ...s.cloudServices[id], ...state },
+      ...state.cloudServices,
+      [id]: { ...(state.cloudServices[id] || { id, status: "disconnected" as CloudServiceStatus }), ...cloudState },
     },
   })),
 
-  // Status
   statusMessages: ["CinaVault Premium initialized", "All systems operational — Premium Edition"],
-  addStatusMessage: (msg) => set((s) => ({
-    statusMessages: [...s.statusMessages.slice(-19), msg],
+  addStatusMessage: (msg) => set((state) => ({
+    statusMessages: [...state.statusMessages.slice(-19), msg],
   })),
 
-  // Loading
   loading: false,
   setLoading: (l) => set({ loading: l }),
 
-  // ── Persistence: collect all saveable state into a flat Record ──
   getPersistedState: () => {
-    const s = get();
+    const state = get();
     return {
-      ...s.settings,
-      _activeTab: s.activeTab,
-      _sidebarCollapsed: String(s.sidebarCollapsed),
-      _currentTheme: s.currentTheme,
-      _libraryView: s.libraryView,
-      _featureSettings: JSON.stringify(s.featureSettings),
-      _metadataProviders: JSON.stringify(s.metadataProviders),
-      _scheduledTasks: JSON.stringify(s.scheduledTasks),
-      _cloudServices: JSON.stringify(s.cloudServices),
+      ...state.settings,
+      _activeTab: state.activeTab,
+      _sidebarCollapsed: String(state.sidebarCollapsed),
+      _currentTheme: state.currentTheme,
+      _libraryView: state.libraryView,
+      _featureSettings: JSON.stringify(state.featureSettings),
+      _metadataProviders: JSON.stringify(state.metadataProviders),
+      _scheduledTasks: JSON.stringify(state.scheduledTasks),
+      _cloudServices: JSON.stringify(state.cloudServices),
     };
   },
 
-  // ── Persistence: restore state from a flat Record ──
   restorePersistedState: (data) => {
     const settings: Record<string, string> = {};
     let activeTab: TabId = "home";
