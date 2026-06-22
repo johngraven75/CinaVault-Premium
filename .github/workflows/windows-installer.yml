@@ -6,16 +6,12 @@ on:
     branches:
       - main
       - codex/cinavault-pgma-plex-plugin
+      - codex/build132-uploaded-code-compat
     paths-ignore:
       - 'releases/**'
 
 permissions:
   contents: write
-
-env:
-  BUILD_NUMBER: '132'
-  BUILD_OUTPUT_DIR: releases/build-132
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build132
 
 jobs:
   build-windows-installer:
@@ -27,11 +23,53 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0
+
+      - name: Resolve OS-aware build metadata
+        id: build_meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $existingBuilds = @(Get-ChildItem -Path releases -Directory -Filter 'build-*' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+              if ($_.Name -match '^build-(\d+)$') { [int]$Matches[1] }
+            } |
+            Sort-Object -Descending)
+
+          $nextBuild = if ($existingBuilds.Count -gt 0) { $existingBuilds[0] + 1 } else { 1 }
+          $osCaption = (Get-CimInstance Win32_OperatingSystem).Caption
+          $osVersion = (Get-CimInstance Win32_OperatingSystem).Version
+          $osDisplay = "$osCaption $osVersion".Trim()
+          $osSlug = ($osDisplay.ToLowerInvariant() -replace '[^a-z0-9]+', '-') -replace '^-|-$', ''
+          $targetOs = 'windows'
+          $artifactName = "CinaVault-Premium-$targetOs-$osSlug-Installer-Build$nextBuild"
+          $outputDir = "releases/build-$nextBuild/$targetOs-$osSlug"
+          $notesPath = "$outputDir/BUILD-NOTES.md"
+
+          "BUILD_NUMBER=$nextBuild" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TARGET_OS=$targetOs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TARGET_OS_DISPLAY=$osDisplay" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TARGET_OS_SLUG=$osSlug" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_OUTPUT_DIR=$outputDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_NOTES_PATH=$notesPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INSTALLER_ARTIFACT_NAME=$artifactName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          "build_number=$nextBuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "target_os=$targetOs" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "target_os_slug=$osSlug" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build_output_dir=$outputDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_name=$artifactName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          Write-Host "Next build: $nextBuild"
+          Write-Host "Target OS: $osDisplay"
+          Write-Host "Release output: $outputDir"
+          Write-Host "Artifact name: $artifactName"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Refresh patched npm lockfile
@@ -44,7 +82,7 @@ jobs:
           git add package.json package-lock.json
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Refresh npm security lockfile for Build ${{ env.BUILD_NUMBER }}'
+            git commit -m "Refresh npm security lockfile for Build $env:BUILD_NUMBER"
             git push
           } else {
             Write-Host 'No package lock refresh needed.'
@@ -63,9 +101,10 @@ jobs:
         working-directory: ./
         run: .\scripts\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
 
-      - name: Stage installer artifacts and hashes
+      - name: Stage installer artifacts, notes, and hashes
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $artifact = 'artifact'
           New-Item -ItemType Directory -Path $artifact -Force | Out-Null
 
@@ -76,10 +115,6 @@ jobs:
 
           Get-ChildItem -Path $bundle -Recurse -File -Include *.exe,*.msi,*.zip |
             Copy-Item -Destination $artifact -Force
-
-          if (Test-Path 'BUILD_NOTES_PGMA.md') {
-            Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
-          }
 
           $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
           if (-not $files) {
@@ -92,6 +127,35 @@ jobs:
           }
           $hashLines | Set-Content -Path "$artifact\SHA256SUMS.txt" -Encoding UTF8
 
+          $notes = @(
+            "# CinaVault Premium Build $env:BUILD_NUMBER - $env:TARGET_OS Installer",
+            '',
+            "Build number: $env:BUILD_NUMBER",
+            "Target OS: $env:TARGET_OS_DISPLAY",
+            "OS slug: $env:TARGET_OS_SLUG",
+            "Source commit: $env:GITHUB_SHA",
+            "Workflow run: $env:GITHUB_RUN_ID",
+            "Artifact name: $env:INSTALLER_ARTIFACT_NAME",
+            "Output directory: $env:BUILD_OUTPUT_DIR",
+            '',
+            'Verification completed before artifact upload:',
+            '- npm lockfile refresh completed or confirmed unchanged',
+            '- TypeScript build completed via scripts/build-installer.ps1',
+            '- Vite production build completed via scripts/build-installer.ps1',
+            '- Rust cargo check completed via scripts/build-installer.ps1',
+            '- PGMA bridge tests completed via scripts/build-installer.ps1',
+            '- Plugin deployer tests completed via scripts/build-installer.ps1',
+            '- Tauri installer build completed via scripts/build-installer.ps1',
+            '- Installer artifacts staged successfully',
+            '- SHA256SUMS.txt generated for all staged artifacts',
+            '',
+            'Build policy:',
+            '- Build numbers are sequential across releases/build-* folders.',
+            '- Artifacts are grouped by OS/version under releases/build-N/<os-version>/.',
+            '- Build notes and installer upload report are committed with artifacts.'
+          )
+          $notes | Set-Content -Path "$artifact\BUILD-NOTES.md" -Encoding UTF8
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -102,19 +166,23 @@ jobs:
       - name: Publish installer files to repository
         shell: pwsh
         run: |
-          $destination = '${{ env.BUILD_OUTPUT_DIR }}'
+          $ErrorActionPreference = 'Stop'
+          $destination = $env:BUILD_OUTPUT_DIR
           New-Item -ItemType Directory -Path $destination -Force | Out-Null
           Copy-Item artifact\* $destination -Force
 
           @(
-            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Installer Artifacts',
+            "# CinaVault Premium Build $env:BUILD_NUMBER Installer Artifacts",
             '',
-            'Build: ${{ env.BUILD_NUMBER }}',
+            "Build: $env:BUILD_NUMBER",
+            "Target OS: $env:TARGET_OS_DISPLAY",
+            "OS slug: $env:TARGET_OS_SLUG",
             "Source commit: $env:GITHUB_SHA",
             "Workflow run: $env:GITHUB_RUN_ID",
-            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
+            "Artifact name: $env:INSTALLER_ARTIFACT_NAME",
+            "Artifact path: $env:BUILD_OUTPUT_DIR",
             '',
-            'The generated installer files and SHA256 manifest in this folder were produced by the Windows installer workflow.'
+            'The generated installer files, SHA256 manifest, and BUILD-NOTES.md in this folder were produced by the OS-aware installer workflow after completion checks passed.'
           ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
 
           git config user.name 'github-actions[bot]'
@@ -122,7 +190,7 @@ jobs:
           git add $destination
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Upload Build ${{ env.BUILD_NUMBER }} Windows installer artifacts'
+            git commit -m "Upload Build $env:BUILD_NUMBER $env:TARGET_OS installer artifacts for $env:TARGET_OS_SLUG"
             git push
           } else {
             Write-Host 'No installer artifact changes to publish.'
