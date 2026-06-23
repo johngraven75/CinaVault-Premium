@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 120)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 132)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -10,6 +10,8 @@ mod jellyfin;
 mod plugins;
 mod player;
 mod metadata;
+mod metadata_ext;
+mod adult_site_provider;
 mod chapters;
 mod duplicates;
 mod vpn;
@@ -54,7 +56,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 120 initialized successfully");
+            log::info!("CinaVault Premium Build 132 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -121,20 +123,21 @@ fn main() {
             plugins::uninstall_plugin,
             plugins::run_plugin,
             plugins::get_installed_plugins,
+            pgma_bridge::find_local_candidates,
             pgma_bridge::refresh_pgma_library,
             // Player
             player::play_media,
             player::get_available_players,
             player::set_default_player,
             // Metadata
-            metadata::fetch_metadata,
-            metadata::search_metadata,
+            metadata_ext::fetch_metadata,
+            metadata_ext::search_metadata,
             metadata::check_media_item_metadata,
-            metadata::get_provider_status,
-            metadata::test_api_key,
-            metadata::set_api_key,
-            metadata::get_api_keys,
-            metadata::get_metadata_providers,
+            metadata_ext::get_provider_status,
+            metadata_ext::test_api_key,
+            metadata_ext::set_api_key,
+            metadata_ext::get_api_keys,
+            metadata_ext::get_metadata_providers,
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
@@ -339,13 +342,14 @@ fn get_app_info() -> serde_json::Value {
         "name": "CinaVault Premium",
         "brand": "CinaVault Fusion",
         "version": "1.0.0-7",
-        "build_tag": "Build 120 Full Library + Photorealistic Comet Wallpaper (Premium Edition)",
+        "build_tag": "Build 132 Futuristic Interface + PGMA/Nuxt Metadata Providers (Premium Edition)",
         "engine": "Tauri v2 + Rust + React 18",
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "features": [
             "persistent_settings", "cloud_storage", "plugin_system",
-            "metadata_providers", "library_enrichment", "filename_normalization",
+            "metadata_providers", "pgma_metadata_provider", "porn_site_nuxt_provider",
+            "library_enrichment", "filename_normalization",
             "embedded_title_preference", "embedded_poster_import", "scheduled_tasks", "premium_ui"
         ]
     })
