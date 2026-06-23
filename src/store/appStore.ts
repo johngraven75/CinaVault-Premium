@@ -205,6 +205,8 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "fanarttv", name: "Fanart.tv", category: "Artwork", enabled: true },
   { id: "tmdb_images", name: "TheMovieDB Images", category: "Artwork", enabled: true },
   // Adult
+  { id: "pgma", name: "PGMA Modernized", category: "Adult", enabled: true },
+  { id: "porn_site_nuxt", name: "Porn Site Nuxt", category: "Adult", enabled: false },
   { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: false },
   { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
   { id: "phoenixadult", name: "PhoenixAdult", category: "Adult", enabled: false },
