@@ -76,3 +76,29 @@ test("Build 132 header keeps command identity, search, clock, fullscreen, and no
     assert.match(header, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 });
+
+test("PGMA and Porn Site Nuxt remain exposed as metadata providers", () => {
+  const store = source("src/store/appStore.ts");
+  const backend = source("src-tauri/src/metadata_ext.rs");
+  const main = source("src-tauri/src/main.rs");
+
+  for (const required of [
+    "pgma",
+    "PGMA Modernized",
+    "porn_site_nuxt",
+    "Porn Site Nuxt",
+  ]) {
+    assert.match(store, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(backend, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+
+  for (const required of [
+    "mod adult_site_provider;",
+    "mod metadata_ext;",
+    "metadata_ext::fetch_metadata",
+    "metadata_ext::get_metadata_providers",
+    "pgma_bridge::find_local_candidates",
+  ]) {
+    assert.match(main, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
