@@ -13,9 +13,9 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '133'
-  BUILD_OUTPUT_DIR: releases/build-133
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build133
+  BUILD_NUMBER: '134'
+  BUILD_OUTPUT_DIR: releases/build-134
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build134
 
 jobs:
   build-windows-installer:
@@ -81,6 +81,17 @@ jobs:
             Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
           }
 
+          @(
+            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Notes',
+            '',
+            'Build: ${{ env.BUILD_NUMBER }}',
+            "Source commit: $env:GITHUB_SHA",
+            "Workflow run: $env:GITHUB_RUN_ID",
+            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
+            '',
+            'Includes the latest downloader, media support, frontend, backend, and installer workflow changes.'
+          ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
+
           $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
           if (-not $files) {
             throw 'No installer artifacts were staged.'
@@ -114,7 +125,7 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'The generated installer files and SHA256 manifest in this folder were produced by the Windows installer workflow.'
+            'The generated installer files, SHA256 manifest, and release notes in this folder were produced by the Windows installer workflow.'
           ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
 
           git config user.name 'github-actions[bot]'
@@ -126,4 +137,23 @@ jobs:
             git push
           } else {
             Write-Host 'No installer artifact changes to publish.'
+          }
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'build-${{ env.BUILD_NUMBER }}'
+          $title = 'CinaVault Premium Build ${{ env.BUILD_NUMBER }}'
+          git fetch --tags
+          if (-not (git tag --list $tag)) {
+            git tag $tag $env:GITHUB_SHA
+            git push origin $tag
+          }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag artifact\* --repo $env:GITHUB_REPOSITORY --title $title --notes-file artifact\RELEASE-NOTES.md
+          } else {
+            gh release upload $tag artifact\* --repo $env:GITHUB_REPOSITORY --clobber
           }
