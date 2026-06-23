@@ -10,7 +10,6 @@ mod jellyfin;
 mod plugins;
 mod player;
 mod metadata;
-mod metadata_ext;
 mod adult_site_provider;
 mod chapters;
 mod duplicates;
@@ -130,14 +129,14 @@ fn main() {
             player::get_available_players,
             player::set_default_player,
             // Metadata
-            metadata_ext::fetch_metadata,
-            metadata_ext::search_metadata,
+            metadata::fetch_metadata,
+            metadata::search_metadata,
             metadata::check_media_item_metadata,
-            metadata_ext::get_provider_status,
-            metadata_ext::test_api_key,
-            metadata_ext::set_api_key,
-            metadata_ext::get_api_keys,
-            metadata_ext::get_metadata_providers,
+            metadata::get_provider_status,
+            metadata::test_api_key,
+            metadata::set_api_key,
+            metadata::get_api_keys,
+            metadata::get_metadata_providers,
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
