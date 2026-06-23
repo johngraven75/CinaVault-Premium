@@ -2,6 +2,11 @@ name: Build 131 Windows Installer
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'releases/build-131/**'
 
 permissions:
   contents: write
@@ -63,8 +68,11 @@ jobs:
             Copy-Item -Path $file.FullName -Destination $artifact -Force
           }
 
-          if (Test-Path 'BUILD_NOTES_PGMA.md') {
-            Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
+          $buildNotes = 'build-summaries\BUILD_NOTES_PGMA.md'
+          if (Test-Path $buildNotes) {
+            Copy-Item $buildNotes "$artifact\BUILD_NOTES_PGMA.md" -Force
+          } else {
+            Write-Warning "Build notes file not found: $buildNotes"
           }
 
           $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
@@ -96,7 +104,7 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'The generated installer files and SHA256 manifest in this folder were produced by the dedicated manual Build 131 Windows installer workflow.'
+            'The generated installer files and SHA256 manifest in this folder were produced by the dedicated Build 131 Windows installer workflow.'
           ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
 
           git config user.name 'github-actions[bot]'
