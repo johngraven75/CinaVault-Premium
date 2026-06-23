@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore, TabId } from "./store/appStore";
 import { applyTheme } from "./themes";
+import "./data/pluginAdapterInitialize";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import HomeTab from "./components/tabs/HomeTab";
