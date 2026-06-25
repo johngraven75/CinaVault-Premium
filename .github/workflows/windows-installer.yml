@@ -16,6 +16,7 @@ env:
   BUILD_NUMBER: '135'
   BUILD_OUTPUT_DIR: releases/build-135
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build135
+  BUILD_TRIGGER: manual-2026-06-25-build-135
 
 jobs:
   build-windows-installer:
