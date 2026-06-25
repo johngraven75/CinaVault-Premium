@@ -77,6 +77,36 @@ test("Build 132 header keeps command identity, search, clock, fullscreen, and no
   }
 });
 
+test("Kodi-inspired CinaVault skins are selectable in Settings", () => {
+  const themes = source("src/themes.ts");
+  const settings = source("src/components/tabs/SettingsTab.tsx");
+
+  for (const required of [
+    "kodi_estuary_cinema",
+    "CinaVault Estuary",
+    "kodi_aeon_nox_lux",
+    "CinaVault Aeon Nox",
+    "kodi_arctic_zephyr",
+    "CinaVault Arctic Zephyr",
+    "kodi_titan_bingie_stream",
+    "CinaVault Titan Bingie",
+    "kodi_amber_home",
+    "CinaVault Amber",
+    "origin: \"Kodi\"",
+  ]) {
+    assert.match(themes, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+
+  for (const required of [
+    "Themes & Skins",
+    "Kodi Skin",
+    "theme.description",
+    "THEME_PRESETS.length",
+  ]) {
+    assert.match(settings, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
 test("PGMA and Porn Site Nuxt remain exposed as metadata providers", () => {
   const store = source("src/store/appStore.ts");
   const backend = source("src-tauri/src/metadata_ext.rs");

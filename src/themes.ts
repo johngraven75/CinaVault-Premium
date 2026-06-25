@@ -1,9 +1,11 @@
-// CinaVault Premium — Theme System (6 presets, 16 color tokens each)
+// CinaVault Premium — Theme System (premium presets + Kodi-inspired skins)
 
 export interface ThemePreset {
   id: string;
   name: string;
   colors: Record<string, string>;
+  origin?: "Premium" | "Kodi";
+  description?: string;
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
@@ -92,6 +94,71 @@ export const THEME_PRESETS: ThemePreset[] = [
       accent: "#ff4b2d", "accent-2": "#ff7a1f", "accent-3": "#1d8fe3",
       gold: "#ffb83d", "row-a": "rgba(10, 23, 44, 0.6)", "row-b": "rgba(16, 30, 58, 0.6)",
       danger: "#ff2f43", "neon-1": "#59b6ff", "neon-2": "#ff8330", "neon-3": "#ff4637",
+    },
+  },
+  {
+    id: "kodi_estuary_cinema",
+    name: "CinaVault Estuary",
+    origin: "Kodi",
+    description: "Clean default-Kodi home theater blue, adapted for CinaVault panels and library grids.",
+    colors: {
+      bg: "#07131f", panel: "rgba(11, 31, 48, 0.9)", "panel-2": "rgba(16, 45, 66, 0.82)",
+      "panel-3": "rgba(20, 60, 86, 0.72)", text: "#f2f9ff", subtext: "#96b9ca",
+      accent: "#00a8d7", "accent-2": "#0078a8", "accent-3": "#58d6ff",
+      gold: "#f6c453", "row-a": "rgba(6, 24, 39, 0.72)", "row-b": "rgba(11, 38, 57, 0.68)",
+      danger: "#f45b69", "neon-1": "#d7f7ff", "neon-2": "#00a8d7", "neon-3": "#58d6ff",
+    },
+  },
+  {
+    id: "kodi_aeon_nox_lux",
+    name: "CinaVault Aeon Nox",
+    origin: "Kodi",
+    description: "Dark cinematic showcase look with glassy silver, cobalt, and poster-wall contrast.",
+    colors: {
+      bg: "#06080d", panel: "rgba(13, 15, 22, 0.92)", "panel-2": "rgba(24, 28, 38, 0.84)",
+      "panel-3": "rgba(38, 44, 58, 0.74)", text: "#f4f7fb", subtext: "#aab3c2",
+      accent: "#7fb7ff", "accent-2": "#d7dee8", "accent-3": "#275fba",
+      gold: "#c8a96b", "row-a": "rgba(9, 11, 17, 0.76)", "row-b": "rgba(21, 25, 34, 0.7)",
+      danger: "#ff4668", "neon-1": "#eef5ff", "neon-2": "#7fb7ff", "neon-3": "#275fba",
+    },
+  },
+  {
+    id: "kodi_arctic_zephyr",
+    name: "CinaVault Arctic Zephyr",
+    origin: "Kodi",
+    description: "Minimal arctic glass theme with airy blue highlights and quiet card surfaces.",
+    colors: {
+      bg: "#0a1118", panel: "rgba(17, 30, 42, 0.88)", "panel-2": "rgba(25, 42, 56, 0.8)",
+      "panel-3": "rgba(37, 58, 75, 0.68)", text: "#f5fbff", subtext: "#a7bbc9",
+      accent: "#9ed8ff", "accent-2": "#5aa9d9", "accent-3": "#d9f2ff",
+      gold: "#e6c76b", "row-a": "rgba(12, 24, 35, 0.72)", "row-b": "rgba(19, 36, 50, 0.66)",
+      danger: "#e85d75", "neon-1": "#ffffff", "neon-2": "#9ed8ff", "neon-3": "#5aa9d9",
+    },
+  },
+  {
+    id: "kodi_titan_bingie_stream",
+    name: "CinaVault Titan Bingie",
+    origin: "Kodi",
+    description: "Streaming-service inspired red-and-black skin for big art, rows, and focused playback.",
+    colors: {
+      bg: "#070707", panel: "rgba(18, 18, 18, 0.92)", "panel-2": "rgba(30, 24, 24, 0.82)",
+      "panel-3": "rgba(47, 31, 31, 0.72)", text: "#fff7f4", subtext: "#c2aaa5",
+      accent: "#e50914", "accent-2": "#b20710", "accent-3": "#ff6b3d",
+      gold: "#f5c65b", "row-a": "rgba(10, 10, 10, 0.78)", "row-b": "rgba(32, 22, 22, 0.72)",
+      danger: "#ff3357", "neon-1": "#fff2ee", "neon-2": "#e50914", "neon-3": "#ff6b3d",
+    },
+  },
+  {
+    id: "kodi_amber_home",
+    name: "CinaVault Amber",
+    origin: "Kodi",
+    description: "Warm amber navigation, readable panels, and living-room media center contrast.",
+    colors: {
+      bg: "#120d08", panel: "rgba(32, 22, 12, 0.9)", "panel-2": "rgba(48, 33, 18, 0.82)",
+      "panel-3": "rgba(70, 46, 22, 0.72)", text: "#fff8eb", subtext: "#d0b98f",
+      accent: "#f59e0b", "accent-2": "#c46f00", "accent-3": "#ffd166",
+      gold: "#ffe08a", "row-a": "rgba(26, 17, 9, 0.74)", "row-b": "rgba(45, 29, 13, 0.68)",
+      danger: "#ef4444", "neon-1": "#fff1c7", "neon-2": "#f59e0b", "neon-3": "#ffb703",
     },
   },
 ];

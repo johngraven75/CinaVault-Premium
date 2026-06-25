@@ -113,23 +113,36 @@ export default function SettingsTab() {
           {/* ═══ Appearance ═══ */}
           {activeSection === "appearance" && (
             <>
-              <SectionHeader title="Theme" desc="Choose your visual theme — Premium includes all themes by default" />
-              <div className="grid grid-cols-3 gap-3">
+              <SectionHeader title="Themes & Skins" desc="Choose a visual theme or Kodi-inspired CinaVault skin — Premium includes all presets by default" />
+              <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
                 {THEME_PRESETS.map(theme => (
                   <button key={theme.id} onClick={() => { setTheme(theme.id); applyTheme(theme.id); setSetting("theme", theme.id); }}
-                    className={`p-3 rounded-xl border transition-all ${
+                    aria-label={`Select ${theme.name} skin`}
+                    className={`p-3 rounded-xl border text-left transition-all ${
                       currentTheme === theme.id
                         ? "border-[var(--cv-accent)] bg-[var(--cv-accent)]/10"
                         : "border-white/5 bg-white/3 hover:bg-white/5"
                     }`}>
-                    <div className="flex gap-1 mb-2">
-                      {Object.values(theme.colors).slice(0, 5).map((c, i) => (
-                        <div key={i} className="w-4 h-4 rounded-full" style={{ background: c }} />
-                      ))}
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex gap-1">
+                        {Object.values(theme.colors).slice(0, 5).map((c, i) => (
+                          <div key={i} className="w-4 h-4 rounded-full" style={{ background: c }} />
+                        ))}
+                      </div>
+                      {theme.origin === "Kodi" && (
+                        <span className="text-[9px] uppercase tracking-wide rounded-full px-2 py-0.5 border border-[var(--cv-accent)]/30 bg-[var(--cv-accent)]/10" style={{ color: "var(--cv-accent)" }}>
+                          Kodi Skin
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs font-medium" style={{ color: currentTheme === theme.id ? "var(--cv-accent)" : "var(--cv-text)" }}>
                       {theme.name}
                     </div>
+                    {theme.description && (
+                      <div className="mt-1 text-[10px] leading-snug" style={{ color: "var(--cv-subtext)" }}>
+                        {theme.description}
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -249,8 +262,8 @@ export default function SettingsTab() {
                     <div className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>Metadata Providers</div>
                   </div>
                   <div className="p-3 rounded-xl bg-white/3">
-                    <div className="text-lg font-bold" style={{ color: "var(--cv-accent)" }}>6</div>
-                    <div className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>Theme Presets</div>
+                    <div className="text-lg font-bold" style={{ color: "var(--cv-accent)" }}>{THEME_PRESETS.length}</div>
+                    <div className="text-[10px]" style={{ color: "var(--cv-subtext)" }}>Theme / Skin Presets</div>
                   </div>
                 </div>
               </div>
