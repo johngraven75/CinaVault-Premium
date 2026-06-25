@@ -112,7 +112,7 @@ Require-Command "rustc" "Install Rust from https://rustup.rs/."
 if (Test-Path (Join-Path $RepoRoot "node_modules")) {
     Write-Step "Using preinstalled JavaScript dependencies"
 } else {
-    Write-Step "Installing JavaScript dependencies from patched manifest"
+    Write-Step "Installing JavaScript dependencies from the current fresh manifest"
     Invoke-Checked "npm" @("install", "--legacy-peer-deps", "--loglevel", "verbose")
 }
 
