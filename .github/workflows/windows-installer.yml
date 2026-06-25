@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - codex/cinavault-pgma-plex-plugin
+      - codex/cyber-hud-build-137
     paths-ignore:
       - 'releases/**'
 
@@ -13,10 +14,10 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '136'
-  BUILD_OUTPUT_DIR: releases/build-136
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build136
-  BUILD_TRIGGER: manual-2026-06-25-build-136
+  BUILD_NUMBER: '137'
+  BUILD_OUTPUT_DIR: releases/build-137
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build137
+  BUILD_TRIGGER: manual-2026-06-25-build-137
 
 jobs:
   build-windows-installer:
@@ -35,7 +36,7 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Refresh patched npm lockfile
+      - name: Refresh npm lockfile
         shell: pwsh
         run: |
           npm install --package-lock-only
@@ -45,7 +46,7 @@ jobs:
           git add package.json package-lock.json
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Refresh npm security lockfile for Build ${{ env.BUILD_NUMBER }}'
+            git commit -m 'Refresh npm lockfile for Build ${{ env.BUILD_NUMBER }}'
             git push
           } else {
             Write-Host 'No package lock refresh needed.'
@@ -90,10 +91,12 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'Includes the latest downloader, media support, frontend, backend, installer workflow changes, and selectable Kodi-inspired CinaVault skins.',
+            'Includes a fresh Cyberpunk / Neo-Sci-Fi HUD UI built from Build 136, plus the latest downloader, media support, frontend, backend, and installer workflow changes.',
             '',
-            'Build 136 highlights:',
-            '- Adds selectable CinaVault Estuary, Aeon Nox, Arctic Zephyr, Titan Bingie, and Amber skins adapted from popular Kodi skin styles.',
+            'Build 137 highlights:',
+            '- Adds the Hyper-Neon Fusion palette with deep-space black, cyber cyan, laser violet, molten amber, and glassmorphism surfaces.',
+            '- Replaces the forward-facing header with a Quantum Grid navigation terminal and AI-style search core.',
+            '- Rebuilds the library surface with holographic media cards, laser sheen hover states, quick-actions, cascading result animation, quick stats, and a slide-out terminal panel.',
             '- Publishes Windows NSIS setup EXE, MSI, release notes, build notes, and SHA256 manifest.'
           ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
 
@@ -133,8 +136,8 @@ jobs:
             'The generated installer files, SHA256 manifest, release notes, and build notes in this folder were produced by the Windows installer workflow.',
             '',
             'Expected installer outputs:',
-            '- CinaVault Premium_1.0.136_x64-setup.exe',
-            '- CinaVault Premium_1.0.136_x64_en-US.msi'
+            '- CinaVault Premium_1.0.137_x64-setup.exe',
+            '- CinaVault Premium_1.0.137_x64_en-US.msi'
           ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
 
           git config user.name 'github-actions[bot]'
