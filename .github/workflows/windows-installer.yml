@@ -13,10 +13,10 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '135'
-  BUILD_OUTPUT_DIR: releases/build-135
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build135
-  BUILD_TRIGGER: manual-2026-06-25-build-135
+  BUILD_NUMBER: '136'
+  BUILD_OUTPUT_DIR: releases/build-136
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build136
+  BUILD_TRIGGER: manual-2026-06-25-build-136
 
 jobs:
   build-windows-installer:
@@ -90,7 +90,11 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'Includes the latest downloader, media support, frontend, backend, and installer workflow changes.'
+            'Includes the latest downloader, media support, frontend, backend, installer workflow changes, and selectable Kodi-inspired CinaVault skins.',
+            '',
+            'Build 136 highlights:',
+            '- Adds selectable CinaVault Estuary, Aeon Nox, Arctic Zephyr, Titan Bingie, and Amber skins adapted from popular Kodi skin styles.',
+            '- Publishes Windows NSIS setup EXE, MSI, release notes, build notes, and SHA256 manifest.'
           ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
 
           $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
@@ -126,7 +130,11 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'The generated installer files, SHA256 manifest, and release notes in this folder were produced by the Windows installer workflow.'
+            'The generated installer files, SHA256 manifest, release notes, and build notes in this folder were produced by the Windows installer workflow.',
+            '',
+            'Expected installer outputs:',
+            '- CinaVault Premium_1.0.136_x64-setup.exe',
+            '- CinaVault Premium_1.0.136_x64_en-US.msi'
           ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
 
           git config user.name 'github-actions[bot]'
