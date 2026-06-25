@@ -13,9 +13,9 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '134'
-  BUILD_OUTPUT_DIR: releases/build-134
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build134
+  BUILD_NUMBER: '135'
+  BUILD_OUTPUT_DIR: releases/build-135
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build135
 
 jobs:
   build-windows-installer:
