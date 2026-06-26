@@ -26,6 +26,25 @@
   letter-spacing: 0.06em;
 }
 
+.cyber-card-actions .cyber-button:last-child {
+  font-size: 0;
+}
+
+.cyber-card-actions .cyber-button:last-child svg,
+.cyber-card-actions .cyber-button:last-child .cyber-bracket {
+  font-size: 0.68rem;
+}
+
+.cyber-card-actions .cyber-button:last-child::after {
+  content: "Check Metadata";
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+}
+
+.cyber-card-actions .cyber-button:last-child:disabled::after {
+  content: "Checking...";
+}
+
 .cyber-card-actions .metadata-action-label {
   display: inline;
 }
