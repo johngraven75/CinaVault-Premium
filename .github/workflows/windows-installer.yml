@@ -14,10 +14,10 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '137'
-  BUILD_OUTPUT_DIR: releases/build-137
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build137
-  BUILD_TRIGGER: manual-2026-06-25-build-137
+  BUILD_NUMBER: '138'
+  BUILD_OUTPUT_DIR: releases/build-138
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build138
+  BUILD_TRIGGER: manual-2026-06-26-build-138
 
 jobs:
   build-windows-installer:
@@ -91,12 +91,13 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'Includes a fresh Cyberpunk / Neo-Sci-Fi HUD UI built from Build 136, plus the latest downloader, media support, frontend, backend, and installer workflow changes.',
+            'Carries forward the Build 137 Cyber HUD redesign and adds the Build 138 metadata repair validation set.',
             '',
-            'Build 137 highlights:',
-            '- Adds the Hyper-Neon Fusion palette with deep-space black, cyber cyan, laser violet, molten amber, and glassmorphism surfaces.',
-            '- Replaces the forward-facing header with a Quantum Grid navigation terminal and AI-style search core.',
-            '- Rebuilds the library surface with holographic media cards, laser sheen hover states, quick-actions, cascading result animation, quick stats, and a slide-out terminal panel.',
+            'Build 138 highlights:',
+            '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience from Build 137.',
+            '- Restores always-visible per-media Check Metadata actions on library cards and list/table surfaces.',
+            '- Reports metadata gather results with scanned, enriched, updated-field, poster, sidecar, and chapter-image counts instead of a generic completion message.',
+            '- Requires a Rust regression test proving metadata and poster URLs are posted to an actual media row before installer creation.',
             '- Publishes Windows NSIS setup EXE, MSI, release notes, build notes, and SHA256 manifest.'
           ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
 
@@ -133,11 +134,11 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'The generated installer files, SHA256 manifest, release notes, and build notes in this folder were produced by the Windows installer workflow.',
+            'The generated installer files, SHA256 manifest, release notes, and build notes in this folder were produced by the Windows installer workflow after metadata/poster persistence validation.',
             '',
             'Expected installer outputs:',
-            '- CinaVault Premium_1.0.137_x64-setup.exe',
-            '- CinaVault Premium_1.0.137_x64_en-US.msi'
+            '- CinaVault Premium_1.0.138_x64-setup.exe',
+            '- CinaVault Premium_1.0.138_x64_en-US.msi'
           ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
 
           git config user.name 'github-actions[bot]'
