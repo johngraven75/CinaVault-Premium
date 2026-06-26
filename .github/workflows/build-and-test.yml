@@ -34,6 +34,20 @@ jobs:
         
       - name: TypeScript type checking
         run: npm run build
+
+      - name: Install Rust metadata-test dependencies
+        if: matrix.node-version == '20.x'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Rust
+        if: matrix.node-version == '20.x'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate metadata/poster posting
+        if: matrix.node-version == '20.x'
+        run: cargo test --manifest-path src-tauri/Cargo.toml metadata_posting_tests -- --nocapture
         
       - name: Security audit
         run: npm audit --audit-level=moderate
