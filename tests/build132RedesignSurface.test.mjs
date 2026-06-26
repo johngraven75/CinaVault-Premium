@@ -57,23 +57,24 @@ test("Build 132 sidebar keeps every core destination and collapse control", () =
   }
 });
 
-test("Build 132 header keeps command identity, search, clock, fullscreen, and notifications", () => {
+test("Build 137 header keeps HUD identity, search, clock, fullscreen, and notifications", () => {
   const header = source("src/components/Header.tsx");
 
   for (const required of [
-    "Build 132 Cinematic Command Header",
-    "Build 132 Interface",
-    "TAB_SUBTITLES",
+    "Build 137 Cyber HUD Command Header",
+    "TAB_META",
+    "Quantum Grid Active",
+    "CinaVault B137",
+    "Hyper-Neon Fusion",
     "setSearchQuery",
     "toLocaleTimeString",
     "toggleFullscreen",
     "requestFullscreen",
-    "Command Feed",
     "getUnreadStatusMessages",
     "devicePixelRatio",
     "requestAnimationFrame(draw)",
   ]) {
-    assert.match(header, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(header, new RegExp(required.replace(/[.*+?^${}()|[\]\]/g, "\$&")));
   }
 });
 
