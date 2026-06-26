@@ -1,4 +1,4 @@
-// CinaVault Premium — Build 137 Hyper-Neon Fusion Library HUD
+// CinaVault Premium — Build 138 Hyper-Neon Fusion Library HUD
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, PointerEvent } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -350,7 +350,7 @@ export default function HomeTab(): JSX.Element {
                 <Sparkles size={15} /> Open Terminal Panel
               </button>
               <button type="button" onClick={() => void handleCheckMetadata(heroItem)} className="cyber-button is-amber">
-                <Search size={15} /> Parse Metadata
+                <Search size={15} /> Check Metadata
               </button>
             </div>
           </div>
@@ -528,25 +528,48 @@ export default function HomeTab(): JSX.Element {
             </motion.div>
           ) : (
             <div className="cyber-table">
-              <div className="cyber-table-row cyber-stat-label bg-cyan-300/[0.06]">
-                <span>Title</span><span>Type</span><span>Year</span><span>Rating</span><span>Status</span>
+              <div className="cyber-table-row with-metadata-action cyber-stat-label bg-cyan-300/[0.06]">
+                <span>Title</span><span>Type</span><span>Year</span><span>Rating</span><span>Status</span><span>Metadata</span>
               </div>
-              {filteredItems.map((item, index) => (
-                <button
-                  key={`${item.id || item.title}-row-${index}`}
-                  type="button"
-                  onClick={() => setSelectedMedia(item)}
-                  className="cyber-table-row w-full text-left text-sm"
-                >
-                  <span className="truncate font-semibold">{item.title}</span>
-                  <span className="text-xs capitalize text-cv-subtext">{item.media_type}</span>
-                  <span className="text-xs text-cv-subtext">{item.year || "—"}</span>
-                  <span className="flex items-center gap-1 text-xs">
-                    {item.rating ? <><Star size={11} className="text-[var(--cyber-amber)]" />{item.rating}</> : "—"}
-                  </span>
-                  <span>{item.verified ? <CheckCircle size={15} className="text-cyan-200" /> : <Clock size={15} className="text-cv-subtext/50" />}</span>
-                </button>
-              ))}
+              {filteredItems.map((item, index) => {
+                const checking = metadataCheckId === item.id;
+                return (
+                  <div
+                    key={`${item.id || item.title}-row-${index}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedMedia(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedMedia(item);
+                      }
+                    }}
+                    className="cyber-table-row with-metadata-action w-full text-left text-sm"
+                  >
+                    <span className="truncate font-semibold">{item.title}</span>
+                    <span className="text-xs capitalize text-cv-subtext">{item.media_type}</span>
+                    <span className="text-xs text-cv-subtext">{item.year || "—"}</span>
+                    <span className="flex items-center gap-1 text-xs">
+                      {item.rating ? <><Star size={11} className="text-[var(--cyber-amber)]" />{item.rating}</> : "—"}
+                    </span>
+                    <span>{item.verified ? <CheckCircle size={15} className="text-cyan-200" /> : <Clock size={15} className="text-cv-subtext/50" />}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleCheckMetadata(item);
+                      }}
+                      disabled={checking}
+                      className="cyber-button library-row-metadata-action disabled:opacity-60"
+                      title={`Check metadata for ${item.title}`}
+                    >
+                      {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
+                      {checking ? "Checking..." : "Check Metadata"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -620,7 +643,7 @@ export default function HomeTab(): JSX.Element {
                 </button>
                 <button type="button" onClick={() => void handleCheckMetadata(selectedMedia)} disabled={metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60">
                   {metadataCheckId === selectedMedia.id ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  Parse Metadata
+                  Check Metadata
                 </button>
                 <button type="button" onClick={() => setDetailFlipped((value) => !value)} className="cyber-button">
                   <RotateCw size={14} /> Rotate Unit
@@ -755,8 +778,8 @@ function MediaCard({
           disabled={checking}
           className="cyber-button flex-1 text-[10px] disabled:opacity-60"
         >
-          {checking ? <RefreshCw size={12} className="animate-spin" /> : <span className="cyber-bracket">[+]</span>}
-          Data
+          {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
+          <span className="metadata-action-label">{checking ? "Checking..." : "Check Metadata"}</span>
         </button>
       </div>
     </motion.div>
