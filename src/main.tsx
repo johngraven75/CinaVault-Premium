@@ -4,6 +4,7 @@ import "./data/pluginAdapterInitialize";
 import App from "./App";
 import "./styles/index.css";
 import "./styles/cyber-hud.css";
+import "./styles/metadata-actions.css";
 
 const splash = document.getElementById("splash");
 const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
