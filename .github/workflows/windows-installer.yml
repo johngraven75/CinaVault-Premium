@@ -17,7 +17,7 @@ env:
   BUILD_NUMBER: '139'
   BUILD_OUTPUT_DIR: releases/build-139
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build139
-  BUILD_TRIGGER: manual-2026-06-26-build-139
+  BUILD_TRIGGER: manual-2026-06-26-build-139-version-139
 
 jobs:
   build-windows-installer:
