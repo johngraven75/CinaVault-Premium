@@ -431,27 +431,33 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
 #[cfg(test)]
 mod tests {
     use super::{collect_media_files, poster_cache_path_for_file, should_extract_poster_for_scan, should_index_path};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_path(parts: &[&str]) -> PathBuf {
+        parts.iter().collect()
+    }
 
     #[test]
     fn skips_generated_chapter_images() {
-        assert!(!should_index_path(Path::new(r"E:\Videos\sample_chapters\chapter_0001.jpg")));
+        let path = test_path(&["Videos", "sample_chapters", "chapter_0001.jpg"]);
+        assert!(!should_index_path(&path));
     }
 
     #[test]
     fn skips_sidecar_artwork_images() {
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\poster.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\backdrop.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\folder.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\cover.png")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\scene-poster.webp")));
+        for file_name in ["poster.jpg", "backdrop.jpg", "folder.jpg", "cover.png", "scene-poster.webp"] {
+            let path = test_path(&["Videos", "Movie", file_name]);
+            assert!(!should_index_path(&path), "expected sidecar artwork to be skipped: {}", path.display());
+        }
     }
 
     #[test]
     fn keeps_real_media_files() {
-        assert!(should_index_path(Path::new(r"E:\Videos\sample.mp4")));
-        assert!(should_index_path(Path::new(r"E:\Photos\Vacation\beach-day.jpg")));
+        let video = test_path(&["Videos", "sample.mp4"]);
+        let photo = test_path(&["Photos", "Vacation", "beach-day.jpg"]);
+        assert!(should_index_path(&video));
+        assert!(should_index_path(&photo));
     }
 
     #[test]
