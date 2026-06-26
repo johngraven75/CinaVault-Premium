@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import "./data/pluginAdapterInitialize";
 import App from "./App";
 import "./styles/index.css";
+import "./styles/cyber-hud.css";
+import "./styles/metadata-actions.css";
 
 const splash = document.getElementById("splash");
 const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
@@ -10,11 +12,11 @@ const splashStatus = document.getElementById("splash-status") as HTMLDivElement;
 const brandSplash = document.getElementById("brand-splash") as HTMLDivElement;
 
 const stages = [
-  { pct: 15, text: "Loading core engine..." },
+  { pct: 15, text: "Loading hyper-neon HUD core..." },
   { pct: 35, text: "Initializing Rust backend..." },
-  { pct: 55, text: "Mounting premium UI..." },
-  { pct: 75, text: "Preparing media systems..." },
-  { pct: 90, text: "Activating visual effects..." },
+  { pct: 55, text: "Mounting Cyber HUD interface..." },
+  { pct: 75, text: "Preparing holographic media systems..." },
+  { pct: 90, text: "Activating quantum grid effects..." },
   { pct: 100, text: "Ready." },
 ];
 
@@ -50,5 +52,5 @@ advanceSplash();
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
+  </React.StrictMode>,
 );

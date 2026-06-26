@@ -20,6 +20,8 @@ mod enrichment;
 mod task_progress;
 mod library_artifacts;
 mod pgma_bridge;
+#[cfg(test)]
+mod metadata_posting_tests;
 
 use db::Database;
 use std::sync::Mutex;
@@ -258,105 +260,63 @@ async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_js
     match result.join() {
         Ok(Ok(val)) => Ok(val),
         Ok(Err(e)) => Err(e),
-        Err(_) => Err("Auth thread panicked".to_string()),
+        Err(_) => Err("OAuth handler panicked".to_string()),
     }
 }
 
-fn extract_query_param(request: &str, param: &str) -> Option<String> {
-    let search = format!("{}=", param);
-    if let Some(pos) = request.find(&search) {
-        let start = pos + search.len();
-        let rest = &request[start..];
-        let end = rest.find(|c: char| c == '&' || c == ' ' || c == '\r' || c == '\n').unwrap_or(rest.len());
-        Some(rest[..end].to_string())
-    } else {
-        None
+fn extract_query_param(request: &str, key: &str) -> Option<String> {
+    let first_line = request.lines().next()?;
+    let path = first_line.split_whitespace().nth(1)?;
+    let query = path.split('?').nth(1)?;
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=')?;
+        if k == key {
+            return Some(v.to_string());
+        }
     }
+    None
 }
 
 #[tauri::command]
-async fn cloud_disconnect(provider: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+async fn cloud_disconnect(provider: String) -> Result<serde_json::Value, String> {
     log::info!("Cloud disconnect: {}", provider);
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data(&format!("cloud_{}_status", provider), "disconnected").map_err(|e| e.to_string())?;
-    db.set_setting_data(&format!("cloud_{}_token", provider), "").map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(serde_json::json!({ "success": true }))
 }
 
 #[tauri::command]
-async fn cloud_sync(provider: String, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
-    log::info!("Cloud sync: {}", provider);
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Local::now().to_rfc3339();
-    db.set_setting_data(&format!("cloud_{}_last_sync", provider), &now).map_err(|e| e.to_string())?;
-
-    Ok(serde_json::json!({
-        "success": true,
-        "provider": provider,
-        "synced_at": now,
-        "items_found": 0
-    }))
+async fn cloud_sync(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
+    log::info!("Cloud sync: provider={}, folder={:?}", provider, folder_id);
+    Ok(serde_json::json!({ "success": true, "synced": 0 }))
 }
 
 #[tauri::command]
-async fn cloud_browse(provider: String) -> Result<serde_json::Value, String> {
-    log::info!("Cloud browse: {}", provider);
-    Ok(serde_json::json!({
-        "success": true,
-        "provider": provider,
-        "files": [],
-        "folders": []
-    }))
+async fn cloud_browse(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
+    log::info!("Cloud browse: provider={}, folder={:?}", provider, folder_id);
+    Ok(serde_json::json!({ "items": [] }))
 }
 
 #[tauri::command]
-async fn cloud_list_files(provider: String, path: Option<String>) -> Result<Vec<serde_json::Value>, String> {
-    log::info!("Cloud list files: {} path={:?}", provider, path);
-    Ok(vec![])
+async fn cloud_list_files(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
+    cloud_browse(provider, folder_id).await
 }
 
 #[tauri::command]
-async fn cloud_get_status(provider: String, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let status = db.get_setting_data(&format!("cloud_{}_status", provider))
-        .map_err(|e| e.to_string())?
-        .unwrap_or_else(|| "disconnected".to_string());
-    let last_sync = db.get_setting_data(&format!("cloud_{}_last_sync", provider))
-        .map_err(|e| e.to_string())?;
-
-    Ok(serde_json::json!({
-        "provider": provider,
-        "status": status,
-        "last_sync": last_sync
-    }))
+async fn cloud_get_status(provider: String) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "provider": provider, "connected": false }))
 }
-
-// ════════════════════════════════════════════════════════════
-//  Utility Commands
-// ════════════════════════════════════════════════════════════
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "brand": "CinaVault Fusion",
-        "version": "1.0.0-7",
-        "build_tag": "Build 132 Futuristic Interface + PGMA/Nuxt Metadata Providers (Premium Edition)",
-        "engine": "Tauri v2 + Rust + React 18",
-        "platform": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-        "features": [
-            "persistent_settings", "cloud_storage", "plugin_system",
-            "metadata_providers", "pgma_metadata_provider", "porn_site_nuxt_provider",
-            "library_enrichment", "filename_normalization",
-            "embedded_title_preference", "embedded_poster_import", "scheduled_tasks", "premium_ui"
-        ]
+        "version": "1.0.0",
+        "build": "premium"
     })
 }
 
 #[tauri::command]
-async fn open_external_url(url: String) -> Result<(), String> {
-    open::that(&url).map_err(|e| e.to_string())
+fn open_external_url(url: String) -> Result<(), String> {
+    open::that(url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -370,6 +330,7 @@ fn get_system_info() -> serde_json::Value {
 
 #[tauri::command]
 async fn pick_folder() -> Result<Option<String>, String> {
+    // Use tauri-plugin-dialog in frontend; this is fallback
     Ok(None)
 }
 

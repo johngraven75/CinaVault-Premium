@@ -1,80 +1,108 @@
-// CinaVault Premium — Build 132 Cinematic Command Header
-import { useRef, useEffect, useState } from "react";
+// CinaVault Premium — Build 137 Cyber HUD Command Header
+import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { Activity, Bell, Cpu, Maximize2, RadioTower, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { useAppStore, TabId } from "../store/appStore";
-import { Search, Bell, Maximize2, Activity, RadioTower, Sparkles } from "lucide-react";
 import { getUnreadStatusMessages } from "../utils/pluginUiSafety";
 
-const TAB_LABELS: Record<TabId, string> = {
-  home: "Library",
-  sources: "Media Sources",
-  downloads: "Downloads",
-  livetv: "Live TV",
-  server: "Server",
-  security: "Security",
-  remote: "Remote Access",
-  advanced: "Advanced",
-  cloud: "Cloud & NAS",
-  plugins: "Plugins & Metadata",
-  ai: "AI Diagnostics",
-  settings: "Settings",
+interface TabMeta {
+  label: string;
+  subtitle: string;
+  signal: string;
+}
+
+const TAB_META: Record<TabId, TabMeta> = {
+  home: {
+    label: "Movies",
+    subtitle: "Holographic library carousel, vault inventory, and instant playback",
+    signal: "Vault",
+  },
+  sources: {
+    label: "Media Sources",
+    subtitle: "Ingest folders, drives, network shares, and scan targets",
+    signal: "Ingest",
+  },
+  downloads: {
+    label: "My Vault",
+    subtitle: "Queue telemetry, acquisitions, and personal watch staging",
+    signal: "Queue",
+  },
+  livetv: {
+    label: "TV Shows",
+    subtitle: "Live streams, channel intelligence, and guide signals",
+    signal: "Stream",
+  },
+  server: {
+    label: "System Core",
+    subtitle: "Services, runtime health, networking, and uptime telemetry",
+    signal: "Core",
+  },
+  security: {
+    label: "Security",
+    subtitle: "Access control, privacy shields, audit trails, and hardening",
+    signal: "Guard",
+  },
+  remote: {
+    label: "Remote",
+    subtitle: "Relay state, external reachability, and secure remote paths",
+    signal: "Relay",
+  },
+  advanced: {
+    label: "Advanced",
+    subtitle: "Expert tuning, debug controls, and platform diagnostics",
+    signal: "Tune",
+  },
+  cloud: {
+    label: "Cloud / NAS",
+    subtitle: "Cloud sync, NAS fabric, and storage mesh control",
+    signal: "Mesh",
+  },
+  plugins: {
+    label: "Plugins",
+    subtitle: "Metadata engines, compatibility bridges, and extension control",
+    signal: "Mods",
+  },
+  ai: {
+    label: "AI Terminal",
+    subtitle: "Predictive diagnostics, repair guidance, and neural analysis",
+    signal: "Neural",
+  },
+  settings: {
+    label: "Settings",
+    subtitle: "Themes, preferences, profiles, and cinematic behavior",
+    signal: "Config",
+  },
 };
 
-const TAB_SUBTITLES: Record<TabId, string> = {
-  home: "Browse, curate, and launch your media universe",
-  sources: "Ingest folders, drives, libraries, and scan targets",
-  downloads: "Monitor queues, transfers, and acquisition jobs",
-  livetv: "Tune streams, guide data, and channel intelligence",
-  server: "Core services, uptime, networking, and health telemetry",
-  security: "Access control, hardening, privacy, and audit state",
-  remote: "Relay status, external reachability, and secure access",
-  advanced: "Expert controls, tuning knobs, and platform diagnostics",
-  cloud: "Cloud, NAS, sync, and storage fabric management",
-  plugins: "Metadata, compatibility layers, and extension control",
-  ai: "Predictive diagnostics and intelligent repair suggestions",
-  settings: "Preferences, profile, themes, and app behavior",
-};
+const PRIMARY_TABS: TabId[] = ["home", "livetv", "downloads", "sources", "server", "plugins", "ai", "settings"];
 
 interface Particle {
   x: number;
   y: number;
-  z: number;
+  vx: number;
+  phase: number;
   size: number;
-  drift: number;
-}
-
-interface Comet {
-  x: number;
-  y: number;
-  speed: number;
-  length: number;
-  angle: number;
-  life: number;
-  maxLife: number;
 }
 
 export default function Header(): JSX.Element {
-  const { activeTab, searchQuery, setSearchQuery, statusMessages } = useAppStore();
+  const { activeTab, setActiveTab, searchQuery, setSearchQuery, statusMessages } = useAppStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const mouseRef = useRef({ x: 0, y: 0 });
   const [clock, setClock] = useState(new Date());
   const [showNotifications, setShowNotifications] = useState(false);
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
   const unreadMessages = getUnreadStatusMessages(statusMessages, lastReadMessageIndex);
+  const activeMeta = TAB_META[activeTab];
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const context = canvas.getContext("2d");
-    if (!context) return;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
 
     let animationFrame = 0;
     let width = 0;
     let height = 0;
     let particles: Particle[] = [];
-    let comets: Comet[] = [];
 
     const resize = (): void => {
       const ratio = Math.max(1, window.devicePixelRatio || 1);
@@ -83,102 +111,58 @@ export default function Header(): JSX.Element {
       canvas.width = Math.max(1, Math.floor(width * ratio));
       canvas.height = Math.max(1, Math.floor(height * ratio));
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      particles = Array.from({ length: 130 }, () => ({
+      particles = Array.from({ length: 96 }, () => ({
         x: Math.random() * width,
         y: Math.random() * height,
-        z: Math.random(),
-        size: Math.random() * 1.4 + 0.35,
-        drift: Math.random() * 0.18 + 0.03,
+        vx: 0.18 + Math.random() * 0.72,
+        phase: Math.random() * Math.PI * 2,
+        size: 0.55 + Math.random() * 1.4,
       }));
     };
 
-    const spawnComet = (): void => {
-      if (comets.length < 2 && Math.random() < 0.006) {
-        comets.push({
-          x: -48,
-          y: Math.random() * height * 0.62,
-          speed: 2.1 + Math.random() * 2.8,
-          length: 56 + Math.random() * 80,
-          angle: -0.11 + Math.random() * 0.22,
-          life: 0,
-          maxLife: 126 + Math.random() * 90,
-        });
-      }
-    };
-
     const draw = (): void => {
+      const now = performance.now();
       context.clearRect(0, 0, width, height);
 
-      const nebula = context.createRadialGradient(width * 0.74, height * 0.24, 0, width * 0.74, height * 0.24, width * 0.7);
-      nebula.addColorStop(0, "rgba(0,234,255,0.105)");
-      nebula.addColorStop(0.45, "rgba(255,77,184,0.045)");
-      nebula.addColorStop(1, "transparent");
-      context.fillStyle = nebula;
+      const glow = context.createRadialGradient(width * 0.18, height * 0.32, 0, width * 0.18, height * 0.32, width * 0.7);
+      glow.addColorStop(0, "rgba(0,245,255,0.16)");
+      glow.addColorStop(0.48, "rgba(189,0,255,0.055)");
+      glow.addColorStop(1, "transparent");
+      context.fillStyle = glow;
       context.fillRect(0, 0, width, height);
 
-      const mx = (mouseRef.current.x - width / 2) * 0.028;
-      const my = (mouseRef.current.y - height / 2) * 0.028;
-      const now = Date.now();
-
+      context.globalCompositeOperation = "lighter";
       for (const particle of particles) {
-        particle.x += particle.drift;
-        if (particle.x > width + 4) particle.x = -4;
-
-        const px = particle.x + mx * particle.z;
-        const py = particle.y + my * particle.z;
-        const alpha = 0.24 + particle.z * 0.54 + Math.sin(now * 0.002 + particle.x) * 0.12;
-
+        particle.x += particle.vx;
+        if (particle.x > width + 8) particle.x = -8;
+        const y = particle.y + Math.sin(now * 0.0015 + particle.phase) * 5;
+        const alpha = 0.28 + Math.sin(now * 0.002 + particle.phase) * 0.16;
         context.beginPath();
-        context.arc(px, py, particle.size, 0, Math.PI * 2);
-        context.fillStyle = `rgba(223,251,255,${alpha})`;
+        context.arc(particle.x, y, particle.size, 0, Math.PI * 2);
+        context.fillStyle = `rgba(0,245,255,${Math.max(0.08, alpha)})`;
         context.fill();
       }
 
-      spawnComet();
-      comets = comets.filter((comet) => comet.life < comet.maxLife);
-      for (const comet of comets) {
-        comet.x += comet.speed * Math.cos(comet.angle);
-        comet.y += comet.speed * Math.sin(comet.angle);
-        comet.life += 1;
-
-        const fadeIn = Math.min(comet.life / 18, 1);
-        const fadeOut = Math.max(1 - (comet.life - comet.maxLife + 28) / 28, 0);
-        const alpha = fadeIn * fadeOut * 0.72;
-        const tail = context.createLinearGradient(
-          comet.x,
-          comet.y,
-          comet.x - comet.length * Math.cos(comet.angle),
-          comet.y - comet.length * Math.sin(comet.angle),
-        );
-
-        tail.addColorStop(0, `rgba(255,255,255,${alpha})`);
-        tail.addColorStop(0.38, `rgba(0,234,255,${alpha * 0.55})`);
-        tail.addColorStop(1, "transparent");
-        context.beginPath();
-        context.moveTo(comet.x, comet.y);
-        context.lineTo(comet.x - comet.length * Math.cos(comet.angle), comet.y - comet.length * Math.sin(comet.angle));
-        context.strokeStyle = tail;
-        context.lineWidth = 1.6;
-        context.stroke();
-      }
+      const scanX = ((now * 0.08) % (width + 180)) - 180;
+      const beam = context.createLinearGradient(scanX, 0, scanX + 180, 0);
+      beam.addColorStop(0, "transparent");
+      beam.addColorStop(0.48, "rgba(0,245,255,0.0)");
+      beam.addColorStop(0.5, "rgba(0,245,255,0.36)");
+      beam.addColorStop(1, "transparent");
+      context.fillStyle = beam;
+      context.fillRect(0, 0, width, height);
+      context.globalCompositeOperation = "source-over";
 
       animationFrame = requestAnimationFrame(draw);
-    };
-
-    const handleMouseMove = (event: MouseEvent): void => {
-      const rect = canvas.getBoundingClientRect();
-      mouseRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     };
 
     resize();
     draw();
     window.addEventListener("resize", resize);
-    canvas.addEventListener("mousemove", handleMouseMove);
 
     return () => {
       cancelAnimationFrame(animationFrame);
       window.removeEventListener("resize", resize);
-      canvas.removeEventListener("mousemove", handleMouseMove);
     };
   }, []);
 
@@ -198,89 +182,110 @@ export default function Header(): JSX.Element {
   };
 
   return (
-    <header className="cv-header relative z-20 h-[88px] shrink-0 overflow-visible border-b border-white/10 bg-black/10">
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ pointerEvents: "auto" }} />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.36),transparent_42%,rgba(0,234,255,0.08))]" />
-      <div className="pointer-events-none absolute inset-x-6 bottom-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+    <header className="cyber-header relative z-20 shrink-0 overflow-visible">
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden="true" />
 
-      <div className="relative z-10 flex h-full items-center justify-between gap-5 px-5">
-        <div className="flex min-w-0 items-center gap-4">
-          <motion.div
-            className="relative grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/[0.055] shadow-[0_0_34px_rgba(0,234,255,0.16)]"
-            whileHover={{ scale: 1.04 }}
-          >
-            <div className="absolute inset-1 rounded-xl bg-[radial-gradient(circle_at_30%_15%,rgba(255,255,255,0.26),transparent_44%)]" />
-            <img src="/branding/cinavault-premium-mark.png" alt="CinaVault brand" className="relative h-9 w-9 rounded-xl object-cover" />
-          </motion.div>
+      <div className="relative z-10 flex h-full flex-col gap-3 px-4 py-3 xl:px-5">
+        <div className="flex min-h-0 items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <motion.div
+              className="cyber-brand-chip h-12 px-3"
+              whileHover={{ scale: 1.03 }}
+              transition={{ type: "spring", stiffness: 360, damping: 24 }}
+            >
+              <Zap size={18} className="text-cyan-200" />
+              <div className="min-w-0">
+                <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-200">CinaVault B137</div>
+                <div className="truncate text-sm font-black uppercase tracking-[0.16em]">Hyper-Neon Fusion</div>
+              </div>
+            </motion.div>
 
-          <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em]" style={{ color: "var(--cv-accent)" }}>
-              <Sparkles size={12} />
-              Build 132 Interface
-            </div>
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, y: 10, filter: "blur(8px)" }}
+                initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                 exit={{ opacity: 0, y: -8, filter: "blur(8px)" }}
-                transition={{ duration: 0.24 }}
+                transition={{ duration: 0.22 }}
+                className="hidden min-w-0 md:block"
               >
-                <h1 className="truncate text-xl font-black tracking-tight" style={{ color: "var(--cv-text)" }}>
-                  {TAB_LABELS[activeTab]}
-                </h1>
-                <p className="truncate text-xs" style={{ color: "var(--cv-subtext)" }}>
-                  {TAB_SUBTITLES[activeTab]}
-                </p>
+                <div className="cyber-eyebrow flex items-center gap-2">
+                  <Sparkles size={12} /> Quantum Grid Active / {activeMeta.signal}
+                </div>
+                <h1 className="cyber-title truncate text-xl font-black tracking-tight">{activeMeta.label}</h1>
+                <p className="truncate text-xs text-cv-subtext">{activeMeta.subtitle}</p>
               </motion.div>
             </AnimatePresence>
           </div>
+
+          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+            <div className="hidden items-center gap-2 rounded-none border border-cyan-300/20 bg-black/40 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200 shadow-[0_0_18px_rgba(0,245,255,0.12)] lg:flex">
+              <Activity size={13} className="text-emerald-300" />
+              Nominal
+            </div>
+
+            <div className="cyber-search-core hidden sm:block">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cyan-200" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="AI search core..."
+                className="cyber-search-input"
+                aria-label="Search library, plugins, and sources"
+              />
+            </div>
+
+            <div className="hidden min-w-[94px] text-right font-mono text-[11px] tracking-wide text-cv-subtext/90 md:block">
+              {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </div>
+
+            <button type="button" onClick={toggleFullscreen} className="cyber-button h-11 w-11 px-0" title="Toggle fullscreen">
+              <Maximize2 size={15} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowNotifications((open) => !open);
+                setLastReadMessageIndex(Math.max(0, statusMessages.length - 1));
+              }}
+              className="cyber-button relative h-11 w-11 px-0"
+              title="Show command feed"
+            >
+              <Bell size={15} />
+              {unreadMessages.length > 0 && (
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--cyber-amber)] shadow-[0_0_14px_rgba(255,153,0,0.95)]" />
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
-          <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-cv-subtext shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] lg:flex">
-            <Activity size={13} className="text-emerald-300" />
-            Core Stable
+        <div className="flex items-center gap-3">
+          <nav className="quantum-nav flex-1" aria-label="Primary CinaVault navigation">
+            {PRIMARY_TABS.map((tab) => {
+              const meta = TAB_META[tab];
+              const isActive = activeTab === tab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  data-label={meta.label}
+                  className={`quantum-tab ${isActive ? "is-active" : ""}`}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {meta.label}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="hidden items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cv-subtext xl:flex">
+            <Cpu size={13} className="text-cyan-200" />
+            HUD Link
+            <ShieldCheck size={13} className="text-emerald-300" />
+            Secure
           </div>
-
-          <div className="relative cv-command-bar">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-cv-subtext" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search library, plugins, sources..."
-              className="cv-input w-64 rounded-xl border-white/10 bg-black/24 pl-9 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-            />
-          </div>
-
-          <div className="hidden min-w-[86px] text-right font-mono text-[11px] tracking-wide text-cv-subtext/85 sm:block">
-            {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-          </div>
-
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.045] text-cv-subtext hover:bg-white/[0.085] hover:text-cv-text"
-            title="Toggle fullscreen"
-          >
-            <Maximize2 size={15} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setShowNotifications((open) => !open);
-              setLastReadMessageIndex(Math.max(0, statusMessages.length - 1));
-            }}
-            className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.045] text-cv-subtext hover:bg-white/[0.085] hover:text-cv-text"
-            title="Show notifications"
-          >
-            <Bell size={15} />
-            {unreadMessages.length > 0 && (
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(34,211,238,0.9)]" />
-            )}
-          </button>
         </div>
       </div>
 
@@ -291,24 +296,21 @@ export default function Header(): JSX.Element {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}
             transition={{ duration: 0.18 }}
-            className="absolute right-5 top-[calc(100%+10px)] z-50 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-[#07101b]/95 shadow-[0_26px_80px_rgba(0,0,0,0.48)] backdrop-blur-2xl"
+            className="cyber-terminal-panel absolute right-5 top-[calc(100%+10px)] z-50 w-96 max-w-[calc(100vw-2rem)] bg-[#05050a]/95 p-0"
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <span className="flex items-center gap-2 text-xs font-bold" style={{ color: "var(--cv-text)" }}>
-                <RadioTower size={14} style={{ color: "var(--cv-accent)" }} />
-                Command Feed
+            <div className="flex items-center justify-between border-b border-cyan-300/15 px-4 py-3">
+              <span className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-200">
+                <RadioTower size={14} /> Command Feed
               </span>
-              <span className="text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--cv-subtext)" }}>
-                {statusMessages.length} messages
-              </span>
+              <span className="text-[10px] uppercase tracking-[0.18em] text-cv-subtext">{statusMessages.length} messages</span>
             </div>
             <div className="max-h-80 overflow-y-auto py-1">
               {statusMessages.length === 0 ? (
-                <div className="px-4 py-5 text-xs" style={{ color: "var(--cv-subtext)" }}>No notifications yet</div>
+                <div className="px-4 py-5 text-xs text-cv-subtext">No notifications yet</div>
               ) : (
                 statusMessages.slice(-12).reverse().map((message, index) => (
-                  <div key={`${message}-${index}`} className="border-b border-white/[0.05] px-4 py-3 last:border-b-0">
-                    <div className="text-xs leading-relaxed" style={{ color: "var(--cv-text)" }}>{message}</div>
+                  <div key={`${message}-${index}`} className="border-b border-cyan-300/[0.07] px-4 py-3 last:border-b-0">
+                    <div className="text-xs leading-relaxed text-cv-text">{message}</div>
                   </div>
                 ))
               )}
