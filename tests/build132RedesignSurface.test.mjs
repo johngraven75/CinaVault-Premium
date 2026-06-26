@@ -74,7 +74,7 @@ test("Build 137 header keeps HUD identity, search, clock, fullscreen, and notifi
     "devicePixelRatio",
     "requestAnimationFrame(draw)",
   ]) {
-    assert.match(header, new RegExp(required.replace(/[.*+?^${}()|[\]\]/g, "\$&")));
+    assert.match(header, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 });
 
