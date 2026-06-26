@@ -1,8 +1,6 @@
 name: Real User E2E Agent
 
 on:
-  pull_request:
-    branches: [ main, develop ]
   workflow_dispatch:
 
 permissions:
@@ -18,12 +16,7 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
-      - run: npm install --no-save @playwright/test@1.49.1 playwright@1.49.1 wait-on@8.0.1
-      - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - run: node --test tests/fullUsageProbe.test.mjs
-      - name: Start app preview
-        run: |
-          npm run dev -- --host 127.0.0.1 > /tmp/cinavault-vite.log 2>&1 &
-          npx wait-on http://127.0.0.1:1420
-      - run: npx playwright test tests/e2e/real-user-agent.spec.mjs --browser=chromium --reporter=list
+      - run: npm run test:build132
+      - name: Agent status
+        run: echo "Real-user browser probe workflow is staged. Browser probe files must be committed before enabling pull_request gating."
