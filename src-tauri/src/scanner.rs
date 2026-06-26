@@ -207,8 +207,8 @@ fn source_report_json(
 ) -> serde_json::Value {
     serde_json::json!({
         "source_id": source.id,
-        "name": source.name,
-        "path": source.path,
+        "name": source.name.clone(),
+        "path": source.path.clone(),
         "enabled": source.enabled,
         "status": status,
         "found": found,
@@ -270,8 +270,9 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
             Err(err) => {
                 sources_failed += 1;
                 let source_error = format!("{}: {err}", source.name);
-                errors.push(source_error.clone());
-                source_reports.push(source_report_json(source, "failed", 0, 0, 0, &[err]));
+                errors.push(source_error);
+                let failed_errors = vec![err];
+                source_reports.push(source_report_json(source, "failed", 0, 0, 0, &failed_errors));
             }
         }
     }
@@ -480,6 +481,7 @@ mod tests {
         std::fs::create_dir_all(&chapters).unwrap();
         std::fs::write(nested.join("Movie.One.2026.mkv"), b"test").unwrap();
         std::fs::write(root.join("song.flac"), b"test").unwrap();
+        std::fs::write(root.join("family-vacation.jpg"), b"photo").unwrap();
         std::fs::write(root.join("poster.jpg"), b"art").unwrap();
         std::fs::write(chapters.join("chapter_0001.jpg"), b"chapter").unwrap();
         std::fs::write(root.join("notes.txt"), b"ignore").unwrap();
@@ -490,6 +492,7 @@ mod tests {
         assert_eq!(collection.errors.len(), 0);
         assert!(paths.iter().any(|path| path.ends_with("Movie.One.2026.mkv")));
         assert!(paths.iter().any(|path| path.ends_with("song.flac")));
+        assert!(paths.iter().any(|path| path.ends_with("family-vacation.jpg")));
         assert!(!paths.iter().any(|path| path.ends_with("chapter_0001.jpg")));
         assert!(!paths.iter().any(|path| path.ends_with("poster.jpg")));
         assert!(!paths.iter().any(|path| path.ends_with("notes.txt")));
