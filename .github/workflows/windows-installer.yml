@@ -39,15 +39,19 @@ jobs:
       - name: Refresh npm lockfile
         shell: pwsh
         run: |
-          npm install --package-lock-only
-
+          $branch = $env:GITHUB_REF_NAME
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin $branch
+          git pull --rebase --autostash origin $branch
+
+          npm install --package-lock-only
+
           git add package.json package-lock.json
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
             git commit -m 'Refresh npm lockfile for Build ${{ env.BUILD_NUMBER }}'
-            git push
+            git push origin HEAD:$branch
           } else {
             Write-Host 'No package lock refresh needed.'
           }
@@ -124,15 +128,19 @@ jobs:
       - name: Publish release folder to branch
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path "${{ env.BUILD_OUTPUT_DIR }}" -Force | Out-Null
-          Copy-Item artifact\* "${{ env.BUILD_OUTPUT_DIR }}" -Force
+          $branch = $env:GITHUB_REF_NAME
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin $branch
+          git pull --rebase --autostash origin $branch
+
+          New-Item -ItemType Directory -Path "${{ env.BUILD_OUTPUT_DIR }}" -Force | Out-Null
+          Copy-Item artifact\* "${{ env.BUILD_OUTPUT_DIR }}" -Force
           git add "${{ env.BUILD_OUTPUT_DIR }}"
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
             git commit -m 'Publish Windows installer artifacts for Build ${{ env.BUILD_NUMBER }}'
-            git push
+            git push origin HEAD:$branch
           } else {
             Write-Host 'No installer artifact changes to publish.'
           }
