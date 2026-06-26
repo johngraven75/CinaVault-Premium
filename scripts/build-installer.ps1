@@ -126,6 +126,9 @@ if (-not $SkipTests) {
     Write-Step "Running Rust compile check"
     Invoke-Checked "cargo" @("check", "--manifest-path", "src-tauri/Cargo.toml")
 
+    Write-Step "Running metadata poster posting regression test"
+    Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "metadata_posting_tests", "--", "--nocapture")
+
     Write-Step "Running PGMA bridge tests"
     Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "pgma_bridge", "--", "--nocapture")
 
