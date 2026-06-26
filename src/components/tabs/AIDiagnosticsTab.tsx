@@ -1,5 +1,5 @@
 // CinaVault Premium — AI Diagnostics Tab
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { LibraryEnrichmentResult, MediaItem, useAppStore } from "../../store/appStore";
@@ -21,11 +21,70 @@ type QuickAction = {
   runNow?: () => Promise<any>;
 };
 
+type AdultMetadataGatherResult = {
+  type: "adult_metadata_gather";
+  status: string;
+  configured_adult_providers?: string[];
+  provider_count?: number;
+  items_scanned?: number;
+  items_reclassified_as_adult?: number;
+  titles_refreshed_from_embedded?: number;
+  metadata_items_enriched?: number;
+  metadata_fields_updated?: number;
+  sidecars_written?: number;
+  posters_updated?: number;
+  chapter_sets_generated?: number;
+  chapter_images_generated?: number;
+  items_needing_metadata?: number;
+  skipped_missing_files?: number;
+  skipped_non_video_items?: number;
+  errors?: string[];
+  note?: string;
+};
+
 function isLibraryEnrichmentResult(result: any): result is LibraryEnrichmentResult {
   return result?.type === "library_enrichment";
 }
 
+function isAdultMetadataGatherResult(result: any): result is AdultMetadataGatherResult {
+  return result?.type === "adult_metadata_gather";
+}
+
+function formatLibraryEnrichmentMessage(label: string, result: LibraryEnrichmentResult): string {
+  return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, renamed ${result.files_renamed || 0}`;
+}
+
+function formatAdultMetadataGatherMessage(label: string, result: AdultMetadataGatherResult): string {
+  return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, posters ${result.posters_updated || 0}, sidecars ${result.sidecars_written || 0}`;
+}
+
 function formatResultSummary(result: any) {
+  if (isAdultMetadataGatherResult(result)) {
+    return JSON.stringify(
+      {
+        status: result.status,
+        configured_adult_providers: result.configured_adult_providers,
+        provider_count: result.provider_count,
+        items_scanned: result.items_scanned,
+        metadata_items_enriched: result.metadata_items_enriched,
+        metadata_fields_updated: result.metadata_fields_updated,
+        posters_updated: result.posters_updated,
+        sidecars_written: result.sidecars_written,
+        chapter_sets_generated: result.chapter_sets_generated,
+        chapter_images_generated: result.chapter_images_generated,
+        items_reclassified_as_adult: result.items_reclassified_as_adult,
+        titles_refreshed_from_embedded: result.titles_refreshed_from_embedded,
+        items_needing_metadata: result.items_needing_metadata,
+        skipped_missing_files: result.skipped_missing_files,
+        skipped_non_video_items: result.skipped_non_video_items,
+        errors: result.errors,
+        note: result.note,
+      },
+      null,
+      2,
+    );
+  }
+
   if (!isLibraryEnrichmentResult(result)) {
     return JSON.stringify(result, null, 2);
   }
@@ -37,6 +96,7 @@ function formatResultSummary(result: any) {
       items_scanned: result.items_scanned,
       metadata_items_enriched: result.metadata_items_enriched,
       metadata_fields_updated: result.metadata_fields_updated,
+      metadata_updated: result.metadata_updated,
       titles_improved: result.titles_improved,
       items_reclassified_as_adult: result.items_reclassified_as_adult,
       files_renamed: result.files_renamed,
@@ -61,6 +121,11 @@ export default function AIDiagnosticsTab() {
   const [showConfig, setShowConfig] = useState(false);
   const [history, setHistory] = useState<{ query: string; result: any; time: string }[]>([]);
   const [metadataProgress, setMetadataProgress] = useState<MetadataTaskProgress | null>(null);
+
+  const refreshLoadedLibraryPage = useCallback(async () => {
+    const items = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({}));
+    setMediaItems(items);
+  }, [setMediaItems]);
 
   useEffect(() => {
     if (!aiProcessing) return;
@@ -121,8 +186,31 @@ export default function AIDiagnosticsTab() {
     if (!prompt.trim()) return;
     const tracksAdultGather = /adult metadata|gather metadata|chapter images|adult providers/i.test(prompt);
     if (tracksAdultGather) {
-      showStartingProgress("Adult Metadata Gather", "adult_metadata_gather");
+      const label = "Adult Metadata Gather";
+      showStartingProgress(label, "adult_metadata_gather");
+      setAiProcessing(true);
+      addStatusMessage(`Running: ${label}...`);
+      try {
+        const result = await invoke<AdultMetadataGatherResult>("ai_query", { prompt });
+        setAiResult(result);
+        setHistory(prev => [{ query: prompt, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+        const message = formatAdultMetadataGatherMessage(label, result);
+        addStatusMessage(message);
+        await refreshLoadedLibraryPage();
+        showFinishedProgress(label, message);
+      } catch (e) {
+        const errResult = { status: "error", message: String(e) };
+        setAiResult(errResult);
+        setHistory(prev => [{ query: prompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+        addStatusMessage(`${label} failed: ${e}`);
+        showFinishedProgress(label, `${label} failed: ${e}`);
+      } finally {
+        setAiProcessing(false);
+        setPrompt("");
+      }
+      return;
     }
+
     setAiProcessing(true);
     addStatusMessage(`AI processing: ${prompt.substring(0, 50)}...`);
     try {
@@ -130,17 +218,11 @@ export default function AIDiagnosticsTab() {
       setAiResult(result);
       setHistory(prev => [{ query: prompt, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       addStatusMessage("AI query complete");
-      if (tracksAdultGather) {
-        showFinishedProgress("Adult Metadata Gather", "Adult metadata gather complete");
-      }
     } catch (e) {
       const errResult = { status: "error", message: String(e) };
       setAiResult(errResult);
       setHistory(prev => [{ query: prompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       addStatusMessage(`AI error: ${e}`);
-      if (tracksAdultGather) {
-        showFinishedProgress("Adult Metadata Gather", `Adult metadata gather failed: ${e}`);
-      }
     }
     setAiProcessing(false);
     setPrompt("");
@@ -185,11 +267,6 @@ export default function AIDiagnosticsTab() {
       showStartingProgress(action.label, action.progressTask);
     }
 
-    const refreshLoadedLibraryPage = async () => {
-      const items = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({}));
-      setMediaItems(items);
-    };
-
     setAiProcessing(true);
     addStatusMessage(`Running: ${action.label}...`);
     try {
@@ -197,16 +274,27 @@ export default function AIDiagnosticsTab() {
       setAiResult(result);
       setHistory(prev => [{ query: action.q, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       if (isLibraryEnrichmentResult(result)) {
-        addStatusMessage(`${action.label}: ${result.metadata_items_enriched || 0} items enriched, ${result.files_renamed || 0} files renamed`);
+        const message = formatLibraryEnrichmentMessage(action.label, result);
+        addStatusMessage(message);
         await refreshLoadedLibraryPage();
+        if (action.progressTask) {
+          showFinishedProgress(action.label, message);
+        }
+      } else if (isAdultMetadataGatherResult(result)) {
+        const message = formatAdultMetadataGatherMessage(action.label, result);
+        addStatusMessage(message);
+        await refreshLoadedLibraryPage();
+        if (action.progressTask) {
+          showFinishedProgress(action.label, message);
+        }
       } else {
         addStatusMessage(`${action.label} complete`);
         if (action.label === "Apply Embedded Titles") {
           await refreshLoadedLibraryPage();
         }
-      }
-      if (action.progressTask) {
-        showFinishedProgress(action.label);
+        if (action.progressTask) {
+          showFinishedProgress(action.label);
+        }
       }
     } catch (e) {
       addStatusMessage(`${action.label} failed: ${e}`);
