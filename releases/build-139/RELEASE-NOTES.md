@@ -1,8 +1,8 @@
 # CinaVault Premium Build 139 Notes
 
 Build: 139
-Source commit: ef197554507a6d1d300c08a42e5e61d18dc6435c
-Workflow run: 28269787530
+Source commit: 9a539291e67b4e7bf36589c92ed39782f3262ade
+Workflow run: 28273156011
 Artifact name: CinaVault-Premium-Windows-Installer-Build139
 
 Carries forward the Build 137 Cyber HUD redesign and adds the Build 139 source-scan and metadata repair validation set.
