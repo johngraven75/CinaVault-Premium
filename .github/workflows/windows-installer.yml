@@ -9,15 +9,16 @@ on:
       - codex/cyber-hud-build-137
     paths-ignore:
       - 'releases/**'
+      - 'package-lock.json'
 
 permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '139'
-  BUILD_OUTPUT_DIR: releases/build-139
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build139
-  BUILD_TRIGGER: manual-2026-06-26-build-139-retry-publish
+  BUILD_NUMBER: '140'
+  BUILD_OUTPUT_DIR: releases/build-140
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build140
+  BUILD_TRIGGER: manual-2026-06-27-build-140-release
 
 jobs:
   build-windows-installer:
@@ -95,11 +96,13 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'Carries forward the Build 137 Cyber HUD redesign and adds the Build 139 source-scan and metadata repair validation set.',
+            'Carries forward the Build 137 Cyber HUD redesign, the Build 139 scanner/metadata repair validation set, and publishes the Build 140 release package.',
             '',
-            'Build 139 highlights:',
+            'Build 140 highlights:',
+            '- Publishes CinaVault Premium v1.0.140 / Build 140 from the current main branch.',
             '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience from Build 137.',
-            '- Restores always-visible per-media Check Metadata actions on library cards and list/table surfaces.',
+            '- Carries forward always-visible per-media Check Metadata actions on library cards and list/table surfaces.',
+            '- Carries forward the bulk Post Metadata & Posters action through the same backend writer as the row-level Check Metadata action.',
             '- Continues scanning all enabled media sources even when one source is missing or fails.',
             '- Reports per-source scan counts, skipped disabled sources, failed sources, and ingestion errors instead of silently swallowing library upsert failures.',
             '- Sets source item counts from files found, not only newly added files, so rescans no longer zero out source counts.',
