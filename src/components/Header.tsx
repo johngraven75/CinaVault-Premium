@@ -92,7 +92,7 @@ export default function Header(): JSX.Element {
   const [showNotifications, setShowNotifications] = useState(false);
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
   const unreadMessages = getUnreadStatusMessages(statusMessages, lastReadMessageIndex);
-  const activeMeta = TAB_META[activeTab];
+  const activeMeta = TAB_META[activeTab] ?? TAB_META.home;
 
   useEffect(() => {
     const canvas = canvasRef.current;

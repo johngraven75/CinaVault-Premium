@@ -123,12 +123,17 @@ export default function HomeTab(): JSX.Element {
   }, [typeFilter]);
 
   const applyUpdatedMediaItem = useCallback((updated: Partial<MediaItem> & { id?: number }) => {
-    if (!updated.id) return;
-    setMediaItems(mediaItems.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
-    if (selectedMedia?.id === updated.id) {
+    const updatedId = updated.id;
+    if (!updatedId) return;
+
+    setMediaItems((current) =>
+      current.map((item) => (item.id === updatedId ? { ...item, ...updated } : item)),
+    );
+
+    if (selectedMedia?.id === updatedId) {
       setSelectedMedia({ ...selectedMedia, ...updated });
     }
-  }, [mediaItems, selectedMedia, setMediaItems, setSelectedMedia]);
+  }, [selectedMedia, setMediaItems, setSelectedMedia]);
 
   const loadMedia = useCallback(async () => {
     const generation = libraryLoadGenerationRef.current + 1;
@@ -247,12 +252,14 @@ export default function HomeTab(): JSX.Element {
     return filterItemsByTitleInitial(items, titleInitialFilter);
   }, [activeShelf, mediaItems, searchQuery, titleInitialFilter, typeFilter]);
 
-  const heroItem = selectedMedia || filteredItems[0] || DEMO_ITEMS[0];
+  const heroItem = selectedMedia || filteredItems[0] || null;
+  const heroImageSrc = heroItem ? resolveMediaImageSrc(heroItem.backdrop_path || heroItem.poster_path) : undefined;
   const trendingItems = useMemo(() => filteredItems.slice(0, 8), [filteredItems]);
   const watchtimeHours = useMemo(() => calculateWatchtimeHours(mediaItems), [mediaItems]);
   const verifiedCount = filteredItems.filter((item) => item.verified).length;
   const movieCount = filteredItems.filter((item) => item.media_type === "movie").length;
   const cardMinWidth = cardStyle === "banner" ? Math.max(260, Math.round(iconSize * 1.72)) : Math.max(118, iconSize);
+  const reduceCardMotion = filteredItems.length > 500;
 
   const handlePlay = async (item: MediaItem): Promise<void> => {
     if (!canPlayMediaItem(item)) {
@@ -269,6 +276,11 @@ export default function HomeTab(): JSX.Element {
   };
 
   const handleVerify = async (item: MediaItem): Promise<void> => {
+    if (!item.id) {
+      addStatusMessage(`Verification skipped: ${item.title} has no vault id yet`);
+      return;
+    }
+
     try {
       await invoke("verify_media_item", { id: item.id });
       addStatusMessage(`Verification pulse complete: ${item.title}`);
@@ -302,11 +314,11 @@ export default function HomeTab(): JSX.Element {
     <div className="cyber-home space-y-5">
       <section className="cyber-hero">
         <MeteorShower meteorCount={34} />
-        {resolveMediaImageSrc(heroItem.backdrop_path || heroItem.poster_path) && (
+        {heroImageSrc && (
           <div
             className="absolute inset-0 z-0 opacity-30"
             style={{
-              backgroundImage: `url(${resolveMediaImageSrc(heroItem.backdrop_path || heroItem.poster_path)})`,
+              backgroundImage: `url(${heroImageSrc})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
             }}
@@ -317,41 +329,58 @@ export default function HomeTab(): JSX.Element {
         <div className="relative z-10 grid min-h-[310px] gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex min-w-0 flex-col justify-end">
             <div className="cyber-eyebrow mb-2 flex items-center gap-2">
-              <Zap size={14} /> Trending Now / Holographic Carousel
+              <Zap size={14} /> {heroItem ? "Trending Now / Holographic Carousel" : "Vault Empty / Awaiting Scan"}
             </div>
             <AnimatePresence mode="wait">
               <motion.div
-                key={heroItem.title}
+                key={heroItem?.id || heroItem?.title || "empty-vault-hero"}
                 initial={{ opacity: 0, y: 18, filter: "blur(12px)" }}
                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                 exit={{ opacity: 0, y: -10, filter: "blur(8px)" }}
                 transition={{ duration: 0.32 }}
               >
-                <h2 className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">{heroItem.title}</h2>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {heroItem.year && <span className="cyber-chip">{heroItem.year}</span>}
-                  <span className="cyber-chip">{heroItem.media_type || "media"}</span>
-                  {heroItem.resolution && <span className="cyber-chip">{heroItem.resolution}</span>}
-                  {heroItem.rating && (
-                    <span className="cyber-chip is-hot"><Star size={12} /> {heroItem.rating}</span>
-                  )}
-                </div>
-                {heroItem.overview && (
-                  <p className="mt-4 max-w-3xl text-sm leading-7 text-cv-subtext">{heroItem.overview}</p>
+                {heroItem ? (
+                  <>
+                    <h2 className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">{heroItem.title}</h2>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {heroItem.year && <span className="cyber-chip">{heroItem.year}</span>}
+                      <span className="cyber-chip">{heroItem.media_type || "media"}</span>
+                      {heroItem.resolution && <span className="cyber-chip">{heroItem.resolution}</span>}
+                      {heroItem.rating && (
+                        <span className="cyber-chip is-hot"><Star size={12} /> {heroItem.rating}</span>
+                      )}
+                    </div>
+                    {heroItem.overview && (
+                      <p className="mt-4 max-w-3xl text-sm leading-7 text-cv-subtext">{heroItem.overview}</p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h2 className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">No Media Found</h2>
+                    <p className="mt-4 max-w-3xl text-sm leading-7 text-cv-subtext">Add media sources and scan to populate the holographic vault.</p>
+                  </>
                 )}
               </motion.div>
             </AnimatePresence>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <button type="button" onClick={() => void handlePlay(heroItem)} className="cyber-button">
-                <Play size={15} /> Quick Play
-              </button>
-              <button type="button" onClick={() => setSelectedMedia(heroItem)} className="cyber-button">
-                <Sparkles size={15} /> Open Terminal Panel
-              </button>
-              <button type="button" onClick={() => void handleCheckMetadata(heroItem)} className="cyber-button is-amber">
-                <Search size={15} /> Check Metadata
-              </button>
+              {heroItem ? (
+                <>
+                  <button type="button" onClick={() => void handlePlay(heroItem)} className="cyber-button">
+                    <Play size={15} /> Quick Play
+                  </button>
+                  <button type="button" onClick={() => setSelectedMedia(heroItem)} className="cyber-button">
+                    <Sparkles size={15} /> Open Terminal Panel
+                  </button>
+                  <button type="button" onClick={() => void handleCheckMetadata(heroItem)} className="cyber-button is-amber">
+                    <Search size={15} /> Check Metadata
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={() => void loadMedia()} className="cyber-button">
+                  <RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Refresh Library
+                </button>
+              )}
             </div>
           </div>
 
@@ -520,6 +549,7 @@ export default function HomeTab(): JSX.Element {
                   styleMode={cardStyle}
                   checking={metadataCheckId === item.id}
                   index={index}
+                  reduceMotion={reduceCardMotion}
                   onSelect={() => setSelectedMedia(item)}
                   onPlay={() => void handlePlay(item)}
                   onCheckMetadata={() => void handleCheckMetadata(item)}
@@ -713,6 +743,7 @@ function MediaCard({
   styleMode,
   checking,
   index,
+  reduceMotion,
   onSelect,
   onPlay,
   onCheckMetadata,
@@ -721,6 +752,7 @@ function MediaCard({
   styleMode: CardStyle;
   checking: boolean;
   index: number;
+  reduceMotion: boolean;
   onSelect: () => void;
   onPlay: () => void;
   onCheckMetadata: () => void;
@@ -738,16 +770,8 @@ function MediaCard({
     event.currentTarget.style.setProperty("--tilt-y", "0deg");
   };
 
-  return (
-    <motion.div
-      className="cyber-card group"
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(index * 0.025, 0.45) }}
-      onClick={onSelect}
-      onPointerMove={handlePointerMove}
-      onPointerLeave={resetPointerTilt}
-    >
+  const cardContent = (
+    <>
       <CardVisual item={item} styleMode={styleMode} />
       <div className="relative z-10 p-3">
         <h4 className="truncate text-sm font-black text-cv-text">{item.title}</h4>
@@ -782,6 +806,28 @@ function MediaCard({
           <span className="metadata-action-label">{checking ? "Checking..." : "Check Metadata"}</span>
         </button>
       </div>
+    </>
+  );
+
+  if (reduceMotion) {
+    return (
+      <div className="cyber-card group" onClick={onSelect}>
+        {cardContent}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      className="cyber-card group"
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: Math.min(index * 0.025, 0.45) }}
+      onClick={onSelect}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={resetPointerTilt}
+    >
+      {cardContent}
     </motion.div>
   );
 }

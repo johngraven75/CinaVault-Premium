@@ -6,6 +6,25 @@ export type TabId =
   | "home" | "sources" | "downloads" | "livetv" | "server"
   | "security" | "remote" | "advanced" | "cloud" | "plugins" | "ai" | "settings";
 
+const VALID_TAB_IDS: readonly TabId[] = [
+  "home",
+  "sources",
+  "downloads",
+  "livetv",
+  "server",
+  "security",
+  "remote",
+  "advanced",
+  "cloud",
+  "plugins",
+  "ai",
+  "settings",
+];
+
+function isTabId(value: string): value is TabId {
+  return VALID_TAB_IDS.includes(value as TabId);
+}
+
 export interface MediaItem {
   id?: number;
   title: string;
@@ -102,7 +121,7 @@ export interface AppState {
 
   // Library
   mediaItems: MediaItem[];
-  setMediaItems: (items: MediaItem[]) => void;
+  setMediaItems: (items: MediaItem[] | ((current: MediaItem[]) => MediaItem[])) => void;
   selectedMedia: MediaItem | null;
   setSelectedMedia: (item: MediaItem | null) => void;
   libraryView: "list" | "card";
@@ -308,7 +327,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Library
   mediaItems: [],
-  setMediaItems: (items) => set({ mediaItems: items }),
+  setMediaItems: (items) => set((s) => ({
+    mediaItems: typeof items === "function" ? items(s.mediaItems) : items,
+  })),
   selectedMedia: null,
   setSelectedMedia: (item) => set({ selectedMedia: item }),
   libraryView: "card",
@@ -444,7 +465,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     for (const [key, value] of Object.entries(data)) {
       if (key === "_activeTab") {
-        activeTab = value as TabId;
+        activeTab = isTabId(value) ? value : "home";
       } else if (key === "_sidebarCollapsed") {
         sidebarCollapsed = value === "true";
       } else if (key === "_currentTheme") {

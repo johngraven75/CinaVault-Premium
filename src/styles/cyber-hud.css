@@ -382,8 +382,7 @@ body,
   font-size: 0.75rem;
 }
 
-.cyber-button,
-.cv-btn {
+.cyber-button {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -404,8 +403,7 @@ body,
   transition: transform var(--cyber-spring), color var(--cyber-fast), border-color var(--cyber-fast), box-shadow var(--cyber-fast);
 }
 
-.cyber-button::before,
-.cv-btn::before {
+.cyber-button::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -416,9 +414,7 @@ body,
 }
 
 .cyber-button:hover,
-.cyber-button:focus-visible,
-.cv-btn:hover,
-.cv-btn:focus-visible {
+.cyber-button:focus-visible {
   color: #03040a !important;
   border-color: rgba(255, 255, 255, 0.78) !important;
   box-shadow: 0 0 24px rgba(0, 245, 255, 0.42), 0 0 34px rgba(189, 0, 255, 0.2);
@@ -427,14 +423,11 @@ body,
 }
 
 .cyber-button:hover::before,
-.cyber-button:focus-visible::before,
-.cv-btn:hover::before,
-.cv-btn:focus-visible::before {
+.cyber-button:focus-visible::before {
   opacity: 1;
 }
 
-.cyber-button:active,
-.cv-btn:active {
+.cyber-button:active {
   transform: translateY(0) scale(0.985);
   filter: drop-shadow(1px 0 rgba(255, 0, 102, 0.7)) drop-shadow(-1px 0 rgba(0, 245, 255, 0.7));
 }
