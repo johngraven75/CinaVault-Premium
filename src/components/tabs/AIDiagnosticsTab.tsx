@@ -289,6 +289,74 @@ export default function AIDiagnosticsTab() {
     return result;
   }, [loadAllLibraryItems]);
 
+
+
+  const runFullMediaManager = useCallback(async () => {
+    const permissions = [
+      "scan_sources",
+      "embedded_titles",
+      "metadata_enrichment",
+      "poster_posting",
+      "verification",
+      "filename_normalization",
+    ];
+
+    const result: {
+      type: "ai_full_media_manager";
+      status: "success" | "partial";
+      permissions: string[];
+      tasks: Array<{ label: string; status: "success" | "skipped_or_failed"; detail?: any; error?: string }>;
+    } = {
+      type: "ai_full_media_manager",
+      status: "success",
+      permissions,
+      tasks: [],
+    };
+
+    const runTask = async (label: string, task: () => Promise<any>) => {
+      try {
+        const detail = await task();
+        result.tasks.push({ label, status: "success", detail });
+      } catch (error) {
+        result.status = "partial";
+        result.tasks.push({ label, status: "skipped_or_failed", error: String(error) });
+      }
+    };
+
+    await runTask("Scan Sources", () => invoke("scan_all_sources"));
+    await runTask("Apply Embedded Titles", () => invoke("apply_embedded_titles"));
+    await runTask("Enrich Library Metadata", () => invoke("run_library_enrichment", { renameFiles: false }));
+    await runTask("Post Metadata & Posters", () => runBulkMetadataPost());
+
+    await runTask("Verify Media Items", async () => {
+      const items = await loadAllLibraryItems();
+      let verified = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      for (const item of items) {
+        if (typeof item.id !== "number") {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          await invoke("verify_media_item", { id: item.id });
+          verified += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
+      return { items_scanned: items.length, verified, skipped, failed };
+    });
+
+    await runTask("Normalize Filenames", () => invoke("run_library_enrichment", { renameFiles: true }));
+    await refreshLoadedLibraryPage();
+
+    return result;
+  }, [loadAllLibraryItems, refreshLoadedLibraryPage, runBulkMetadataPost]);
+
   const handleTrackedResult = async (label: string, query: string, result: any) => {
     setAiResult(result);
     setHistory(prev => [{ query, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
@@ -312,6 +380,28 @@ export default function AIDiagnosticsTab() {
   const runQuery = async () => {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
+
+    const wantsFullMediaManager = /(full media manager|manage all media|all media management|media manager full|ai media manager)/i.test(cleanPrompt);
+    if (wantsFullMediaManager) {
+      const label = "Full Media Manager";
+      showStartingProgress(label, "ai_full_media_manager");
+      setAiProcessing(true);
+      addStatusMessage("Running: Full Media Manager with full media permissions...");
+      try {
+        const result = await runFullMediaManager();
+        await handleTrackedResult(label, cleanPrompt, result);
+      } catch (e) {
+        const errResult = { status: "error", message: String(e) };
+        setAiResult(errResult);
+        setHistory(prev => [{ query: cleanPrompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+        addStatusMessage(`${label} failed: ${e}`);
+        showFinishedProgress(label, `${label} failed: ${e}`);
+      } finally {
+        setAiProcessing(false);
+        setPrompt("");
+      }
+      return;
+    }
 
     const wantsBulkMetadata = /(gather metadata|enrich metadata|post metadata|attach posters|poster artwork|metadata posters)/i.test(cleanPrompt)
       && !/adult metadata|adult providers|chapter images/i.test(cleanPrompt);
@@ -437,6 +527,14 @@ export default function AIDiagnosticsTab() {
   };
 
   const quickActions: QuickAction[] = [
+    {
+      label: "Full Media Manager",
+      icon: Sparkles,
+      q: "Run full AI media manager with all media management permissions",
+      progressTask: "ai_full_media_manager",
+      runNow: runFullMediaManager,
+    },
+
     { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
     { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
     { label: "Check Providers", icon: Database, q: "Check metadata providers" },

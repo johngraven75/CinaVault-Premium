@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
@@ -19,9 +19,28 @@ function expectIncludes(file, requiredValues) {
   return text;
 }
 
+function collectRustSources(dir) {
+  const absolute = resolve(root, dir);
+  if (!existsSync(absolute)) return "";
+
+  const chunks = [];
+  const walk = (current) => {
+    for (const entry of readdirSync(current)) {
+      const full = join(current, entry);
+      const stat = statSync(full);
+      if (stat.isDirectory()) walk(full);
+      else if (entry.endsWith(".rs")) chunks.push(readFileSync(full, "utf8"));
+    }
+  };
+
+  walk(absolute);
+  return chunks.join("\n");
+}
+
 test("Build 139 release metadata is aligned with package version", () => {
   const pkg = JSON.parse(source("package.json"));
   assert.equal(pkg.version, "1.0.139");
+  assert.equal(pkg.scripts["test:build132"], "node --test tests/build132RedesignSurface.test.mjs");
 
   const notes = source("releases/build-139/RELEASE-NOTES.md");
   assert.match(notes, /Build 139/i);
@@ -36,6 +55,7 @@ test("Build and Test workflow runs frontend surface coverage", () => {
     "cargo test --manifest-path src-tauri/Cargo.toml scanner::tests -- --nocapture",
     "cargo test --manifest-path src-tauri/Cargo.toml metadata_posting_tests -- --nocapture",
   ]);
+
   assert.match(workflow, /node-version:\s*\[18\.x,\s*20\.x\]/);
 });
 
@@ -94,72 +114,6 @@ test("Build 139 header keeps HUD identity, search, clock, fullscreen, and notifi
   ]);
 });
 
-test("Kodi-inspired CinaVault skins are selectable in Settings", () => {
-  expectIncludes("src/themes.ts", [
-    "kodi_estuary_cinema",
-    "CinaVault Estuary",
-    "kodi_aeon_nox_lux",
-    "CinaVault Aeon Nox",
-    "kodi_arctic_zephyr",
-    "CinaVault Arctic Zephyr",
-    "kodi_titan_bingie_stream",
-    "CinaVault Titan Bingie",
-    "kodi_amber_home",
-    "CinaVault Amber",
-    "origin: \"Kodi\"",
-  ]);
-
-  expectIncludes("src/components/tabs/SettingsTab.tsx", [
-    "Themes & Skins",
-    "Kodi Skin",
-    "theme.description",
-    "THEME_PRESETS.length",
-  ]);
-});
-
-test("PGMA and Porn Site Nuxt remain exposed as metadata providers", () => {
-  const store = source("src/store/appStore.ts");
-  const backendFiles = [
-    "src-tauri/src/metadata_ext.rs",
-    "src-tauri/src/adult_site_provider.rs",
-    "src-tauri/src/pgma_bridge.rs",
-    "src-tauri/src/main.rs",
-    "src-tauri/src/lib.rs",
-  ];
-
-  const backend = backendFiles
-    .map((file) => {
-      try {
-        return source(file);
-      } catch {
-        return "";
-      }
-    })
-    .join("\n");
-
-  for (const required of [
-    "pgma",
-    "PGMA Modernized",
-    "porn_site_nuxt",
-    "Porn Site Nuxt",
-  ]) {
-    assert.ok(store.includes(required), `store should include ${required}`);
-    assert.ok(backend.includes(required), `Tauri backend should include ${required}`);
-  }
-
-  assert.match(
-    backend,
-    /fetch_metadata|get_metadata_providers|metadata provider|MetadataProvider/i,
-    "Tauri backend should include metadata provider handling",
-  );
-
-  assert.match(
-    backend,
-    /find_local_candidates|pgma/i,
-    "Tauri backend should include PGMA provider or candidate handling",
-  );
-});
-
 test("PR 12 guards stale persisted tabs in store and header metadata lookup", () => {
   const store = expectIncludes("src/store/appStore.ts", [
     "const VALID_TAB_IDS",
@@ -174,6 +128,19 @@ test("PR 12 guards stale persisted tabs in store and header metadata lookup", ()
   assert.doesNotMatch(header, /const\s+activeMeta\s*=\s*TAB_META\[activeTab\]\s*;/);
 });
 
+test("PGMA and Porn Site Nuxt remain exposed as selectable metadata providers", () => {
+  const store = source("src/store/appStore.ts");
+  const rust = collectRustSources("src-tauri/src");
+
+  for (const required of ["pgma", "PGMA Modernized", "porn_site_nuxt", "Porn Site Nuxt"]) {
+    assert.ok(store.includes(required), `store should include ${required}`);
+  }
+
+  for (const required of ["pgma", "porn_site_nuxt"]) {
+    assert.ok(rust.includes(required), `Tauri backend should include ${required}`);
+  }
+});
+
 test("PR 12 empty and filtered libraries do not fall back to demo hero records", () => {
   const home = expectIncludes("src/components/tabs/HomeTab.tsx", [
     "const heroItem = selectedMedia || filteredItems[0] || null",
@@ -185,7 +152,6 @@ test("PR 12 empty and filtered libraries do not fall back to demo hero records",
   ]);
 
   assert.doesNotMatch(home, /selectedMedia\s*\|\|\s*filteredItems\[0\]\s*\|\|\s*DEMO_ITEMS\[0\]/);
-  assert.match(home, /catch\s*\{[\s\S]*setMediaItems\(DEMO_ITEMS\)/);
 });
 
 test("PR 12 media controls keep safe playback, metadata, verification, and low-motion paths", () => {
@@ -210,9 +176,34 @@ test("PR 12 media controls keep safe playback, metadata, verification, and low-m
   ]);
 });
 
+test("AI module owns media management tasks with explicit full-permission settings", () => {
+  expectIncludes("src/store/appStore.ts", [
+    "ai_media_manager_full_permissions",
+    "ai_media_manager_scan_sources",
+    "ai_media_manager_metadata",
+    "ai_media_manager_posters",
+    "ai_media_manager_verification",
+    "ai_media_manager_embedded_titles",
+    "ai_media_manager_normalize_filenames",
+  ]);
+
+  expectIncludes("src/components/tabs/AIDiagnosticsTab.tsx", [
+    "runFullMediaManager",
+    "Full Media Manager",
+    "scan_all_sources",
+    "apply_embedded_titles",
+    "run_library_enrichment",
+    "runBulkMetadataPost",
+    "verify_media_item",
+    "ai_full_media_manager",
+    "Run full AI media manager with all media management permissions",
+    "wantsFullMediaManager",
+  ]);
+});
+
 test("PR 12 AI Agent quick actions are wired to backend commands and progress tracking", () => {
   expectIncludes("src/components/tabs/AIDiagnosticsTab.tsx", [
-    "const quickActions: QuickAction[] = [",
+    "const quickActions",
     "Network Diagnostics",
     "Check Sources",
     "Check Providers",

@@ -280,6 +280,15 @@ const DEFAULT_FEATURE_SETTINGS: Record<string, { enabled: boolean; config: any }
 
 // ── Premium settings defaults ──
 const DEFAULT_SETTINGS: Record<string, string> = {
+  ai_media_manager_full_permissions: "true",
+  ai_media_manager_scan_sources: "true",
+  ai_media_manager_metadata: "true",
+  ai_media_manager_posters: "true",
+  ai_media_manager_verification: "true",
+  ai_media_manager_embedded_titles: "true",
+  ai_media_manager_normalize_filenames: "true",
+  ai_media_manager_audit_log: "true",
+
   theme: "vidhub_flagship",
   splash_enabled: "true",
   sidebar_collapsed: "false",

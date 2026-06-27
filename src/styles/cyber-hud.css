@@ -685,3 +685,14 @@ body,
     transform: none;
   }
 }
+
+/* Build 139: scoped row metadata action used by the library table. */
+.library-row-metadata-action {
+  min-height: 2rem;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.library-row-metadata-action svg {
+  flex-shrink: 0;
+}
