@@ -28,6 +28,11 @@ jobs:
         run: npm ci
       - name: TypeScript type checking
         run: npm run build
+
+
+      - name: Frontend surface regression tests
+
+        run: npm run test:build132
       - name: Install Rust validation dependencies
         if: matrix.node-version == '20.x'
         run: |
