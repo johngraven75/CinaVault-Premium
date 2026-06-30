@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 132)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 140)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -10,6 +10,7 @@ mod jellyfin;
 mod plugins;
 mod player;
 mod metadata;
+mod metadata_ext;
 mod adult_site_provider;
 mod chapters;
 mod duplicates;
@@ -57,7 +58,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 132 initialized successfully");
+            log::info!("CinaVault Premium Build 140 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -131,14 +132,14 @@ fn main() {
             player::get_available_players,
             player::set_default_player,
             // Metadata
-            metadata::fetch_metadata,
-            metadata::search_metadata,
+            metadata_ext::fetch_metadata,
+            metadata_ext::search_metadata,
             metadata::check_media_item_metadata,
-            metadata::get_provider_status,
-            metadata::test_api_key,
-            metadata::set_api_key,
-            metadata::get_api_keys,
-            metadata::get_metadata_providers,
+            metadata_ext::get_provider_status,
+            metadata_ext::test_api_key,
+            metadata_ext::set_api_key,
+            metadata_ext::get_api_keys,
+            metadata_ext::get_metadata_providers,
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
@@ -309,8 +310,8 @@ async fn cloud_get_status(provider: String) -> Result<serde_json::Value, String>
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.0.0",
-        "build": "premium"
+        "version": "1.0.140",
+        "build": "140"
     })
 }
 
