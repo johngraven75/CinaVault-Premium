@@ -24,7 +24,7 @@ mod pgma_bridge;
 #[cfg(test)]
 mod metadata_posting_tests;
 
-use db::Database;
+use db::{Database, MediaItem};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -77,7 +77,7 @@ fn main() {
             db::get_remote_access_security_status,
             // Media Library
             db::get_media_items,
-            db::get_media_item,
+            get_media_item,
             db::add_media_item,
             db::update_media_item,
             db::delete_media_item,
@@ -182,6 +182,55 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
+}
+
+#[tauri::command]
+pub fn get_media_item(state: tauri::State<AppState>, id: i64) -> Result<Option<MediaItem>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT id, title, file_path, media_type, year, rating, overview, poster_path,
+                    backdrop_path, genre, duration, file_size, resolution, codec, verified,
+                    watched, favorite, date_added, last_played, tmdb_id, imdb_id, source_id
+             FROM media_items
+             WHERE id = ?1
+             LIMIT 1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let result = stmt.query_row(rusqlite::params![id], |row| {
+        Ok(MediaItem {
+            id: Some(row.get(0)?),
+            title: row.get(1)?,
+            file_path: row.get(2)?,
+            media_type: row.get(3)?,
+            year: row.get(4)?,
+            rating: row.get(5)?,
+            overview: row.get(6)?,
+            poster_path: row.get(7)?,
+            backdrop_path: row.get(8)?,
+            genre: row.get(9)?,
+            duration: row.get(10)?,
+            file_size: row.get(11)?,
+            resolution: row.get(12)?,
+            codec: row.get(13)?,
+            verified: row.get(14)?,
+            watched: row.get(15)?,
+            favorite: row.get(16)?,
+            date_added: row.get(17)?,
+            last_played: row.get(18)?,
+            tmdb_id: row.get(19)?,
+            imdb_id: row.get(20)?,
+            source_id: row.get(21)?,
+        })
+    });
+
+    match result {
+        Ok(item) => Ok(Some(item)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(err) => Err(err.to_string()),
+    }
 }
 
 // ════════════════════════════════════════════════════════════
