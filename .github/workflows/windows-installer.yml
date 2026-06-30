@@ -2,11 +2,15 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
       - codex/cinavault-pgma-plex-plugin
       - codex/cyber-hud-build-137
+      - codex/build-140-cleanup-review
     paths-ignore:
       - 'releases/**'
 
@@ -14,10 +18,10 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '139'
-  BUILD_OUTPUT_DIR: releases/build-139
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build139
-  BUILD_TRIGGER: manual-2026-06-26-build-139-retry-publish
+  BUILD_NUMBER: '140'
+  BUILD_OUTPUT_DIR: releases/build-140
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build140
+  BUILD_TRIGGER: manual-2026-06-29-build-140-cleanup-validation
 
 jobs:
   build-windows-installer:
@@ -95,15 +99,15 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'Carries forward the Build 137 Cyber HUD redesign and adds the Build 139 source-scan and metadata repair validation set.',
+            'Carries forward the Build 137 Cyber HUD redesign and adds the Build 140 source-scan, metadata-provider, and validation cleanup set.',
             '',
-            'Build 139 highlights:',
+            'Build 140 highlights:',
             '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience from Build 137.',
-            '- Restores always-visible per-media Check Metadata actions on library cards and list/table surfaces.',
+            '- Restores PGMA Modernized and Porn Site Nuxt metadata provider routing through Tauri command handlers.',
+            '- Requires the JavaScript surface regression test before installer creation so metadata provider wiring regressions are caught.',
             '- Continues scanning all enabled media sources even when one source is missing or fails.',
             '- Reports per-source scan counts, skipped disabled sources, failed sources, and ingestion errors instead of silently swallowing library upsert failures.',
             '- Sets source item counts from files found, not only newly added files, so rescans no longer zero out source counts.',
-            '- Requires scanner ingestion tests plus metadata/poster posting validation before installer creation.',
             '- Publishes Windows NSIS setup EXE, MSI, release notes, build notes, and SHA256 manifest.'
           ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
 
@@ -126,6 +130,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release folder to branch
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $branch = $env:GITHUB_REF_NAME
