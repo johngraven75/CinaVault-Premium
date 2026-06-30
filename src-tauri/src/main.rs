@@ -77,7 +77,7 @@ fn main() {
             db::get_remote_access_security_status,
             // Media Library
             db::get_media_items,
-            get_media_item,
+            db::get_media_item,
             db::add_media_item,
             db::update_media_item,
             db::delete_media_item,
@@ -182,20 +182,6 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
-}
-
-#[tauri::command]
-pub fn get_media_item(state: tauri::State<'_, AppState>, id: i64) -> Result<Option<serde_json::Value>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let items = db
-        .get_media_items_data(None, None, None)
-        .map_err(|e| e.to_string())?;
-    items
-        .into_iter()
-        .find(|item| item.id == Some(id))
-        .map(serde_json::to_value)
-        .transpose()
-        .map_err(|e| e.to_string())
 }
 
 // ════════════════════════════════════════════════════════════
