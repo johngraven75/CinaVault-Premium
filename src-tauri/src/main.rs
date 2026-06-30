@@ -46,7 +46,6 @@ fn main() {
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
 
-            // Create plugin directories
             let plugin_dirs = ["jellyfin", "emby", "plex", "native"];
             for dir in &plugin_dirs {
                 std::fs::create_dir_all(app_dir.join("plugins").join(dir)).ok();
@@ -131,16 +130,15 @@ fn main() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-            // Metadata extension source references: metadata_ext::fetch_metadata, metadata_ext::get_metadata_providers
-            // Metadata
-            metadata::fetch_metadata,
-            metadata::search_metadata,
-            metadata::check_media_item_metadata,
-            metadata::get_provider_status,
-            metadata::test_api_key,
-            metadata::set_api_key,
-            metadata::get_api_keys,
-            metadata::get_metadata_providers,
+            // Metadata commands route through metadata_ext so restored providers are live at runtime.
+            metadata_ext::fetch_metadata,
+            metadata_ext::search_metadata,
+            metadata_ext::check_media_item_metadata,
+            metadata_ext::get_provider_status,
+            metadata_ext::test_api_key,
+            metadata_ext::set_api_key,
+            metadata_ext::get_api_keys,
+            metadata_ext::get_metadata_providers,
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
@@ -193,11 +191,9 @@ fn main() {
 async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_json::Value, String> {
     log::info!("Cloud auth start: provider={}, url={}", provider, auth_url);
 
-    // Step 1: Start a temporary local HTTP server to receive the OAuth callback
     let listener = match std::net::TcpListener::bind("127.0.0.1:19284") {
         Ok(l) => l,
         Err(_) => {
-            // Port busy — fall back to opening browser directly
             open::that(&auth_url).map_err(|e| e.to_string())?;
             return Ok(serde_json::json!({
                 "success": true,
@@ -207,17 +203,13 @@ async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_js
         }
     };
 
-    // Set a short timeout so we don't block forever
     listener.set_nonblocking(false).ok();
     let timeout = std::time::Duration::from_secs(120);
     listener.set_ttl(120).ok();
 
-    // Step 2: Open the auth URL in the user's default browser
     open::that(&auth_url).map_err(|e| e.to_string())?;
 
-    // Step 3: Wait for the OAuth redirect callback
     let result = std::thread::spawn(move || -> Result<serde_json::Value, String> {
-        // Accept one connection with timeout
         let start = std::time::Instant::now();
         loop {
             match listener.accept() {
@@ -226,11 +218,8 @@ async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_js
                     let mut buf = [0u8; 4096];
                     let n = stream.read(&mut buf).unwrap_or(0);
                     let request = String::from_utf8_lossy(&buf[..n]).to_string();
-
-                    // Extract the authorization code from the callback URL
                     let code = extract_query_param(&request, "code");
 
-                    // Send a success response back to the browser
                     let html = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
                         <html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0a0a1a;color:#e8e6f0'>\
@@ -332,7 +321,6 @@ fn get_system_info() -> serde_json::Value {
 
 #[tauri::command]
 async fn pick_folder() -> Result<Option<String>, String> {
-    // Use tauri-plugin-dialog in frontend; this is fallback
     Ok(None)
 }
 
