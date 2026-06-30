@@ -9,7 +9,9 @@ mod iptv;
 mod jellyfin;
 mod plugins;
 mod player;
-mod metadata;
+mod metadata {
+    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
+}
 mod metadata_ext;
 mod adult_site_provider;
 mod chapters;
@@ -260,40 +262,48 @@ fn extract_query_param(request: &str, key: &str) -> Option<String> {
     let path = first_line.split_whitespace().nth(1)?;
     let query = path.split('?').nth(1)?;
     for pair in query.split('&') {
-        let (k, v) = pair.split_once('=')?;
-        if k == key {
-            return Some(v.to_string());
+        let mut parts = pair.split('=');
+        if parts.next()? == key {
+            return parts.next().map(|s| s.to_string());
         }
     }
     None
 }
 
 #[tauri::command]
-async fn cloud_disconnect(provider: String) -> Result<serde_json::Value, String> {
+fn cloud_disconnect(provider: String) -> Result<(), String> {
     log::info!("Cloud disconnect: {}", provider);
-    Ok(serde_json::json!({ "success": true }))
+    Ok(())
 }
 
 #[tauri::command]
-async fn cloud_sync(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
-    log::info!("Cloud sync: provider={}, folder={:?}", provider, folder_id);
-    Ok(serde_json::json!({ "success": true, "synced": 0 }))
+fn cloud_sync(provider: String, path: String) -> Result<serde_json::Value, String> {
+    log::info!("Cloud sync: provider={}, path={}", provider, path);
+    Ok(serde_json::json!({
+        "success": true,
+        "synced": 0,
+        "message": "Cloud sync placeholder"
+    }))
 }
 
 #[tauri::command]
-async fn cloud_browse(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
-    log::info!("Cloud browse: provider={}, folder={:?}", provider, folder_id);
-    Ok(serde_json::json!({ "items": [] }))
+fn cloud_browse(provider: String, path: String) -> Result<Vec<serde_json::Value>, String> {
+    log::info!("Cloud browse: provider={}, path={}", provider, path);
+    Ok(vec![])
 }
 
 #[tauri::command]
-async fn cloud_list_files(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
-    cloud_browse(provider, folder_id).await
+fn cloud_list_files(provider: String, path: String) -> Result<Vec<serde_json::Value>, String> {
+    log::info!("Cloud list: provider={}, path={}", provider, path);
+    Ok(vec![])
 }
 
 #[tauri::command]
-async fn cloud_get_status(provider: String) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "provider": provider, "connected": false }))
+fn cloud_get_status() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "connected": [],
+        "available": ["onedrive", "googledrive", "dropbox"]
+    }))
 }
 
 #[tauri::command]
@@ -301,7 +311,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "version": "1.0.140",
-        "build": "140"
+        "build": "140",
+        "edition": "Premium"
     })
 }
 
@@ -315,16 +326,16 @@ fn get_system_info() -> serde_json::Value {
     serde_json::json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "family": std::env::consts::FAMILY,
+        "family": std::env::consts::FAMILY
     })
 }
 
 #[tauri::command]
-async fn pick_folder() -> Result<Option<String>, String> {
+fn pick_folder() -> Result<Option<String>, String> {
     Ok(None)
 }
 
 #[tauri::command]
-async fn pick_file() -> Result<Option<String>, String> {
+fn pick_file() -> Result<Option<String>, String> {
     Ok(None)
 }
