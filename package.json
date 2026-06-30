@@ -11,7 +11,8 @@
     "tauri": "tauri",
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
-    "test:build132": "node --test tests/build132RedesignSurface.test.mjs"
+    "test:build140": "node --test tests/build140GovernanceSurface.test.mjs",
+    "test:build-governance": "node scripts/verify-build-governance.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
