@@ -124,7 +124,7 @@ Invoke-Checked "npx" @("vite", "build")
 
 if (-not $SkipTests) {
     Write-Step "Running JavaScript surface regression tests"
-    Invoke-Checked "npm" @("run", "test:build132")
+    Invoke-Checked "npm" @("run", "test:build140")
 
     Write-Step "Running Rust compile check"
     Invoke-Checked "cargo" @("check", "--manifest-path", "src-tauri/Cargo.toml")
