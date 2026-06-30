@@ -17,6 +17,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm run test:build132
+      - run: npm run test:build140
       - name: Agent status
         run: echo "Real-user browser probe workflow is staged. Browser probe files must be committed before enabling pull_request gating."
