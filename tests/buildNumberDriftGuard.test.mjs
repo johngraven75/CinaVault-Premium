@@ -10,7 +10,6 @@ const currentBuild = "140";
 const historicalBuilds = ["132", "133", "134", "135", "136", "137", "138", "139"];
 const excludedDirectories = new Set([
   ".git",
-  ".github",
   "node_modules",
   "dist",
   "build",
