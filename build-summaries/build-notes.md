@@ -1,4 +1,4 @@
-- Build: 132
-- Date: June 20, 2026
-- Status: Deployment pipeline update
-- Description: Documenting the fix for the Windows installer creation crash where npm encountered an EPERM permission error during cache cleanup before the 'npx tauri build' step.
+- Build: 140
+- Date: June 30, 2026
+- Status: Governance cleanup and Build 140 alignment
+- Description: Active Build 140 files now carry Build 140 identity across app shell, sidebar, Cyber HUD header, installer script, PGMA build notes, regression tests, and drift guard coverage. Historical release materials remain under releases/build-*/.
