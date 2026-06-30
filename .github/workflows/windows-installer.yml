@@ -9,7 +9,6 @@ on:
     branches:
       - main
       - codex/cinavault-pgma-plex-plugin
-      - codex/cyber-hud-build-137
       - codex/build-140-cleanup-review
     paths-ignore:
       - 'releases/**'
@@ -99,10 +98,10 @@ jobs:
             "Workflow run: $env:GITHUB_RUN_ID",
             'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
             '',
-            'Carries forward the Build 137 Cyber HUD redesign and adds the Build 140 source-scan, metadata-provider, and validation cleanup set.',
+            'Carries forward the Cyber HUD redesign and adds the Build 140 source-scan, metadata-provider, and validation cleanup set.',
             '',
             'Build 140 highlights:',
-            '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience from Build 137.',
+            '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience.',
             '- Restores PGMA Modernized and Porn Site Nuxt metadata provider routing through Tauri command handlers.',
             '- Requires the JavaScript surface regression test before installer creation so metadata provider wiring regressions are caught.',
             '- Continues scanning all enabled media sources even when one source is missing or fails.',
