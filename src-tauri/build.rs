@@ -15,7 +15,10 @@ fn write_legacy_metadata_without_command_attrs() {
     let out_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set by Cargo"))
         .join("metadata_without_commands.rs");
 
-    let source = fs::read_to_string(&source_path).expect("failed to read legacy metadata module");
+    let source = fs::read_to_string(&source_path)
+        .expect("failed to read legacy metadata module")
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     let command_functions = [
         "get_metadata_providers",
         "fetch_metadata",
