@@ -81,7 +81,7 @@ jobs:
 
       - name: Verify full Rust test suite
         shell: pwsh
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture --test-threads=1
 
       - name: Verify Rust compile check
         shell: pwsh
