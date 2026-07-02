@@ -1,3 +1,0 @@
-Build 140 cleanup validation trigger
-Date: 2026-06-30
-Fix: pgma_bridge local artwork candidate lifetime

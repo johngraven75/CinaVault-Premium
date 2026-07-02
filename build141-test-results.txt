@@ -1,0 +1,25 @@
+CinaVault Premium Build 141 Test Results
+Date: Thu Jul  2 08:11:29 EDT 2026
+
+
+> cinavault-premium@1.0.141 test:build140
+> node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs
+
+✔ Build 140 app shell keeps startup, persistence, plugin, and wheel-scroll behavior (2.207ms)
+✔ Build 140 sidebar keeps every core destination and collapse control (2.2928ms)
+✔ Build 140 header keeps HUD identity, search, clock, fullscreen, and notifications (1.0183ms)
+✔ Kodi-inspired CinaVault skins are selectable in Settings (1.8032ms)
+✔ PGMA and Porn Site Nuxt remain exposed as metadata providers (1.65ms)
+✔ Build 140 routes user-facing metadata commands through metadata_ext at runtime (1.2127ms)
+✔ Build 140 metadata extension handlers are real Tauri commands (0.8038ms)
+✔ Build 140 restored providers remain normalized and listed by extension source (0.5317ms)
+✔ active repository files do not contain stale build-number drift (105.4618ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 245.8664
+

@@ -1,3 +1,4 @@
+import CastButton from "./components/CastButton";
 // CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
@@ -198,7 +199,8 @@ export default function App(): JSX.Element {
       >
         <Sidebar />
 
-        <main className="relative flex-1 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+        <CastButton />
+      <main className="relative flex-1 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
           <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgba(255,255,255,0.16),transparent_32%),radial-gradient(circle_at_100%_18%,rgba(0,234,255,0.13),transparent_30%)]" />
           <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
 
