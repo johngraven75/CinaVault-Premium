@@ -3,6 +3,7 @@ import "./styles/poster-card-standard.css";
 import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
 import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
+import "./styles/media-row-poster-final-fix.css";
 // CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
