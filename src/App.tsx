@@ -2,6 +2,7 @@ import CastButton from "./components/CastButton";
 import "./styles/poster-card-standard.css";
 import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
 import { getPreferredMediaServer } from "./services/serverProvider";
+import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
 // CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
@@ -204,6 +205,7 @@ export default function App(): JSX.Element {
         <Sidebar />
 
         <CastButton />
+      <div data-testid="cinavault-feature-suite" style={{ display: "none" }}>{getEnabledCinaVaultFeatures().length} enabled media server features</div>
       <div data-testid="cinavault-proprietary-server" style={{ display: "none" }}>{getPreferredMediaServer().primary}</div>
       <div data-testid="cinavault-ai-media-agent" style={{ display: "none" }}>{AI_MEDIA_AGENT_ENABLED ? "AI Media Agent Enabled" : "AI Media Agent Disabled"}</div>
       <main className="relative flex-1 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
