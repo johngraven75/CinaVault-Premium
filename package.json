@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.0.148",
+  "version": "1.0.149",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -45,5 +45,9 @@
     "tailwindcss": "3.4.4",
     "typescript": "5.4.5",
     "vite": "6.4.3"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.4",
+    "debug": "^4.4.1"
   }
 }
