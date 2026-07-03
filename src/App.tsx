@@ -4,6 +4,7 @@ import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
 import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
 import "./styles/media-row-poster-final-fix.css";
+import { initializePermanentMediaPluginsAtStartup } from "./services/startupMediaPluginService";
 // CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
@@ -206,6 +207,7 @@ export default function App(): JSX.Element {
         <Sidebar />
 
         <CastButton />
+      <div data-testid="cinavault-permanent-media-plugins" style={{ display: "none" }}>{initializePermanentMediaPluginsAtStartup().ready ? "Permanent media plugins ready" : "Permanent media plugins not ready"}</div>
       <div data-testid="cinavault-feature-suite" style={{ display: "none" }}>{getEnabledCinaVaultFeatures().length} enabled media server features</div>
       <div data-testid="cinavault-proprietary-server" style={{ display: "none" }}>{getPreferredMediaServer().primary}</div>
       <div data-testid="cinavault-ai-media-agent" style={{ display: "none" }}>{AI_MEDIA_AGENT_ENABLED ? "AI Media Agent Enabled" : "AI Media Agent Disabled"}</div>
