@@ -1,17 +1,18 @@
 # CinaVault Premium Build 149
 
-## Security Fixes
-- Added npm overrides for vulnerable protobufjs dependency.
-- Added npm overrides for vulnerable debug dependency.
-- Refreshed package-lock.json.
-- Updated Rust glib dependency lockfile where available.
+## Fixes
+- Fixed media card sizing to a uniform standard poster size.
+- Added browser-based Playwright verification for actual card dimensions.
+- Cleaned sidecar artwork/photos from media rows.
+- Added compatibility wrapper for legacy media row cleanup tests.
 
-## Addresses Dependabot Alerts
-- protobufjs arbitrary code execution / code injection / DoS / prototype pollution alerts
-- debug ReDoS alerts
-- glib VariantStrIter advisory where Cargo can resolve an update
+## Validation
+- TypeScript build passed
+- Playwright browser layout verification passed
+- JavaScript regression tests passed
+- Installer build completed
 
 ## Downloads
 - Windows EXE installer
 - Windows MSI installer
-- Build/security test results log
+- Build/test results log
