@@ -685,3 +685,22 @@ body,
     transform: none;
   }
 }
+
+.media-card {
+  width: 220px !important;
+  max-width: 220px !important;
+  height: 320px !important;
+  overflow: hidden;
+}
+
+.media-card img {
+  width: 100%;
+  height: 260px;
+  object-fit: cover;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 220px);
+  gap: 12px;
+}

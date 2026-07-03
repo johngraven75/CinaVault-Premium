@@ -339,3 +339,8 @@ fn pick_folder() -> Result<Option<String>, String> {
 fn pick_file() -> Result<Option<String>, String> {
     Ok(None)
 }
+
+#[tauri::command]
+fn get_hf_token() -> String {
+    std::env::var("HF_TOKEN").unwrap_or_default()
+}
