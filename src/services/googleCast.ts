@@ -1,5 +1,3 @@
-import { Client, DefaultMediaReceiver } from "castv2-client";
-
 export type GoogleCastMedia = {
   host: string;
   url: string;
@@ -9,6 +7,8 @@ export type GoogleCastMedia = {
 };
 
 export async function castToGoogleDevice(media: GoogleCastMedia): Promise<string> {
+  const { Client, DefaultMediaReceiver } = await import("castv2-client");
+
   return new Promise((resolve, reject) => {
     const client = new Client();
 

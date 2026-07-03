@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.0.141",
+  "version": "1.0.142",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -22,7 +22,7 @@
     "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "castv2-client": "^1.2.0",
+    "castv2-client": "^0.0.2",
     "clsx": "2.1.0",
     "esbuild": "0.25.12",
     "framer-motion": "11.0.3",

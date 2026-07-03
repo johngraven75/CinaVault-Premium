@@ -1,4 +1,5 @@
 import CastButton from "./components/CastButton";
+import "./styles/poster-card-standard.css";
 // CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
