@@ -26,6 +26,7 @@ import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import { pluginEngine } from "./data/pluginAdapter";
 import { getWheelDeltaPixels, getWheelScrolledTop } from "./utils/pageWheelScroll";
+import "./styles/media-card-hard-fix.css";
 
 const TAB_COMPONENTS: Record<TabId, FC> = {
   home: HomeTab,
