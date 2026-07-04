@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.0.0-7",
+  "version": "1.0.140",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "lint": "tsc --noEmit",
-    "type-check": "tsc --strict --noEmit"
+    "type-check": "tsc --strict --noEmit",
+    "test": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs",
+    "test:build140": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -36,7 +38,7 @@
     "@types/react-dom": "18.3.0",
     "@vitejs/plugin-react": "4.7.0",
     "autoprefixer": "10.4.19",
-    "postcss": "8.4.38",
+    "postcss": "8.5.15",
     "tailwindcss": "3.4.4",
     "typescript": "5.4.5",
     "vite": "6.4.3"

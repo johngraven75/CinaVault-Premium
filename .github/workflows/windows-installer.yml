@@ -2,10 +2,14 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
       - codex/cinavault-pgma-plex-plugin
+      - codex/build-140-cleanup-review
     paths-ignore:
       - 'releases/**'
 
@@ -13,9 +17,10 @@ permissions:
   contents: write
 
 env:
-  BUILD_NUMBER: '132'
-  BUILD_OUTPUT_DIR: releases/build-132
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build132
+  BUILD_NUMBER: '140'
+  BUILD_OUTPUT_DIR: releases/build-140
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build140
+  BUILD_TRIGGER: manual-2026-06-29-build-140-cleanup-validation
 
 jobs:
   build-windows-installer:
@@ -34,18 +39,22 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Refresh patched npm lockfile
+      - name: Refresh npm lockfile
         shell: pwsh
         run: |
-          npm install --package-lock-only
-
+          $branch = $env:GITHUB_REF_NAME
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin $branch
+          git pull --rebase --autostash origin $branch
+
+          npm install --package-lock-only
+
           git add package.json package-lock.json
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Refresh npm security lockfile for Build ${{ env.BUILD_NUMBER }}'
-            git push
+            git commit -m 'Refresh npm lockfile for Build ${{ env.BUILD_NUMBER }}'
+            git push origin HEAD:$branch
           } else {
             Write-Host 'No package lock refresh needed.'
           }
@@ -81,6 +90,26 @@ jobs:
             Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
           }
 
+          @(
+            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Notes',
+            '',
+            'Build: ${{ env.BUILD_NUMBER }}',
+            "Source commit: $env:GITHUB_SHA",
+            "Workflow run: $env:GITHUB_RUN_ID",
+            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
+            '',
+            'Carries forward the Cyber HUD redesign and adds the Build 140 source-scan, metadata-provider, and validation cleanup set.',
+            '',
+            'Build 140 highlights:',
+            '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience.',
+            '- Restores PGMA Modernized and Porn Site Nuxt metadata provider routing through Tauri command handlers.',
+            '- Requires the JavaScript surface regression test before installer creation so metadata provider wiring regressions are caught.',
+            '- Continues scanning all enabled media sources even when one source is missing or fails.',
+            '- Reports per-source scan counts, skipped disabled sources, failed sources, and ingestion errors instead of silently swallowing library upsert failures.',
+            '- Sets source item counts from files found, not only newly added files, so rescans no longer zero out source counts.',
+            '- Publishes Windows NSIS setup EXE, MSI, release notes, build notes, and SHA256 manifest.'
+          ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
+
           $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
           if (-not $files) {
             throw 'No installer artifacts were staged.'
@@ -99,31 +128,23 @@ jobs:
           path: artifact/*
           if-no-files-found: error
 
-      - name: Publish installer files to repository
+      - name: Publish release folder to branch
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
-          $destination = '${{ env.BUILD_OUTPUT_DIR }}'
-          New-Item -ItemType Directory -Path $destination -Force | Out-Null
-          Copy-Item artifact\* $destination -Force
-
-          @(
-            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Installer Artifacts',
-            '',
-            'Build: ${{ env.BUILD_NUMBER }}',
-            "Source commit: $env:GITHUB_SHA",
-            "Workflow run: $env:GITHUB_RUN_ID",
-            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
-            '',
-            'The generated installer files and SHA256 manifest in this folder were produced by the Windows installer workflow.'
-          ) | Set-Content -Path "$destination\INSTALLER-UPLOAD-REPORT.md" -Encoding UTF8
-
+          $branch = $env:GITHUB_REF_NAME
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add $destination
+          git fetch origin $branch
+          git pull --rebase --autostash origin $branch
+
+          New-Item -ItemType Directory -Path "${{ env.BUILD_OUTPUT_DIR }}" -Force | Out-Null
+          Copy-Item artifact\* "${{ env.BUILD_OUTPUT_DIR }}" -Force
+          git add "${{ env.BUILD_OUTPUT_DIR }}"
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Upload Build ${{ env.BUILD_NUMBER }} Windows installer artifacts'
-            git push
+            git commit -m 'Publish Windows installer artifacts for Build ${{ env.BUILD_NUMBER }}'
+            git push origin HEAD:$branch
           } else {
             Write-Host 'No installer artifact changes to publish.'
           }

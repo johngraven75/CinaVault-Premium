@@ -1,40 +1,7 @@
 use std::path::{Path, PathBuf};
 
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg"];
-const POSTER_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp"];
-const EXACT_ARTWORK_STEMS: &[&str] = &[
-    "poster",
-    "cover",
-    "folder",
-    "default",
-    "fanart",
-    "backdrop",
-    "landscape",
-    "banner",
-];
-const ARTWORK_SUFFIXES: &[&str] = &[
-    "-poster",
-    "_poster",
-    ".poster",
-    "-cover",
-    "_cover",
-    ".cover",
-    "-folder",
-    "_folder",
-    ".folder",
-    "-fanart",
-    "_fanart",
-    ".fanart",
-    "-backdrop",
-    "_backdrop",
-    ".backdrop",
-    "-landscape",
-    "_landscape",
-    ".landscape",
-    "-banner",
-    "_banner",
-    ".banner",
-];
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg", "avif", "heic"];
+const POSTER_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "avif", "heic"];
 
 fn extension_lower(path: &Path) -> Option<String> {
     path.extension()
@@ -42,29 +9,70 @@ fn extension_lower(path: &Path) -> Option<String> {
         .map(|ext| ext.to_ascii_lowercase())
 }
 
+fn file_stem_lower(path: &Path) -> Option<String> {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(|stem| stem.trim().to_ascii_lowercase())
+}
+
 pub fn is_generated_chapter_image_path(path: &Path) -> bool {
     let path_lower = path.to_string_lossy().replace('/', "\\").to_lowercase();
     path_lower.contains("_chapters\\chapter_")
 }
 
+pub fn is_supported_image_path(path: &Path) -> bool {
+    extension_lower(path)
+        .map(|ext| IMAGE_EXTS.contains(&ext.as_str()))
+        .unwrap_or(false)
+}
+
 pub fn is_sidecar_artwork_image(path: &Path) -> bool {
-    let Some(ext) = extension_lower(path) else {
-        return false;
-    };
-    if !IMAGE_EXTS.contains(&ext.as_str()) {
+    if !is_supported_image_path(path) {
         return false;
     }
 
-    let stem = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .map(|stem| stem.trim().to_ascii_lowercase())
-        .unwrap_or_default();
+    let Some(stem) = file_stem_lower(path) else {
+        return false;
+    };
 
-    EXACT_ARTWORK_STEMS.contains(&stem.as_str())
-        || ARTWORK_SUFFIXES
-            .iter()
-            .any(|suffix| stem.ends_with(suffix))
+    let generic_artwork_names = [
+        "poster",
+        "cover",
+        "folder",
+        "fanart",
+        "backdrop",
+        "landscape",
+        "banner",
+    ];
+    if generic_artwork_names.contains(&stem.as_str()) {
+        return true;
+    }
+
+    let artwork_suffixes = [
+        "-poster",
+        "_poster",
+        ".poster",
+        "-cover",
+        "_cover",
+        ".cover",
+        "-folder",
+        "_folder",
+        ".folder",
+        "-fanart",
+        "_fanart",
+        ".fanart",
+        "-backdrop",
+        "_backdrop",
+        ".backdrop",
+        "-landscape",
+        "_landscape",
+        ".landscape",
+        "-banner",
+        "_banner",
+        ".banner",
+    ];
+
+    artwork_suffixes.iter().any(|suffix| stem.ends_with(suffix))
 }
 
 pub fn sidecar_poster_path_for_video(video_path: &Path) -> Option<PathBuf> {
@@ -90,6 +98,12 @@ pub fn sidecar_poster_path_for_video(video_path: &Path) -> Option<PathBuf> {
         "-backdrop",
         "_backdrop",
         ".backdrop",
+        "-landscape",
+        "_landscape",
+        ".landscape",
+        "-banner",
+        "_banner",
+        ".banner",
     ];
     for suffix in stem_candidates {
         for ext in POSTER_EXTS {
@@ -100,7 +114,7 @@ pub fn sidecar_poster_path_for_video(video_path: &Path) -> Option<PathBuf> {
         }
     }
 
-    let generic_candidates = ["poster", "cover", "folder", "fanart", "backdrop"];
+    let generic_candidates = ["poster", "cover", "folder", "fanart", "backdrop", "landscape", "banner"];
     for name in generic_candidates {
         for ext in POSTER_EXTS {
             let candidate = parent.join(format!("{name}.{ext}"));

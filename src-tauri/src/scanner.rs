@@ -29,6 +29,20 @@ impl Drop for ScanGuard {
     }
 }
 
+#[derive(Debug, Default)]
+struct ScanFileCollection {
+    files: Vec<(String, String, u64)>,
+    errors: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct ScanDirectoryReport {
+    found: u64,
+    added: u64,
+    updated: u64,
+    errors: Vec<String>,
+}
+
 const VIDEO_EXTS: &[&str] = &[
     "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg",
     "ts", "m2ts", "vob", "ogv", "3gp", "divx", "rm", "rmvb", "asf",
@@ -63,6 +77,48 @@ fn title_from_filename(path: &Path) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
         .replace('_', " ")
         .replace('.', " ")
+}
+
+fn collect_media_files(path: &Path) -> Result<ScanFileCollection, String> {
+    if !path.exists() {
+        return Err(format!("Source path does not exist: {}", path.to_string_lossy()));
+    }
+    if !path.is_dir() {
+        return Err(format!("Source path is not a directory: {}", path.to_string_lossy()));
+    }
+
+    let mut collection = ScanFileCollection::default();
+    for entry in WalkDir::new(path).follow_links(false).into_iter() {
+        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                collection.errors.push(format!("walk error: {err}"));
+                continue;
+            }
+        };
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        if !should_index_path(p) { continue; }
+
+        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+            if let Some(media_type) = detect_media_type(ext) {
+                match p.metadata() {
+                    Ok(metadata) => collection.files.push((
+                        p.to_string_lossy().to_string(),
+                        media_type.to_string(),
+                        metadata.len(),
+                    )),
+                    Err(err) => collection.errors.push(format!(
+                        "metadata error for {}: {err}",
+                        p.to_string_lossy()
+                    )),
+                }
+            }
+        }
+    }
+
+    Ok(collection)
 }
 
 fn extract_embedded_title(file_path: &str) -> Option<String> {
@@ -141,6 +197,27 @@ fn should_extract_poster_for_scan(existing_poster_path: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
+fn source_report_json(
+    source: &MediaSource,
+    status: &str,
+    found: u64,
+    added: u64,
+    updated: u64,
+    errors: &[String],
+) -> serde_json::Value {
+    serde_json::json!({
+        "source_id": source.id,
+        "name": source.name.clone(),
+        "path": source.path.clone(),
+        "enabled": source.enabled,
+        "status": status,
+        "found": found,
+        "added": added,
+        "updated": updated,
+        "errors": errors,
+    })
+}
+
 #[tauri::command]
 pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     if SCANNING.load(Ordering::Relaxed) {
@@ -162,22 +239,64 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         (sources, prefer_embedded_titles)
     };
 
+    let enabled_sources = sources.iter().filter(|source| source.enabled).count() as u64;
     let mut total_found: u64 = 0;
     let mut total_added: u64 = 0;
+    let mut total_updated: u64 = 0;
+    let mut sources_scanned: u64 = 0;
+    let mut sources_failed: u64 = 0;
+    let mut skipped_disabled: u64 = 0;
+    let mut errors: Vec<String> = Vec::new();
+    let mut source_reports = Vec::new();
 
     for source in &sources {
-        if !source.enabled { continue; }
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
+        if !source.enabled {
+            skipped_disabled += 1;
+            source_reports.push(source_report_json(source, "disabled", 0, 0, 0, &[]));
+            continue;
+        }
 
-        let (found, added) = scan_directory(&state, source, prefer_embedded_titles)?;
-        total_found += found;
-        total_added += added;
+        match scan_directory(&state, source, prefer_embedded_titles) {
+            Ok(report) => {
+                total_found += report.found;
+                total_added += report.added;
+                total_updated += report.updated;
+                sources_scanned += 1;
+                let status = if report.errors.is_empty() { "success" } else { "partial" };
+                errors.extend(report.errors.iter().map(|err| format!("{}: {err}", source.name)));
+                source_reports.push(source_report_json(source, status, report.found, report.added, report.updated, &report.errors));
+            }
+            Err(err) => {
+                sources_failed += 1;
+                let source_error = format!("{}: {err}", source.name);
+                errors.push(source_error);
+                let failed_errors = vec![err];
+                source_reports.push(source_report_json(source, "failed", 0, 0, 0, &failed_errors));
+            }
+        }
     }
 
+    let status = if sources_failed == 0 && errors.is_empty() {
+        "success"
+    } else if sources_scanned > 0 || total_added > 0 || total_updated > 0 {
+        "partial"
+    } else {
+        "failed"
+    };
+
     Ok(serde_json::json!({
+        "status": status,
         "total_found": total_found,
         "total_added": total_added,
-        "sources_scanned": sources.len(),
+        "total_updated": total_updated,
+        "sources_total": sources.len(),
+        "sources_enabled": enabled_sources,
+        "sources_scanned": sources_scanned,
+        "sources_failed": sources_failed,
+        "sources_skipped_disabled": skipped_disabled,
+        "errors": errors,
+        "source_reports": source_reports,
     }))
 }
 
@@ -204,48 +323,36 @@ pub async fn scan_single_source(state: State<'_, AppState>, source_id: i64) -> R
         (source, prefer_embedded_titles)
     };
 
-    let (found, added) = scan_directory(&state, &source, prefer_embedded_titles)?;
+    let report = scan_directory(&state, &source, prefer_embedded_titles)?;
     Ok(serde_json::json!({
-        "total_found": found,
-        "total_added": added,
+        "status": if report.errors.is_empty() { "success" } else { "partial" },
+        "total_found": report.found,
+        "total_added": report.added,
+        "total_updated": report.updated,
+        "errors": report.errors,
     }))
 }
 
-fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded_titles: bool) -> Result<(u64, u64), String> {
+fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded_titles: bool) -> Result<ScanDirectoryReport, String> {
     let path = Path::new(&source.path);
-    if !path.exists() {
-        return Err(format!("Source path does not exist: {}", source.path));
-    }
+    let collection = collect_media_files(path)?;
+    SCAN_TOTAL.store(collection.files.len() as u64, Ordering::Relaxed);
 
-    let mut files: Vec<(String, String, u64)> = Vec::new();
-
-    // Following links on Windows can recurse through junction/symlink loops forever.
-    for entry in WalkDir::new(path).follow_links(false).into_iter().filter_map(|e| e.ok()) {
-        if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
-        let p = entry.path();
-        if !p.is_file() { continue; }
-        if !should_index_path(p) { continue; }
-
-        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-            if let Some(media_type) = detect_media_type(ext) {
-                let size = p.metadata().map(|m| m.len()).unwrap_or(0);
-                files.push((p.to_string_lossy().to_string(), media_type.to_string(), size));
-            }
-        }
-    }
-
-    SCAN_TOTAL.store(files.len() as u64, Ordering::Relaxed);
-    let found = files.len() as u64;
-    let mut added: u64 = 0;
+    let mut report = ScanDirectoryReport {
+        found: collection.files.len() as u64,
+        added: 0,
+        updated: 0,
+        errors: collection.errors,
+    };
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().to_rfc3339();
 
-    for (i, (file_path, media_type, file_size)) in files.iter().enumerate() {
+    for (i, (file_path, media_type, file_size)) in collection.files.iter().enumerate() {
         if CANCEL_FLAG.load(Ordering::Relaxed) { break; }
         SCAN_CURRENT.store(i as u64 + 1, Ordering::Relaxed);
 
-        let existing_poster_path = db
+        let existing_poster_path = match db
             .conn
             .query_row(
                 "SELECT poster_path FROM media_items WHERE file_path = ?1",
@@ -253,8 +360,13 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
                 |row| row.get::<_, Option<String>>(0),
             )
             .optional()
-            .map_err(|e| e.to_string())?
-            .flatten();
+        {
+            Ok(value) => value.flatten(),
+            Err(err) => {
+                report.errors.push(format!("poster lookup failed for {file_path}: {err}"));
+                None
+            }
+        };
         let title = if prefer_embedded_titles {
             extract_embedded_title(file_path).unwrap_or_else(|| title_from_filename(Path::new(file_path)))
         } else {
@@ -297,45 +409,55 @@ fn scan_directory(state: &State<AppState>, source: &MediaSource, prefer_embedded
         match db.upsert_scanned_media_item_data(&item) {
             Ok(inserted) => {
                 if inserted {
-                    added += 1;
+                    report.added += 1;
+                } else {
+                    report.updated += 1;
                 }
             }
-            Err(_) => {}
+            Err(err) => report.errors.push(format!("library upsert failed for {file_path}: {err}")),
         }
     }
 
-    // Update source last_scanned and item_count
-    let _ = db.conn.execute(
+    if let Err(err) = db.conn.execute(
         "UPDATE media_sources SET last_scanned = ?1, item_count = ?2 WHERE id = ?3",
-        rusqlite::params![now, added as i64, source.id],
-    );
+        rusqlite::params![now, report.found as i64, source.id],
+    ) {
+        report.errors.push(format!("source status update failed: {err}"));
+    }
 
-    Ok((found, added))
+    Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{poster_cache_path_for_file, should_extract_poster_for_scan, should_index_path};
-    use std::path::Path;
+    use super::{collect_media_files, poster_cache_path_for_file, should_extract_poster_for_scan, should_index_path};
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_path(parts: &[&str]) -> PathBuf {
+        parts.iter().collect()
+    }
 
     #[test]
     fn skips_generated_chapter_images() {
-        assert!(!should_index_path(Path::new(r"E:\Videos\sample_chapters\chapter_0001.jpg")));
+        let path = test_path(&["Videos", "sample_chapters", "chapter_0001.jpg"]);
+        assert!(!should_index_path(&path));
     }
 
     #[test]
     fn skips_sidecar_artwork_images() {
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\poster.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\backdrop.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\folder.jpg")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\cover.png")));
-        assert!(!should_index_path(Path::new(r"E:\Videos\Movie\scene-poster.webp")));
+        for file_name in ["poster.jpg", "backdrop.jpg", "folder.jpg", "cover.png", "scene-poster.webp"] {
+            let path = test_path(&["Videos", "Movie", file_name]);
+            assert!(!should_index_path(&path), "expected sidecar artwork to be skipped: {}", path.display());
+        }
     }
 
     #[test]
     fn keeps_real_media_files() {
-        assert!(should_index_path(Path::new(r"E:\Videos\sample.mp4")));
-        assert!(should_index_path(Path::new(r"E:\Photos\Vacation\beach-day.jpg")));
+        let video = test_path(&["Videos", "sample.mp4"]);
+        let photo = test_path(&["Photos", "Vacation", "beach-day.jpg"]);
+        assert!(should_index_path(&video));
+        assert!(should_index_path(&photo));
     }
 
     #[test]
@@ -354,6 +476,34 @@ mod tests {
         assert!(should_extract_poster_for_scan(Some("   ")));
         assert!(!should_extract_poster_for_scan(Some(r"E:\Videos\Movie.jpg")));
         assert!(!should_extract_poster_for_scan(Some("https://example.com/poster.jpg")));
+    }
+
+    #[test]
+    fn collect_media_files_recurses_and_excludes_generated_artifacts() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("cinavault-scan-test-{stamp}"));
+        let nested = root.join("Movies").join("Movie One");
+        let chapters = nested.join("sample_chapters");
+        std::fs::create_dir_all(&chapters).unwrap();
+        std::fs::write(nested.join("Movie.One.2026.mkv"), b"test").unwrap();
+        std::fs::write(root.join("song.flac"), b"test").unwrap();
+        std::fs::write(root.join("family-vacation.jpg"), b"photo").unwrap();
+        std::fs::write(root.join("poster.jpg"), b"art").unwrap();
+        std::fs::write(chapters.join("chapter_0001.jpg"), b"chapter").unwrap();
+        std::fs::write(root.join("notes.txt"), b"ignore").unwrap();
+
+        let collection = collect_media_files(&root).expect("scan collection should succeed");
+        let paths = collection.files.iter().map(|file| file.0.clone()).collect::<Vec<_>>();
+
+        assert_eq!(collection.errors.len(), 0);
+        assert!(paths.iter().any(|path| path.ends_with("Movie.One.2026.mkv")));
+        assert!(paths.iter().any(|path| path.ends_with("song.flac")));
+        assert!(paths.iter().any(|path| path.ends_with("family-vacation.jpg")));
+        assert!(!paths.iter().any(|path| path.ends_with("chapter_0001.jpg")));
+        assert!(!paths.iter().any(|path| path.ends_with("poster.jpg")));
+        assert!(!paths.iter().any(|path| path.ends_with("notes.txt")));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

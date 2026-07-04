@@ -1,4 +1,4 @@
-// CinaVault Premium — Build 132 Futuristic Application Shell
+// CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore, TabId } from "./store/appStore";
 import { applyTheme } from "./themes";
+import "./data/pluginAdapterInitialize";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import HomeTab from "./components/tabs/HomeTab";

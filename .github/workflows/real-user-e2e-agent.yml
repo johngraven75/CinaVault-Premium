@@ -1,0 +1,22 @@
+name: Real User E2E Agent
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-user-e2e-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:build140
+      - name: Agent status
+        run: echo "Real-user browser probe workflow is staged. Browser probe files must be committed before enabling pull_request gating."

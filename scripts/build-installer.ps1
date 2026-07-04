@@ -112,7 +112,7 @@ Require-Command "rustc" "Install Rust from https://rustup.rs/."
 if (Test-Path (Join-Path $RepoRoot "node_modules")) {
     Write-Step "Using preinstalled JavaScript dependencies"
 } else {
-    Write-Step "Installing JavaScript dependencies from patched manifest"
+    Write-Step "Installing JavaScript dependencies from the current fresh manifest"
     Invoke-Checked "npm" @("install", "--legacy-peer-deps", "--loglevel", "verbose")
 }
 
@@ -123,8 +123,17 @@ Write-Step "Running Vite production build"
 Invoke-Checked "npx" @("vite", "build")
 
 if (-not $SkipTests) {
+    Write-Step "Running JavaScript surface regression tests"
+    Invoke-Checked "npm" @("run", "test:build140")
+
     Write-Step "Running Rust compile check"
     Invoke-Checked "cargo" @("check", "--manifest-path", "src-tauri/Cargo.toml")
+
+    Write-Step "Running scanner ingestion regression tests"
+    Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "scanner::tests", "--", "--nocapture")
+
+    Write-Step "Running metadata poster posting regression test"
+    Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "metadata_posting_tests", "--", "--nocapture")
 
     Write-Step "Running PGMA bridge tests"
     Invoke-Checked "cargo" @("test", "--manifest-path", "src-tauri/Cargo.toml", "pgma_bridge", "--", "--nocapture")

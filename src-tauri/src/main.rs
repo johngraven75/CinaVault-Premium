@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 120)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 140)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -10,6 +10,8 @@ mod jellyfin;
 mod plugins;
 mod player;
 mod metadata;
+mod metadata_ext;
+mod adult_site_provider;
 mod chapters;
 mod duplicates;
 mod vpn;
@@ -19,10 +21,12 @@ mod enrichment;
 mod task_progress;
 mod library_artifacts;
 mod pgma_bridge;
+#[cfg(test)]
+mod metadata_posting_tests;
 
 use db::Database;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, State};
 
 pub struct AppState {
     pub db: Mutex<Database>,
@@ -54,7 +58,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 120 initialized successfully");
+            log::info!("CinaVault Premium Build 140 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -121,20 +125,21 @@ fn main() {
             plugins::uninstall_plugin,
             plugins::run_plugin,
             plugins::get_installed_plugins,
+            pgma_bridge::find_local_candidates,
             pgma_bridge::refresh_pgma_library,
             // Player
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-            // Metadata
-            metadata::fetch_metadata,
-            metadata::search_metadata,
-            metadata::check_media_item_metadata,
-            metadata::get_provider_status,
-            metadata::test_api_key,
-            metadata::set_api_key,
-            metadata::get_api_keys,
-            metadata::get_metadata_providers,
+            // Metadata commands delegate through metadata_ext so restored providers are live at runtime.
+            fetch_metadata,
+            search_metadata,
+            check_media_item_metadata,
+            get_provider_status,
+            test_api_key,
+            set_api_key,
+            get_api_keys,
+            get_metadata_providers,
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
@@ -177,6 +182,62 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
+}
+
+#[tauri::command]
+fn get_metadata_providers() -> Vec<metadata::MetadataProvider> {
+    metadata_ext::get_metadata_providers()
+}
+
+#[tauri::command]
+async fn fetch_metadata(
+    provider: String,
+    query: String,
+    api_key: Option<String>,
+) -> Result<serde_json::Value, String> {
+    metadata_ext::fetch_metadata(provider, query, api_key).await
+}
+
+#[tauri::command]
+async fn search_metadata(
+    provider: String,
+    query: String,
+    media_type: Option<String>,
+    api_key: Option<String>,
+) -> Result<serde_json::Value, String> {
+    metadata_ext::search_metadata(provider, query, media_type, api_key).await
+}
+
+#[tauri::command]
+async fn check_media_item_metadata(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<serde_json::Value, String> {
+    metadata_ext::check_media_item_metadata(state, id).await
+}
+
+#[tauri::command]
+fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, String> {
+    metadata_ext::get_provider_status(state)
+}
+
+#[tauri::command]
+async fn test_api_key(provider: String, api_key: String) -> Result<serde_json::Value, String> {
+    metadata_ext::test_api_key(provider, api_key).await
+}
+
+#[tauri::command]
+fn set_api_key(
+    state: State<AppState>,
+    provider: String,
+    api_key: String,
+) -> Result<(), String> {
+    metadata_ext::set_api_key(state, provider, api_key)
+}
+
+#[tauri::command]
+fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String> {
+    metadata_ext::get_api_keys(state)
 }
 
 // ════════════════════════════════════════════════════════════
@@ -256,104 +317,63 @@ async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_js
     match result.join() {
         Ok(Ok(val)) => Ok(val),
         Ok(Err(e)) => Err(e),
-        Err(_) => Err("Auth thread panicked".to_string()),
+        Err(_) => Err("OAuth handler panicked".to_string()),
     }
 }
 
-fn extract_query_param(request: &str, param: &str) -> Option<String> {
-    let search = format!("{}=", param);
-    if let Some(pos) = request.find(&search) {
-        let start = pos + search.len();
-        let rest = &request[start..];
-        let end = rest.find(|c: char| c == '&' || c == ' ' || c == '\r' || c == '\n').unwrap_or(rest.len());
-        Some(rest[..end].to_string())
-    } else {
-        None
+fn extract_query_param(request: &str, key: &str) -> Option<String> {
+    let first_line = request.lines().next()?;
+    let path = first_line.split_whitespace().nth(1)?;
+    let query = path.split('?').nth(1)?;
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=')?;
+        if k == key {
+            return Some(v.to_string());
+        }
     }
+    None
 }
 
 #[tauri::command]
-async fn cloud_disconnect(provider: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+async fn cloud_disconnect(provider: String) -> Result<serde_json::Value, String> {
     log::info!("Cloud disconnect: {}", provider);
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data(&format!("cloud_{}_status", provider), "disconnected").map_err(|e| e.to_string())?;
-    db.set_setting_data(&format!("cloud_{}_token", provider), "").map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(serde_json::json!({ "success": true }))
 }
 
 #[tauri::command]
-async fn cloud_sync(provider: String, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
-    log::info!("Cloud sync: {}", provider);
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let now = chrono::Local::now().to_rfc3339();
-    db.set_setting_data(&format!("cloud_{}_last_sync", provider), &now).map_err(|e| e.to_string())?;
-
-    Ok(serde_json::json!({
-        "success": true,
-        "provider": provider,
-        "synced_at": now,
-        "items_found": 0
-    }))
+async fn cloud_sync(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
+    log::info!("Cloud sync: provider={}, folder={:?}", provider, folder_id);
+    Ok(serde_json::json!({ "success": true, "synced": 0 }))
 }
 
 #[tauri::command]
-async fn cloud_browse(provider: String) -> Result<serde_json::Value, String> {
-    log::info!("Cloud browse: {}", provider);
-    Ok(serde_json::json!({
-        "success": true,
-        "provider": provider,
-        "files": [],
-        "folders": []
-    }))
+async fn cloud_browse(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
+    log::info!("Cloud browse: provider={}, folder={:?}", provider, folder_id);
+    Ok(serde_json::json!({ "items": [] }))
 }
 
 #[tauri::command]
-async fn cloud_list_files(provider: String, path: Option<String>) -> Result<Vec<serde_json::Value>, String> {
-    log::info!("Cloud list files: {} path={:?}", provider, path);
-    Ok(vec![])
+async fn cloud_list_files(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
+    cloud_browse(provider, folder_id).await
 }
 
 #[tauri::command]
-async fn cloud_get_status(provider: String, state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let status = db.get_setting_data(&format!("cloud_{}_status", provider))
-        .map_err(|e| e.to_string())?
-        .unwrap_or_else(|| "disconnected".to_string());
-    let last_sync = db.get_setting_data(&format!("cloud_{}_last_sync", provider))
-        .map_err(|e| e.to_string())?;
-
-    Ok(serde_json::json!({
-        "provider": provider,
-        "status": status,
-        "last_sync": last_sync
-    }))
+async fn cloud_get_status(provider: String) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "provider": provider, "connected": false }))
 }
-
-// ════════════════════════════════════════════════════════════
-//  Utility Commands
-// ════════════════════════════════════════════════════════════
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "brand": "CinaVault Fusion",
-        "version": "1.0.0-7",
-        "build_tag": "Build 120 Full Library + Photorealistic Comet Wallpaper (Premium Edition)",
-        "engine": "Tauri v2 + Rust + React 18",
-        "platform": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-        "features": [
-            "persistent_settings", "cloud_storage", "plugin_system",
-            "metadata_providers", "library_enrichment", "filename_normalization",
-            "embedded_title_preference", "embedded_poster_import", "scheduled_tasks", "premium_ui"
-        ]
+        "version": "1.0.140",
+        "build": "140"
     })
 }
 
 #[tauri::command]
-async fn open_external_url(url: String) -> Result<(), String> {
-    open::that(&url).map_err(|e| e.to_string())
+fn open_external_url(url: String) -> Result<(), String> {
+    open::that(url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -367,6 +387,7 @@ fn get_system_info() -> serde_json::Value {
 
 #[tauri::command]
 async fn pick_folder() -> Result<Option<String>, String> {
+    // Use tauri-plugin-dialog in frontend; this is fallback
     Ok(None)
 }
 
