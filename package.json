@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
     "test": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs",
-    "test:build140": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs"
+    "test:build140": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs",
+    "test:runtime-routing": "node --test tests/build140RuntimeRouting.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
