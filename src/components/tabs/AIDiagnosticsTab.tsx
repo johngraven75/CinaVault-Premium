@@ -10,8 +10,12 @@ import {
   metadataTaskPopupVisible,
   MetadataTaskProgress,
 } from "../../utils/metadataTaskProgress";
-import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag } from "lucide-react";
+import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag, ShieldCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+
+const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
+const BULK_METADATA_BATCH_LIMIT = 500;
+const MAX_VISIBLE_PROVIDER_ERRORS = 40;
 
 type QuickAction = {
   label: string;
@@ -19,6 +23,13 @@ type QuickAction = {
   q: string;
   progressTask?: string;
   runNow?: () => Promise<any>;
+};
+
+type AiConfig = {
+  model?: string;
+  has_token?: boolean;
+  default_model?: string;
+  inference_url?: string;
 };
 
 type AdultMetadataGatherResult = {
@@ -57,6 +68,9 @@ type BulkMetadataPostResult = {
   type: "bulk_metadata_post";
   status: string;
   items_scanned: number;
+  candidates_considered: number;
+  candidates_skipped_complete: number;
+  batch_limit: number;
   metadata_items_enriched: number;
   metadata_fields_updated: number;
   posters_attached: number;
@@ -64,6 +78,7 @@ type BulkMetadataPostResult = {
   no_match: number;
   no_changes: number;
   failed: number;
+  stopped_reason?: string;
 };
 
 function isLibraryEnrichmentResult(result: any): result is LibraryEnrichmentResult {
@@ -78,6 +93,24 @@ function isBulkMetadataPostResult(result: any): result is BulkMetadataPostResult
   return result?.type === "bulk_metadata_post";
 }
 
+function itemNeedsMetadata(item: MediaItem): boolean {
+  return !item.overview?.trim()
+    || !item.poster_path?.trim()
+    || item.year == null
+    || item.rating == null
+    || !item.genre?.trim()
+    || !item.tmdb_id?.trim()
+    || !item.imdb_id?.trim();
+}
+
+function trimProviderErrors(errors: string[]): string[] {
+  if (errors.length <= MAX_VISIBLE_PROVIDER_ERRORS) return errors;
+  return [
+    ...errors.slice(0, MAX_VISIBLE_PROVIDER_ERRORS),
+    `Additional provider messages hidden: ${errors.length - MAX_VISIBLE_PROVIDER_ERRORS}`,
+  ];
+}
+
 function formatLibraryEnrichmentMessage(label: string, result: LibraryEnrichmentResult): string {
   return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, renamed ${result.files_renamed || 0}`;
 }
@@ -87,7 +120,8 @@ function formatAdultMetadataGatherMessage(label: string, result: AdultMetadataGa
 }
 
 function formatBulkMetadataPostMessage(label: string, result: BulkMetadataPostResult): string {
-  return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, posters attached ${result.posters_attached || 0}`;
+  const stop = result.stopped_reason ? ` (${result.stopped_reason})` : "";
+  return `${label}: scanned ${result.items_scanned}, enriched ${result.metadata_items_enriched}, updated ${result.metadata_fields_updated} fields, posters attached ${result.posters_attached}${stop}`;
 }
 
 function formatResultSummary(result: any) {
@@ -113,7 +147,7 @@ function formatResultSummary(result: any) {
         items_needing_metadata: result.items_needing_metadata,
         skipped_missing_files: result.skipped_missing_files,
         skipped_non_video_items: result.skipped_non_video_items,
-        errors: result.errors,
+        errors: trimProviderErrors(result.errors || []),
         note: result.note,
       },
       null,
@@ -141,7 +175,7 @@ function formatResultSummary(result: any) {
       low_confidence_metadata_only: result.low_confidence_metadata_only,
       skipped_missing_files: result.skipped_missing_files,
       skipped_non_video_items: result.skipped_non_video_items,
-      provider_errors: result.provider_errors,
+      provider_errors: trimProviderErrors(result.provider_errors || []),
     },
     null,
     2,
@@ -153,10 +187,31 @@ export default function AIDiagnosticsTab() {
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [hfToken, setHfToken] = useState("");
-  const [model, setModel] = useState("cinavault-local-media-agent");
+  const [hasHfToken, setHasHfToken] = useState(false);
+  const [model, setModel] = useState(DEFAULT_HF_MODEL);
+  const [inferenceUrl, setInferenceUrl] = useState("https://router.huggingface.co/v1/chat/completions");
   const [showConfig, setShowConfig] = useState(false);
   const [history, setHistory] = useState<{ query: string; result: any; time: string }[]>([]);
   const [metadataProgress, setMetadataProgress] = useState<MetadataTaskProgress | null>(null);
+
+  const loadAiConfig = useCallback(async () => {
+    try {
+      const config = await invoke<AiConfig>("get_ai_config");
+      setModel(config.model || config.default_model || DEFAULT_HF_MODEL);
+      setHasHfToken(Boolean(config.has_token));
+      setInferenceUrl(config.inference_url || "https://router.huggingface.co/v1/chat/completions");
+    } catch (error) {
+      addStatusMessage(`AI config load failed: ${error}`);
+    }
+  }, [addStatusMessage]);
+
+  useEffect(() => {
+    void loadAiConfig();
+  }, [loadAiConfig]);
+
+  useEffect(() => {
+    if (showConfig) void loadAiConfig();
+  }, [showConfig, loadAiConfig]);
 
   const refreshLoadedLibraryPage = useCallback(async () => {
     const items = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({}));
@@ -166,12 +221,14 @@ export default function AIDiagnosticsTab() {
   const loadAllLibraryItems = useCallback(async () => {
     const allItems: MediaItem[] = [];
     let offset = 0;
+    let guard = 0;
 
-    while (true) {
+    while (guard < 1000) {
       const page = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({ offset }));
       allItems.push(...page);
       if (!hasMoreLibraryPages(page)) break;
       offset += LIBRARY_PAGE_SIZE;
+      guard += 1;
     }
 
     return allItems;
@@ -241,11 +298,16 @@ export default function AIDiagnosticsTab() {
     const label = "Post Metadata & Posters";
     const task = "bulk_metadata_post";
     const items = await loadAllLibraryItems();
-    const candidates = items.filter(item => typeof item.id === "number");
+    const eligible = items.filter(item => typeof item.id === "number");
+    const candidates = eligible.filter(itemNeedsMetadata).slice(0, BULK_METADATA_BATCH_LIMIT);
+    const skippedComplete = eligible.length - eligible.filter(itemNeedsMetadata).length;
     const result: BulkMetadataPostResult = {
       type: "bulk_metadata_post",
       status: "success",
-      items_scanned: candidates.length,
+      items_scanned: 0,
+      candidates_considered: eligible.length,
+      candidates_skipped_complete: skippedComplete,
+      batch_limit: BULK_METADATA_BATCH_LIMIT,
       metadata_items_enriched: 0,
       metadata_fields_updated: 0,
       posters_attached: 0,
@@ -253,14 +315,21 @@ export default function AIDiagnosticsTab() {
       no_match: 0,
       no_changes: 0,
       failed: 0,
+      stopped_reason: candidates.length === 0 ? "No incomplete metadata candidates found" : undefined,
     };
 
+    if (candidates.length === 0) {
+      return result;
+    }
+
+    showStartingProgress(label, task, candidates.length);
     for (let index = 0; index < candidates.length; index += 1) {
       const item = candidates[index];
       updateLocalProgress(label, task, index + 1, candidates.length, `Posting metadata for ${index + 1} of ${candidates.length}`);
 
       try {
         const check = await invoke<SingleItemMetadataCheckResult>("check_media_item_metadata", { id: item.id });
+        result.items_scanned += 1;
         const changed = check.metadata_fields_updated || 0;
         if (check.metadata_updated || changed > 0) {
           result.metadata_items_enriched += 1;
@@ -276,13 +345,19 @@ export default function AIDiagnosticsTab() {
         }
         if (check.provider_errors?.length) {
           result.provider_errors.push(...check.provider_errors);
+          result.provider_errors = trimProviderErrors(result.provider_errors);
         }
       } catch (error) {
+        result.items_scanned += 1;
         result.failed += 1;
         result.provider_errors.push(`${item.title || item.file_path}: ${String(error)}`);
+        result.provider_errors = trimProviderErrors(result.provider_errors);
       }
     }
 
+    if (eligible.filter(itemNeedsMetadata).length > BULK_METADATA_BATCH_LIMIT) {
+      result.stopped_reason = `Batch limit reached; run again to continue remaining items`;
+    }
     if (result.failed > 0) {
       result.status = "partial";
     }
@@ -384,6 +459,7 @@ export default function AIDiagnosticsTab() {
       setAiResult(result);
       setHistory(prev => [{ query: `[Inference] ${prompt}`, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
       addStatusMessage("AI inference complete");
+      await loadAiConfig();
     } catch (e) {
       addStatusMessage(`Inference failed: ${e}`);
     }
@@ -393,7 +469,10 @@ export default function AIDiagnosticsTab() {
   const saveToken = async () => {
     try {
       await invoke("set_hf_token", { token: hfToken });
-      addStatusMessage("HuggingFace token saved");
+      setHasHfToken(Boolean(hfToken.trim()));
+      setHfToken("");
+      addStatusMessage("Hugging Face token saved and retained for AI inference");
+      await loadAiConfig();
     } catch (e) {
       addStatusMessage(`Failed: ${e}`);
     }
@@ -403,6 +482,7 @@ export default function AIDiagnosticsTab() {
     try {
       await invoke("set_ai_model", { model });
       addStatusMessage(`AI model set to: ${model}`);
+      await loadAiConfig();
     } catch (e) {
       addStatusMessage(`Failed: ${e}`);
     }
@@ -443,7 +523,7 @@ export default function AIDiagnosticsTab() {
     {
       label: "Post Metadata & Posters",
       icon: Sparkles,
-      q: "Post metadata and attach posters to all media files",
+      q: "Post metadata and attach posters to all incomplete media files",
       progressTask: "bulk_metadata_post",
       runNow: runBulkMetadataPost,
     },
@@ -522,7 +602,21 @@ export default function AIDiagnosticsTab() {
             </button>
           </div>
 
-          <div className="flex gap-3 mt-auto pt-32">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div className="glass-panel-2 p-3 rounded-xl">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-cv-subtext">HF Token</div>
+              <div className="mt-1 flex items-center gap-2 text-sm font-bold">
+                <ShieldCheck size={14} className={hasHfToken ? "text-emerald-300" : "text-amber-300"} />
+                {hasHfToken ? "Configured" : "Missing"}
+              </div>
+            </div>
+            <div className="glass-panel-2 p-3 rounded-xl md:col-span-2">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-cv-subtext">Model</div>
+              <div className="mt-1 truncate text-sm font-bold text-cv-text">{model}</div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-auto pt-20">
             <input
               type="text"
               value={prompt}
@@ -535,7 +629,7 @@ export default function AIDiagnosticsTab() {
               {aiProcessing ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
               Query
             </button>
-            <button onClick={runInference} disabled={aiProcessing} className="cv-btn cv-btn-gold">
+            <button onClick={runInference} disabled={aiProcessing || !hasHfToken} className="cv-btn cv-btn-gold disabled:opacity-45 disabled:cursor-not-allowed" title={!hasHfToken ? "Save a Hugging Face token before inference" : undefined}>
               <Sparkles size={14} /> Inference
             </button>
           </div>
@@ -571,27 +665,27 @@ export default function AIDiagnosticsTab() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="section-label">HuggingFace Token</label>
+              <label className="section-label">Hugging Face Token</label>
               <div className="flex gap-2">
-                <input type="password" value={hfToken} onChange={e => setHfToken(e.target.value)} className="cv-input flex-1" placeholder="hf_..." />
+                <input type="password" value={hfToken} onChange={e => setHfToken(e.target.value)} className="cv-input flex-1" placeholder={hasHfToken ? "Token already configured" : "hf_..."} />
                 <button onClick={saveToken} className="cv-btn cv-btn-primary text-xs"><Key size={12} /> Save</button>
                 <button onClick={() => openLink("https://huggingface.co/settings/tokens")} className="cv-btn cv-btn-secondary text-xs">
                   <ExternalLink size={12} /> Get API Key
                 </button>
               </div>
-              <div className="text-[10px] text-cv-subtext mt-1">Get a token from huggingface.co/settings/tokens</div>
+              <div className="text-[10px] text-cv-subtext mt-1">Status: {hasHfToken ? "configured and retained" : "missing"}. Existing tokens are never displayed.</div>
             </div>
             <div>
               <label className="section-label">AI Model</label>
               <div className="flex gap-2">
-                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder="cinavault-local-media-agent" />
+                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder={DEFAULT_HF_MODEL} />
                 <button onClick={saveModel} className="cv-btn cv-btn-primary text-xs"><Cpu size={12} /> Set</button>
               </div>
-              <div className="text-[10px] text-cv-subtext mt-1">Default: cinavault-local-media-agent</div>
+              <div className="text-[10px] text-cv-subtext mt-1">Default: {DEFAULT_HF_MODEL}</div>
             </div>
           </div>
           <div className="mt-3 text-[10px] text-cv-subtext">
-            Inference URL: https://router.huggingface.co/v1/chat/completions
+            Inference URL: {inferenceUrl}
           </div>
         </motion.div>
       )}
