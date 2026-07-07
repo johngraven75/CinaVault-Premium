@@ -1,16 +1,16 @@
 # CinaVault Premium Build 140 Notes
 
 Build: 140
-Source commit: 8fc88bd8f6bbba6758b99c894a6baf9502a17d33
-Workflow run: 28472203129
+Source commit: 969c21816e69566e3e05c2c87fd62c8ee246b7fc
+Workflow run: 28638112592
 Artifact name: CinaVault-Premium-Windows-Installer-Build140
 
-Carries forward the Build 137 Cyber HUD redesign and adds the Build 140 source-scan, metadata-provider, and validation cleanup set.
+Carries forward the Cyber HUD redesign and adds the Build 140 source-scan, metadata-provider, and validation cleanup set.
 
 Build 140 highlights:
-- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience from Build 137.
+- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience.
 - Restores PGMA Modernized and Porn Site Nuxt metadata provider routing through Tauri command handlers.
-- Requires the JavaScript surface regression test before installer creation so metadata provider wiring regressions are caught.
+- Requires JavaScript governance, production web build, Rust module validation, and Tauri packaging before artifact upload.
 - Continues scanning all enabled media sources even when one source is missing or fails.
 - Reports per-source scan counts, skipped disabled sources, failed sources, and ingestion errors instead of silently swallowing library upsert failures.
 - Sets source item counts from files found, not only newly added files, so rescans no longer zero out source counts.

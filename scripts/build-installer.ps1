@@ -1,4 +1,4 @@
-# CinaVault Premium — Windows Installer Build Script
+# CinaVault Premium Windows Installer Build Script
 # Builds the production web app, validates the Rust/Tauri side, and creates Windows installer bundles.
 
 param(
@@ -103,11 +103,11 @@ Write-Host "CinaVault Premium Windows Installer Build" -ForegroundColor Magenta
 Write-Host "Repository: $RepoRoot"
 
 Write-Step "Checking required tools"
-Require-Command "node" "Install Node.js LTS from https://nodejs.org/."
-Require-Command "npm" "Install Node.js LTS from https://nodejs.org/."
-Require-Command "npx" "Install Node.js LTS from https://nodejs.org/."
-Require-Command "cargo" "Install Rust from https://rustup.rs/."
-Require-Command "rustc" "Install Rust from https://rustup.rs/."
+Require-Command "node" "Install Node.js LTS."
+Require-Command "npm" "Install Node.js LTS."
+Require-Command "npx" "Install Node.js LTS."
+Require-Command "cargo" "Install Rust."
+Require-Command "rustc" "Install Rust."
 
 if (Test-Path (Join-Path $RepoRoot "node_modules")) {
     Write-Step "Using preinstalled JavaScript dependencies"
@@ -177,10 +177,6 @@ if (-not $NoDesktopCopy) {
     }
 
     Write-Host "Copied installers to: $OutDir" -ForegroundColor Green
-
-    if (-not $NoOpenDesktop) {
-        Start-Process explorer.exe $OutDir
-    }
 }
 
 Write-Host ""

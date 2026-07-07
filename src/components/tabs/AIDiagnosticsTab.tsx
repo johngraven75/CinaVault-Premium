@@ -153,7 +153,7 @@ export default function AIDiagnosticsTab() {
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [hfToken, setHfToken] = useState("");
-  const [model, setModel] = useState("katanemo/Arch-Router-1.5B:hf-inference");
+  const [model, setModel] = useState("cinavault-local-media-agent");
   const [showConfig, setShowConfig] = useState(false);
   const [history, setHistory] = useState<{ query: string; result: any; time: string }[]>([]);
   const [metadataProgress, setMetadataProgress] = useState<MetadataTaskProgress | null>(null);
@@ -584,10 +584,10 @@ export default function AIDiagnosticsTab() {
             <div>
               <label className="section-label">AI Model</label>
               <div className="flex gap-2">
-                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder="katanemo/Arch-Router-1.5B:hf-inference" />
+                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder="cinavault-local-media-agent" />
                 <button onClick={saveModel} className="cv-btn cv-btn-primary text-xs"><Cpu size={12} /> Set</button>
               </div>
-              <div className="text-[10px] text-cv-subtext mt-1">Default: katanemo/Arch-Router-1.5B:hf-inference</div>
+              <div className="text-[10px] text-cv-subtext mt-1">Default: cinavault-local-media-agent</div>
             </div>
           </div>
           <div className="mt-3 text-[10px] text-cv-subtext">

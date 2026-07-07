@@ -40,6 +40,7 @@ jobs:
           cache: npm
 
       - name: Refresh npm lockfile
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $branch = $env:GITHUB_REF_NAME
@@ -67,10 +68,65 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - name: Build installer with one-step PowerShell script
+      - name: Install JavaScript dependencies
         shell: pwsh
-        working-directory: ./
-        run: .\scripts\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
+        run: npm install --legacy-peer-deps --loglevel verbose
+
+      - name: Verify Build 140 JavaScript governance
+        shell: pwsh
+        run: npm run test:build140
+
+      - name: Verify production web build
+        shell: pwsh
+        run: npm run build
+
+      - name: Verify Rust compile check
+        shell: pwsh
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Verify scanner ingestion tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml scanner::tests -- --nocapture --test-threads=1
+
+      - name: Verify metadata poster posting tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml metadata_posting_tests -- --nocapture --test-threads=1
+
+      - name: Verify database tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml db::tests -- --nocapture --test-threads=1
+
+      - name: Verify enrichment tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml enrichment::tests -- --nocapture --test-threads=1
+
+      - name: Verify metadata provider tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml metadata::tests -- --nocapture --test-threads=1
+
+      - name: Verify metadata extension tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml metadata_ext::tests -- --nocapture --test-threads=1
+
+      - name: Verify IPTV tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml iptv::tests -- --nocapture --test-threads=1
+
+      - name: Verify AI diagnostics tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml ai::tests -- --nocapture --test-threads=1
+
+      - name: Verify task progress tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml task_progress::tests -- --nocapture --test-threads=1
+
+      - name: Verify PGMA plugin deployer tests
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml plugins::tests -- --nocapture --test-threads=1
+
+      - name: Build Windows installer with Tauri
+        shell: pwsh
+        run: npm run tauri build
 
       - name: Stage installer artifacts and hashes
         shell: pwsh
@@ -103,7 +159,7 @@ jobs:
             'Build 140 highlights:',
             '- Keeps the Hyper-Neon Fusion Cyber HUD, Quantum Grid navigation, holographic cards, quick stats, and terminal panel experience.',
             '- Restores PGMA Modernized and Porn Site Nuxt metadata provider routing through Tauri command handlers.',
-            '- Requires the JavaScript surface regression test before installer creation so metadata provider wiring regressions are caught.',
+            '- Requires JavaScript governance, production web build, Rust module validation, and Tauri packaging before artifact upload.',
             '- Continues scanning all enabled media sources even when one source is missing or fails.',
             '- Reports per-source scan counts, skipped disabled sources, failed sources, and ingestion errors instead of silently swallowing library upsert failures.',
             '- Sets source item counts from files found, not only newly added files, so rescans no longer zero out source counts.',

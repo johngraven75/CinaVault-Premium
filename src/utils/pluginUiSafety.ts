@@ -100,7 +100,8 @@ export function applyPluginRuntimeState<T extends PluginStatusCandidate>(
     ? registry
     : [...registry, PGMA_CATALOG_ENTRY as unknown as T];
 
-  return registryWithPreinstalled.map((plugin) => {
+  return registryWithPreinstalled.filter((plugin) => plugin.id !== 'px-pgma-modernized')
+    .map((plugin) => {
     const runtime = installedById.get(plugin.id);
     if (!runtime) return { ...plugin };
 

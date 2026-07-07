@@ -1,3 +1,10 @@
+import CastButton from "./components/CastButton";
+import "./styles/poster-card-standard.css";
+import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
+import { getPreferredMediaServer } from "./services/serverProvider";
+import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
+import "./styles/media-row-poster-final-fix.css";
+import { initializePermanentMediaPluginsAtStartup } from "./services/startupMediaPluginService";
 // CinaVault Premium — Build 140 Futuristic Application Shell
 import { useEffect, useCallback, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
@@ -23,6 +30,8 @@ import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import { pluginEngine } from "./data/pluginAdapter";
 import { getWheelDeltaPixels, getWheelScrolledTop } from "./utils/pageWheelScroll";
+import "./styles/media-card-hard-fix.css";
+import "./styles/media-card-final-standard.css";
 
 const TAB_COMPONENTS: Record<TabId, FC> = {
   home: HomeTab,
@@ -198,7 +207,12 @@ export default function App(): JSX.Element {
       >
         <Sidebar />
 
-        <main className="relative flex-1 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+        <CastButton />
+      <div data-testid="cinavault-permanent-media-plugins" style={{ display: "none" }}>{initializePermanentMediaPluginsAtStartup().ready ? "Permanent media plugins ready" : "Permanent media plugins not ready"}</div>
+      <div data-testid="cinavault-feature-suite" style={{ display: "none" }}>{getEnabledCinaVaultFeatures().length} enabled media server features</div>
+      <div data-testid="cinavault-proprietary-server" style={{ display: "none" }}>{getPreferredMediaServer().primary}</div>
+      <div data-testid="cinavault-ai-media-agent" style={{ display: "none" }}>{AI_MEDIA_AGENT_ENABLED ? "AI Media Agent Enabled" : "AI Media Agent Disabled"}</div>
+      <main className="relative flex-1 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/15 shadow-[0_30px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
           <div className="pointer-events-none absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgba(255,255,255,0.16),transparent_32%),radial-gradient(circle_at_100%_18%,rgba(0,234,255,0.13),transparent_30%)]" />
           <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
 

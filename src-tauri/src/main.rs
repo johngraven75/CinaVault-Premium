@@ -9,7 +9,9 @@ mod iptv;
 mod jellyfin;
 mod plugins;
 mod player;
-mod metadata;
+mod metadata {
+    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
+}
 mod metadata_ext;
 mod adult_site_provider;
 mod chapters;
@@ -46,7 +48,6 @@ fn main() {
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
 
-            // Create plugin directories
             let plugin_dirs = ["jellyfin", "emby", "plex", "native"];
             for dir in &plugin_dirs {
                 std::fs::create_dir_all(app_dir.join("plugins").join(dir)).ok();
@@ -131,6 +132,7 @@ fn main() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
+<<<<<<< HEAD
             // Metadata commands delegate through metadata_ext so restored providers are live at runtime.
             fetch_metadata,
             search_metadata,
@@ -140,6 +142,17 @@ fn main() {
             set_api_key,
             get_api_keys,
             get_metadata_providers,
+=======
+            // Metadata commands route through metadata_ext so restored providers are live at runtime.
+            metadata_ext::fetch_metadata,
+            metadata_ext::search_metadata,
+            metadata_ext::check_media_item_metadata,
+            metadata_ext::get_provider_status,
+            metadata_ext::test_api_key,
+            metadata_ext::set_api_key,
+            metadata_ext::get_api_keys,
+            metadata_ext::get_metadata_providers,
+>>>>>>> origin/main
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
@@ -248,11 +261,9 @@ fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String> {
 async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_json::Value, String> {
     log::info!("Cloud auth start: provider={}, url={}", provider, auth_url);
 
-    // Step 1: Start a temporary local HTTP server to receive the OAuth callback
     let listener = match std::net::TcpListener::bind("127.0.0.1:19284") {
         Ok(l) => l,
         Err(_) => {
-            // Port busy — fall back to opening browser directly
             open::that(&auth_url).map_err(|e| e.to_string())?;
             return Ok(serde_json::json!({
                 "success": true,
@@ -262,17 +273,13 @@ async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_js
         }
     };
 
-    // Set a short timeout so we don't block forever
     listener.set_nonblocking(false).ok();
     let timeout = std::time::Duration::from_secs(120);
     listener.set_ttl(120).ok();
 
-    // Step 2: Open the auth URL in the user's default browser
     open::that(&auth_url).map_err(|e| e.to_string())?;
 
-    // Step 3: Wait for the OAuth redirect callback
     let result = std::thread::spawn(move || -> Result<serde_json::Value, String> {
-        // Accept one connection with timeout
         let start = std::time::Instant::now();
         loop {
             match listener.accept() {
@@ -281,11 +288,8 @@ async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_js
                     let mut buf = [0u8; 4096];
                     let n = stream.read(&mut buf).unwrap_or(0);
                     let request = String::from_utf8_lossy(&buf[..n]).to_string();
-
-                    // Extract the authorization code from the callback URL
                     let code = extract_query_param(&request, "code");
 
-                    // Send a success response back to the browser
                     let html = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
                         <html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0a0a1a;color:#e8e6f0'>\
@@ -326,40 +330,48 @@ fn extract_query_param(request: &str, key: &str) -> Option<String> {
     let path = first_line.split_whitespace().nth(1)?;
     let query = path.split('?').nth(1)?;
     for pair in query.split('&') {
-        let (k, v) = pair.split_once('=')?;
-        if k == key {
-            return Some(v.to_string());
+        let mut parts = pair.split('=');
+        if parts.next()? == key {
+            return parts.next().map(|s| s.to_string());
         }
     }
     None
 }
 
 #[tauri::command]
-async fn cloud_disconnect(provider: String) -> Result<serde_json::Value, String> {
+fn cloud_disconnect(provider: String) -> Result<(), String> {
     log::info!("Cloud disconnect: {}", provider);
-    Ok(serde_json::json!({ "success": true }))
+    Ok(())
 }
 
 #[tauri::command]
-async fn cloud_sync(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
-    log::info!("Cloud sync: provider={}, folder={:?}", provider, folder_id);
-    Ok(serde_json::json!({ "success": true, "synced": 0 }))
+fn cloud_sync(provider: String, path: String) -> Result<serde_json::Value, String> {
+    log::info!("Cloud sync: provider={}, path={}", provider, path);
+    Ok(serde_json::json!({
+        "success": true,
+        "synced": 0,
+        "message": "Cloud sync placeholder"
+    }))
 }
 
 #[tauri::command]
-async fn cloud_browse(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
-    log::info!("Cloud browse: provider={}, folder={:?}", provider, folder_id);
-    Ok(serde_json::json!({ "items": [] }))
+fn cloud_browse(provider: String, path: String) -> Result<Vec<serde_json::Value>, String> {
+    log::info!("Cloud browse: provider={}, path={}", provider, path);
+    Ok(vec![])
 }
 
 #[tauri::command]
-async fn cloud_list_files(provider: String, folder_id: Option<String>) -> Result<serde_json::Value, String> {
-    cloud_browse(provider, folder_id).await
+fn cloud_list_files(provider: String, path: String) -> Result<Vec<serde_json::Value>, String> {
+    log::info!("Cloud list: provider={}, path={}", provider, path);
+    Ok(vec![])
 }
 
 #[tauri::command]
-async fn cloud_get_status(provider: String) -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "provider": provider, "connected": false }))
+fn cloud_get_status() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "connected": [],
+        "available": ["onedrive", "googledrive", "dropbox"]
+    }))
 }
 
 #[tauri::command]
@@ -367,7 +379,8 @@ fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
         "version": "1.0.140",
-        "build": "140"
+        "build": "140",
+        "edition": "Premium"
     })
 }
 
@@ -381,17 +394,21 @@ fn get_system_info() -> serde_json::Value {
     serde_json::json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "family": std::env::consts::FAMILY,
+        "family": std::env::consts::FAMILY
     })
 }
 
 #[tauri::command]
-async fn pick_folder() -> Result<Option<String>, String> {
-    // Use tauri-plugin-dialog in frontend; this is fallback
+fn pick_folder() -> Result<Option<String>, String> {
     Ok(None)
 }
 
 #[tauri::command]
-async fn pick_file() -> Result<Option<String>, String> {
+fn pick_file() -> Result<Option<String>, String> {
     Ok(None)
+}
+
+#[tauri::command]
+fn get_hf_token() -> String {
+    std::env::var("HF_TOKEN").unwrap_or_default()
 }
