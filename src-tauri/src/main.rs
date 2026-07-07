@@ -132,7 +132,7 @@ fn main() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-<<<<<<< HEAD
+
             // Metadata commands delegate through metadata_ext so restored providers are live at runtime.
             fetch_metadata,
             search_metadata,
@@ -152,7 +152,7 @@ fn main() {
             metadata_ext::set_api_key,
             metadata_ext::get_api_keys,
             metadata_ext::get_metadata_providers,
->>>>>>> origin/main
+
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
