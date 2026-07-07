@@ -1,9 +1,10 @@
-// CinaVault Premium — Build 140 real-library HUD
+// CinaVault Premium — Build 149 real-library HUD
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore, MediaItem } from "../../store/appStore";
+import KodiHomeLayout from "../kodi/KodiHomeLayout";
 import {
   filterItemsByTitleInitial,
   TITLE_LETTERS,
@@ -93,6 +94,7 @@ export default function HomeTab(): JSX.Element {
     setLibraryView,
     searchQuery,
     addStatusMessage,
+    currentTheme,
   } = useAppStore();
 
   const [activeShelf, setActiveShelf] = useState<Shelf>("recent");
@@ -298,6 +300,11 @@ export default function HomeTab(): JSX.Element {
       setMetadataCheckId(null);
     }
   };
+
+  // Kodi themes use their own dedicated layout
+  if (currentTheme?.startsWith("kodi_")) {
+    return <KodiHomeLayout />;
+  }
 
   return (
     <div className="cyber-home space-y-5">

@@ -48,6 +48,7 @@ export interface MediaItem {
   tmdb_id?: string;
   imdb_id?: string;
   source_id?: number;
+  nfo_path?: string;
 }
 
 export interface MediaSource {
@@ -94,6 +95,8 @@ export interface LibraryEnrichmentResult {
   low_confidence_metadata_only: number;
   skipped_missing_files: number;
   skipped_non_video_items: number;
+  posters_downloaded?: number;
+  sidecars_written?: number;
   provider_errors: string[];
 }
 

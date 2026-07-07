@@ -3,6 +3,7 @@ use crate::library_artifacts::sidecar_poster_path_for_video;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::State;
 
@@ -98,6 +99,8 @@ pub struct LibraryEnrichmentReport {
     low_confidence_metadata_only: usize,
     skipped_missing_files: usize,
     skipped_non_video_items: usize,
+    posters_downloaded: usize,
+    sidecars_written: usize,
     provider_errors: Vec<String>,
     samples: Vec<EnrichmentItemSummary>,
 }
@@ -388,6 +391,8 @@ pub async fn run_library_enrichment(
         low_confidence_metadata_only: 0,
         skipped_missing_files: 0,
         skipped_non_video_items: 0,
+        posters_downloaded: 0,
+        sidecars_written: 0,
         provider_errors: Vec::new(),
         samples: Vec::new(),
     };
@@ -444,7 +449,49 @@ pub async fn run_library_enrichment(
             continue;
         };
 
-        let update = build_metadata_update(&item, &provider, &source_kind);
+        let mut update = build_metadata_update(&item, &provider, &source_kind);
+
+        // Download remote poster to a local sidecar file if the provider returned a URL
+        if let Some(ref remote_url) = update.poster_path.clone() {
+            if remote_url.starts_with("http") {
+                match download_poster_to_sidecar(&client, remote_url, &item.file_path).await {
+                    Ok(local_path) => {
+                        update.poster_path = Some(local_path);
+                        report.posters_downloaded += 1;
+                    }
+                    Err(err) => {
+                        report.provider_errors.push(format!("poster_download/{}: {}", item.file_path, err));
+                    }
+                }
+            }
+        }
+
+        // Write NFO sidecar with all metadata fields
+        if update.changed_fields > 0 || update.poster_path.is_some() {
+            let nfo_title = update.title.as_deref().unwrap_or(&item.title);
+            let nfo_year = update.year.or(item.year);
+            let nfo_overview = update.overview.as_deref().or(item.overview.as_deref());
+            let nfo_rating = update.rating.or(item.rating);
+            let nfo_genre = update.genre.as_deref().or(item.genre.as_deref());
+            let nfo_tmdb = update.tmdb_id.as_deref().or(item.tmdb_id.as_deref());
+            let nfo_imdb = update.imdb_id.as_deref().or(item.imdb_id.as_deref());
+            let nfo_poster = update.poster_path.as_deref();
+            match write_nfo_sidecar(
+                &item.file_path,
+                nfo_title,
+                nfo_year,
+                nfo_overview,
+                nfo_rating,
+                nfo_genre,
+                nfo_tmdb,
+                nfo_imdb,
+                nfo_poster,
+            ) {
+                Ok(()) => report.sidecars_written += 1,
+                Err(err) => report.provider_errors.push(format!("nfo_write/{}: {}", item.file_path, err)),
+            }
+        }
+
         if update.changed_fields > 0 {
             let db = state.db.lock().map_err(|err| err.to_string())?;
             db.update_media_metadata_data(
@@ -952,6 +999,118 @@ fn build_metadata_update(
     update
 }
 
+/// Downloads a remote poster image URL to a local sidecar file next to the video.
+/// Returns the local file path on success.
+async fn download_poster_to_sidecar(
+    client: &reqwest::Client,
+    url: &str,
+    video_path: &str,
+) -> Result<String, String> {
+    let video = Path::new(video_path);
+    let parent = video.parent().ok_or("video file has no parent directory")?;
+    let stem = video
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("video file has no stem")?;
+
+    // Determine extension from URL (default jpg)
+    let ext = url
+        .split('?')
+        .next()
+        .and_then(|u| u.rsplit('.').next())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp"))
+        .unwrap_or_else(|| "jpg".to_string());
+
+    let sidecar_name = format!("{stem}-poster.{ext}");
+    let sidecar_path = parent.join(&sidecar_name);
+
+    // Skip download if sidecar already exists
+    if sidecar_path.exists() {
+        return Ok(sidecar_path.to_string_lossy().to_string());
+    }
+
+    let response = client
+        .get(url)
+        .header("User-Agent", "CinaVault/1.0")
+        .send()
+        .await
+        .map_err(|e| format!("poster fetch failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("poster HTTP {}", response.status()));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("poster read failed: {e}"))?;
+
+    let mut file = std::fs::File::create(&sidecar_path)
+        .map_err(|e| format!("poster create failed: {e}"))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("poster write failed: {e}"))?;
+
+    Ok(sidecar_path.to_string_lossy().to_string())
+}
+
+/// Writes a Kodi-compatible NFO sidecar XML file next to the video file.
+fn write_nfo_sidecar(
+    video_path: &str,
+    title: &str,
+    year: Option<i32>,
+    overview: Option<&str>,
+    rating: Option<f64>,
+    genre: Option<&str>,
+    tmdb_id: Option<&str>,
+    imdb_id: Option<&str>,
+    poster_path: Option<&str>,
+) -> Result<(), String> {
+    let video = Path::new(video_path);
+    let parent = video.parent().ok_or("video file has no parent directory")?;
+    let stem = video
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("video file has no stem")?;
+
+    let nfo_path = parent.join(format!("{stem}.nfo"));
+
+    let escaped_title = xml_escape(title);
+    let year_str = year.map(|y| y.to_string()).unwrap_or_default();
+    let overview_str = overview.map(xml_escape).unwrap_or_default();
+    let rating_str = rating.map(|r| format!("{r:.1}")).unwrap_or_default();
+    let genre_str = genre.map(xml_escape).unwrap_or_default();
+    let tmdb_str = tmdb_id.unwrap_or_default();
+    let imdb_str = imdb_id.unwrap_or_default();
+    let thumb_str = poster_path.unwrap_or_default();
+
+    let nfo_content = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+         <movie>\n\
+         \t<title>{escaped_title}</title>\n\
+         \t<year>{year_str}</year>\n\
+         \t<plot>{overview_str}</plot>\n\
+         \t<rating>{rating_str}</rating>\n\
+         \t<genre>{genre_str}</genre>\n\
+         \t<uniqueid type=\"tmdb\">{tmdb_str}</uniqueid>\n\
+         \t<uniqueid type=\"imdb\">{imdb_str}</uniqueid>\n\
+         \t<thumb aspect=\"poster\">{thumb_str}</thumb>\n\
+         </movie>\n"
+    );
+
+    std::fs::write(&nfo_path, nfo_content.as_bytes())
+        .map_err(|e| format!("nfo write failed: {e}"))?;
+    Ok(())
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn should_update_optional_text(current: Option<&str>, incoming: Option<&str>) -> bool {
     let current_blank = current.map(|value| value.trim().is_empty()).unwrap_or(true);
     current_blank
@@ -1214,9 +1373,177 @@ fn push_sample(
     });
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct AdultMetadataReport {
+    #[serde(rename = "type")]
+    result_type: &'static str,
+    status: &'static str,
+    items_scanned: usize,
+    metadata_items_enriched: usize,
+    metadata_fields_updated: usize,
+    posters_updated: usize,
+    sidecars_written: usize,
+    configured_adult_providers: Vec<String>,
+    provider_count: usize,
+    provider_errors: Vec<String>,
+}
+
+/// Dedicated command for gathering metadata specifically for adult media items.
+/// Uses TPDB, StashDB, and any other configured adult providers.
+#[tauri::command]
+pub async fn gather_adult_metadata(
+    state: State<'_, AppState>,
+) -> Result<AdultMetadataReport, String> {
+    let (items, provider_keys) = {
+        let db = state.db.lock().map_err(|err| err.to_string())?;
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT mi.id, mi.title, mi.file_path, mi.media_type, mi.overview, \
+                 mi.poster_path, mi.year, mi.rating, mi.genre, mi.tmdb_id, mi.imdb_id, \
+                 ms.name, ms.path \
+                 FROM media_items mi \
+                 LEFT JOIN media_sources ms ON ms.id = mi.source_id \
+                 WHERE mi.media_type = 'adult' \
+                 ORDER BY date_added DESC",
+            )
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(LibraryItemRecord {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    file_path: row.get(2)?,
+                    media_type: row.get(3)?,
+                    overview: row.get(4)?,
+                    poster_path: row.get(5)?,
+                    year: row.get(6)?,
+                    rating: row.get(7)?,
+                    genre: row.get(8)?,
+                    tmdb_id: row.get(9)?,
+                    imdb_id: row.get(10)?,
+                    source_name: row.get(11)?,
+                    source_path: row.get(12)?,
+                })
+            })
+            .map_err(|err| err.to_string())?;
+        let items = rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())?;
+        let provider_keys = load_provider_keys(&db)?;
+        (items, provider_keys)
+    };
+
+    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb", "pgma", "porn_site_nuxt"]
+        .iter()
+        .filter(|&&p| provider_keys.contains_key(p))
+        .map(|p| p.to_string())
+        .collect();
+
+    let mut report = AdultMetadataReport {
+        result_type: "adult_metadata_gather",
+        status: "success",
+        items_scanned: items.len(),
+        metadata_items_enriched: 0,
+        metadata_fields_updated: 0,
+        posters_updated: 0,
+        sidecars_written: 0,
+        provider_count: configured_adult_providers.len(),
+        configured_adult_providers: configured_adult_providers.clone(),
+        provider_errors: Vec::new(),
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    for item in items {
+        if !is_video_library_item(&item) {
+            continue;
+        }
+        let source = Path::new(&item.file_path);
+        if !source.exists() {
+            continue;
+        }
+
+        let embedded_title = extract_embedded_title(&item.file_path);
+        let queries = build_query_candidates(&item, embedded_title.clone());
+        let remote_provider = resolve_provider_match(
+            &client,
+            &provider_keys,
+            SourceKind::AdultVideo,
+            &queries,
+            &mut report.provider_errors,
+        )
+        .await;
+
+        let local_artwork = local_sidecar_artwork_match(&item);
+        let provider = [remote_provider, local_artwork]
+            .into_iter()
+            .flatten()
+            .reduce(merge_provider_matches);
+
+        let Some(provider) = provider else { continue; };
+
+        let mut update = build_metadata_update(&item, &provider, &SourceKind::AdultVideo);
+
+        if let Some(ref remote_url) = update.poster_path.clone() {
+            if remote_url.starts_with("http") {
+                match download_poster_to_sidecar(&client, remote_url, &item.file_path).await {
+                    Ok(local_path) => {
+                        update.poster_path = Some(local_path);
+                        report.posters_updated += 1;
+                    }
+                    Err(err) => {
+                        report.provider_errors.push(format!("poster/{}: {}", item.file_path, err));
+                    }
+                }
+            }
+        }
+
+        if update.changed_fields > 0 || update.poster_path.is_some() {
+            let nfo_title = update.title.as_deref().unwrap_or(&item.title);
+            if let Err(err) = write_nfo_sidecar(
+                &item.file_path,
+                nfo_title,
+                update.year.or(item.year),
+                update.overview.as_deref().or(item.overview.as_deref()),
+                update.rating.or(item.rating),
+                update.genre.as_deref().or(item.genre.as_deref()),
+                update.tmdb_id.as_deref().or(item.tmdb_id.as_deref()),
+                update.imdb_id.as_deref().or(item.imdb_id.as_deref()),
+                update.poster_path.as_deref(),
+            ) {
+                report.provider_errors.push(format!("nfo/{}: {}", item.file_path, err));
+            } else {
+                report.sidecars_written += 1;
+            }
+        }
+
+        if update.changed_fields > 0 {
+            let db = state.db.lock().map_err(|err| err.to_string())?;
+            let _ = db.update_media_metadata_data(
+                &item.file_path,
+                update.title.as_deref(),
+                update.overview.as_deref(),
+                update.poster_path.as_deref(),
+                update.year,
+                update.rating,
+                update.genre.as_deref(),
+                update.tmdb_id.as_deref(),
+                update.imdb_id.as_deref(),
+                update.media_type.as_deref(),
+            );
+            report.metadata_items_enriched += 1;
+            report.metadata_fields_updated += update.changed_fields;
+        }
+    }
+
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{
+    use super::
         build_metadata_update, build_query_candidates, classify_library_item,
         local_embedded_title_match, local_sidecar_artwork_match, normalize_filename_title,
         rename_confidence, safe_rename_target, EnrichmentMode, LibraryItemRecord, ProviderMatch,

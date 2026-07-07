@@ -5,6 +5,7 @@ import App from "./App";
 import "./styles/index.css";
 import "./styles/cyber-hud.css";
 import "./styles/metadata-actions.css";
+import "./styles/kodi-skin.css";
 
 const splash = document.getElementById("splash");
 const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
