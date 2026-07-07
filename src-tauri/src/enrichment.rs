@@ -1543,7 +1543,7 @@ pub async fn gather_adult_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::
+    use super::{
         build_metadata_update, build_query_candidates, classify_library_item,
         local_embedded_title_match, local_sidecar_artwork_match, normalize_filename_title,
         rename_confidence, safe_rename_target, EnrichmentMode, LibraryItemRecord, ProviderMatch,
