@@ -28,7 +28,7 @@ mod metadata_posting_tests;
 
 use db::Database;
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<Database>,
@@ -132,17 +132,6 @@ fn main() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-
-            // Metadata commands delegate through metadata_ext so restored providers are live at runtime.
-            fetch_metadata,
-            search_metadata,
-            check_media_item_metadata,
-            get_provider_status,
-            test_api_key,
-            set_api_key,
-            get_api_keys,
-            get_metadata_providers,
-=======
             // Metadata commands route through metadata_ext so restored providers are live at runtime.
             metadata_ext::fetch_metadata,
             metadata_ext::search_metadata,
@@ -152,7 +141,6 @@ fn main() {
             metadata_ext::set_api_key,
             metadata_ext::get_api_keys,
             metadata_ext::get_metadata_providers,
-
             // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
@@ -195,62 +183,6 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
-}
-
-#[tauri::command]
-fn get_metadata_providers() -> Vec<metadata::MetadataProvider> {
-    metadata_ext::get_metadata_providers()
-}
-
-#[tauri::command]
-async fn fetch_metadata(
-    provider: String,
-    query: String,
-    api_key: Option<String>,
-) -> Result<serde_json::Value, String> {
-    metadata_ext::fetch_metadata(provider, query, api_key).await
-}
-
-#[tauri::command]
-async fn search_metadata(
-    provider: String,
-    query: String,
-    media_type: Option<String>,
-    api_key: Option<String>,
-) -> Result<serde_json::Value, String> {
-    metadata_ext::search_metadata(provider, query, media_type, api_key).await
-}
-
-#[tauri::command]
-async fn check_media_item_metadata(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<serde_json::Value, String> {
-    metadata_ext::check_media_item_metadata(state, id).await
-}
-
-#[tauri::command]
-fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, String> {
-    metadata_ext::get_provider_status(state)
-}
-
-#[tauri::command]
-async fn test_api_key(provider: String, api_key: String) -> Result<serde_json::Value, String> {
-    metadata_ext::test_api_key(provider, api_key).await
-}
-
-#[tauri::command]
-fn set_api_key(
-    state: State<AppState>,
-    provider: String,
-    api_key: String,
-) -> Result<(), String> {
-    metadata_ext::set_api_key(state, provider, api_key)
-}
-
-#[tauri::command]
-fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String> {
-    metadata_ext::get_api_keys(state)
 }
 
 // ════════════════════════════════════════════════════════════
