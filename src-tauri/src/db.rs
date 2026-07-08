@@ -301,6 +301,8 @@ impl Database {
             ("offline_mode", "false"),
             ("ai_model", "katanemo/Arch-Router-1.5B:hf-inference"),
             ("hf_token", ""),
+            ("synology_connection", ""),
+            ("wd_mycloud_connection", ""),
             // Scheduled task defaults
             ("_scheduledTasks", r#"{"thumbnails":"on_scan","chapter_images":"on_scan","metadata_check":"daily","match_unmatch":"on_import"}"#),
         ];

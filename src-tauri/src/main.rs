@@ -23,6 +23,7 @@ mod enrichment;
 mod task_progress;
 mod library_artifacts;
 mod pgma_bridge;
+mod nas_devices;
 #[cfg(test)]
 mod metadata_posting_tests;
 
@@ -175,6 +176,15 @@ fn main() {
             cloud_browse,
             cloud_list_files,
             cloud_get_status,
+            // NAS Devices — Synology QuickConnect + WD My Cloud
+            nas_devices::synology_connect,
+            nas_devices::synology_disconnect,
+            nas_devices::synology_get_status,
+            nas_devices::synology_add_library,
+            nas_devices::wd_mycloud_connect,
+            nas_devices::wd_mycloud_disconnect,
+            nas_devices::wd_mycloud_get_status,
+            nas_devices::wd_mycloud_add_library,
             // Utility
             get_app_info,
             open_external_url,
@@ -311,8 +321,8 @@ fn cloud_get_status() -> Result<serde_json::Value, String> {
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.0.150",
-        "build": "150",
+        "version": "1.0.154",
+        "build": "154",
         "edition": "Premium"
     })
 }
