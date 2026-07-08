@@ -126,7 +126,7 @@ export default function Sidebar(): JSX.Element {
           >
             <div className="absolute inset-1 rounded-[20px] bg-[radial-gradient(circle_at_35%_20%,rgba(255,255,255,0.34),transparent_42%)]" />
             <img
-              src="/branding/cinavault-premium-mark.png"
+              src="/branding/cinavault-logo.png"
               alt="CinaVault Premium"
               className="relative h-12 w-12 rounded-2xl object-cover"
             />

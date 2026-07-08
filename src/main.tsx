@@ -7,17 +7,17 @@ import "./styles/cyber-hud.css";
 import "./styles/metadata-actions.css";
 import "./styles/kodi-skin.css";
 
+// ── Logo-based loading screen (replaces old text splash + brand-splash) ──
 const splash = document.getElementById("splash");
 const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
 const splashStatus = document.getElementById("splash-status") as HTMLDivElement;
-const brandSplash = document.getElementById("brand-splash") as HTMLDivElement;
 
 const stages = [
-  { pct: 15, text: "Loading hyper-neon HUD core..." },
-  { pct: 35, text: "Initializing Rust backend..." },
-  { pct: 55, text: "Mounting Cyber HUD interface..." },
-  { pct: 75, text: "Preparing holographic media systems..." },
-  { pct: 90, text: "Activating quantum grid effects..." },
+  { pct: 15,  text: "Loading media engine..." },
+  { pct: 35,  text: "Initializing Rust backend..." },
+  { pct: 55,  text: "Mounting CinaVault interface..." },
+  { pct: 75,  text: "Preparing media library systems..." },
+  { pct: 90,  text: "Activating AI features..." },
   { pct: 100, text: "Ready." },
 ];
 
@@ -32,19 +32,10 @@ function advanceSplash(): void {
     window.setTimeout(advanceSplash, 300 + Math.random() * 200);
     return;
   }
-
+  // Fade out and remove the loading screen
   window.setTimeout(() => {
     if (splash) splash.classList.add("hidden");
-    window.setTimeout(() => {
-      splash?.remove();
-      if (brandSplash) {
-        brandSplash.classList.add("visible");
-        window.setTimeout(() => {
-          brandSplash.classList.remove("visible");
-          window.setTimeout(() => brandSplash.remove(), 700);
-        }, 1900);
-      }
-    }, 760);
+    window.setTimeout(() => splash?.remove(), 900);
   }, 260);
 }
 
