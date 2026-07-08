@@ -6,10 +6,11 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
-const currentBuild = "150";
+const currentBuild = "155";
 const historicalBuilds = [
   "132", "133", "134", "135", "136", "137", "138", "139",
   "141", "142", "143", "144", "145", "146", "147", "148", "149",
+  "150", "151", "152", "153", "154",
 ];
 const excludedDirectories = new Set([
   ".git",
