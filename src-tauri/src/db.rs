@@ -333,11 +333,107 @@ impl Database {
             )?;
         }
 
-        self.cleanup_non_library_photo_artifacts()?;
+        // ── Adult provider defaults: seed no-key providers so they are active immediately ──
+        // Providers that work without a user-supplied API key are seeded with a sentinel value
+        // so load_provider_keys() includes them in configured_adult_providers.
+        let keyless_adult_providers = vec![
+            // pgma: local sidecar bridge — no real key needed, sentinel enables it
+            ("pgma", "pgma_local_bridge"),
+            // porn_site_nuxt / IreneHub: local Nuxt server on localhost:42069
+            ("porn_site_nuxt", "http://localhost:42069/"),
+            // iafd: scrape-based, no API key required
+            ("iafd", "iafd_scrape"),
+            // phoenixadult: Jellyfin manifest provider, no key
+            ("phoenixadult", "phoenixadult_manifest"),
+        ];
+        for (provider, default_value) in keyless_adult_providers {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
+                params![provider, default_value],
+            )?;
+        }
 
+        // ── Plugin config_json defaults: seed all known plugins with functional configs ──
+        // Each plugin gets a config_json row in the plugins table so the UI can show
+        // and edit settings without requiring a separate install step.
+        let plugin_configs: Vec<(&str, &str, &str)> = vec![
+            // (plugin_key, name, config_json)
+            // ── Adult Metadata Providers ──
+            ("tpdb", "ThePornDB", r#"{"enabled":true,"api_key":"","base_url":"https://api.theporndb.net","search_limit":10,"include_adult":true,"auto_match":true,"poster_download":true,"nfo_write":true}"#),
+            ("stashdb", "StashDB", r#"{"enabled":true,"api_key":"","endpoint":"https://stashdb.org/graphql","auto_match":true,"poster_download":true,"nfo_write":true}"#),
+            ("pgma", "PGMA Modernized", r#"{"enabled":true,"mode":"local_sidecar_bridge","auto_match":true,"nfo_write":true,"poster_download":true}"#),
+            ("porn_site_nuxt", "Porn Site Nuxt", r#"{"enabled":true,"base_url":"http://localhost:42069/","auto_match":true,"poster_download":true,"nfo_write":true}"#),
+            ("iafd", "IAFD", r#"{"enabled":true,"base_url":"https://www.iafd.com","scrape_mode":true,"auto_match":true,"poster_download":true}"#),
+            ("phoenixadult", "PhoenixAdult", r#"{"enabled":true,"manifest_url":"https://raw.githubusercontent.com/DirtyRacer1337/Jellyfin.Plugin.PhoenixAdult/master/manifest.json","auto_match":true,"poster_download":true}"#),
+            // ── Standard Metadata Providers ──
+            ("tmdb", "TMDb", r#"{"enabled":true,"api_key":"","base_url":"https://api.themoviedb.org/3","language":"en-US","include_adult":true,"poster_size":"w500","backdrop_size":"w1280","auto_match":true,"nfo_write":true}"#),
+            ("omdb", "OMDb", r#"{"enabled":true,"api_key":"","base_url":"https://www.omdbapi.com","plot":"full","auto_match":true,"nfo_write":true}"#),
+            ("tvdb", "TVDB", r#"{"enabled":true,"api_key":"","base_url":"https://api4.thetvdb.com/v4","language":"eng","auto_match":true,"nfo_write":true}"#),
+            ("fanart", "Fanart.tv", r#"{"enabled":true,"api_key":"","base_url":"https://webservice.fanart.tv/v3","prefer_language":"en","poster_download":true,"backdrop_download":true}"#),
+            ("trakt", "Trakt", r#"{"enabled":true,"client_id":"","client_secret":"","base_url":"https://api.trakt.tv","sync_watched":true,"sync_ratings":true,"sync_watchlist":true}"#),
+            ("opensubtitles", "OpenSubtitles", r#"{"enabled":true,"api_key":"","base_url":"https://api.opensubtitles.com/api/v1","languages":["en"],"auto_download":true,"hearing_impaired":false}"#),
+            ("anidb", "AniDB", r#"{"enabled":true,"client":"cinavault","clientver":1,"base_url":"https://api.anidb.net:9001/httpapi","auto_match":true,"nfo_write":true}"#),
+            ("mal", "MyAnimeList", r#"{"enabled":true,"client_id":"","base_url":"https://api.myanimelist.net/v2","auto_match":true,"nfo_write":true}"#),
+            ("kitsu", "Kitsu", r#"{"enabled":true,"base_url":"https://kitsu.io/api/edge","auto_match":true,"nfo_write":true}"#),
+            ("anilist", "AniList", r#"{"enabled":true,"base_url":"https://graphql.anilist.co","auto_match":true,"nfo_write":true}"#),
+            ("audiodb", "AudioDB", r#"{"enabled":true,"api_key":"2","base_url":"https://theaudiodb.com/api/v1/json","auto_match":true}"#),
+            ("musicbrainz", "MusicBrainz", r#"{"enabled":true,"base_url":"https://musicbrainz.org/ws/2","format":"json","auto_match":true}"#),
+            ("lastfm", "Last.fm", r#"{"enabled":true,"api_key":"","base_url":"https://ws.audioscrobbler.com/2.0","auto_scrobble":true}"#),
+            ("discogs", "Discogs", r#"{"enabled":true,"token":"","base_url":"https://api.discogs.com","auto_match":true}"#),
+            ("igdb", "IGDB", r#"{"enabled":true,"client_id":"","client_secret":"","base_url":"https://api.igdb.com/v4","auto_match":true}"#),
+            ("tvmaze", "TVMaze", r#"{"enabled":true,"base_url":"https://api.tvmaze.com","auto_match":true,"nfo_write":true}"#),
+            ("cinemeta", "Cinemeta", r#"{"enabled":true,"base_url":"https://v3-cinemeta.strem.io","auto_match":true}"#),
+            // ── MS-C (Jellyfin) Plugins ──
+            ("jf-open-subtitles", "OpenSubtitles (MS-C)", r#"{"enabled":true,"username":"","password":"","auto_download":true,"languages":["en"],"hearing_impaired":false,"foreign_parts_only":false}"#),
+            ("jf-trakt", "Trakt (MS-C)", r#"{"enabled":true,"client_id":"","client_secret":"","sync_watched":true,"sync_ratings":true,"sync_watchlist":true,"sync_interval_hours":24}"#),
+            ("jf-simkl", "Simkl (MS-C)", r#"{"enabled":true,"client_id":"","client_secret":"","auto_scrobble":true,"sync_watched":true}"#),
+            ("jf-kodi-sync", "Kodi Sync Queue (MS-C)", r#"{"enabled":true,"retain_days":30,"auto_clean":true}"#),
+            ("jf-webhook", "Webhook (MS-C)", r#"{"enabled":true,"endpoints":[],"notify_on_play":true,"notify_on_stop":true,"notify_on_new_item":true,"template":"discord"}"#),
+            ("jf-playback-reporting", "Playback Reporting (MS-C)", r#"{"enabled":true,"retain_days":365,"keep_watching_items":true}"#),
+            ("jf-session-cleaner", "Session Cleaner (MS-C)", r#"{"enabled":true,"max_session_age_days":30,"auto_clean":true,"clean_interval_hours":24}"#),
+            ("jf-ldap", "LDAP Auth (MS-C)", r#"{"enabled":false,"server":"","port":389,"base_dn":"","bind_dn":"","bind_password":"","user_filter":"(objectClass=person)","use_ssl":false}"#),
+            ("jf-dlna", "DLNA (MS-C)", r#"{"enabled":true,"server_name":"CinaVault","alive_message_interval_seconds":1800,"auto_start":true}"#),
+            ("jf-chapter-segments", "Chapter Segments (MS-C)", r#"{"enabled":true,"auto_detect":true,"skip_intro":true,"skip_outro":true,"min_segment_seconds":10}"#),
+            // ── MS-B (Emby) Plugins ──
+            ("em-bookshelf", "Bookshelf (MS-B)", r#"{"enabled":true,"scan_epub":true,"scan_pdf":true,"scan_audiobook":true,"metadata_language":"en"}"#),
+            ("em-bulky", "Bulky (MS-B)", r#"{"enabled":true,"batch_size":50,"auto_apply":false}"#),
+            ("em-gamebrowser", "GameBrowser (MS-B)", r#"{"enabled":true,"emulator_path":"","roms_path":"","auto_scan":true}"#),
+            // ── MS-A (Plex) Plugins ──
+            ("px-hama", "HAMA (MS-A)", r#"{"enabled":true,"anidb_client":"cinavault","anidb_clientver":1,"prefer_anidb":true,"use_tvdb_fallback":true,"use_mal_fallback":true,"poster_language":"en"}"#),
+            ("px-ass", "Absolute Series Scanner (MS-A)", r#"{"enabled":true,"absolute_numbering":true,"anime_mode":true}"#),
+            ("px-kometa", "Kometa (MS-A)", r#"{"enabled":true,"config_path":"","run_interval_hours":24,"overlay_update":true,"collection_update":true}"#),
+            ("px-bazarr", "Bazarr (MS-A)", r#"{"enabled":true,"host":"localhost","port":6767,"api_key":"","languages":["en"],"auto_download":true}"#),
+            ("px-lambda", "Lambda (MS-A)", r#"{"enabled":true,"prefer_local":false,"fallback_tmdb":true}"#),
+            ("px-kitana", "Kitana (MS-A)", r#"{"enabled":true,"host":"localhost","port":31337}"#),
+            ("px-webtools", "WebTools (MS-A)", r#"{"enabled":true,"port":33400,"auto_update":true}"#),
+            ("px-filebot", "FileBot (MS-A)", r#"{"enabled":true,"rename_format":"{n} ({y})","db":"TheMovieDB","lang":"en","non_strict":true}"#),
+            // ── CinaVault Native Plugins ──
+            ("cv-unified-adapter", "CinaVault Unified Adapter", r#"{"enabled":true,"compat_mode":"auto","api_translation":true,"event_bridge":true}"#),
+            ("cv-metadata-engine", "CinaVault Metadata Engine", r#"{"enabled":true,"providers":["tmdb","omdb","tvdb","fanart","tpdb","stashdb","pgma","porn_site_nuxt","iafd","phoenixadult","trakt","anidb","mal"],"conflict_resolution":"highest_confidence","merge_strategy":"union","auto_enrich":true,"poster_download":true,"nfo_write":true,"batch_size":20}"#),
+            ("cv-ai-match", "AI Media Matcher", r#"{"enabled":true,"model":"mistralai/Mistral-7B-Instruct-v0.3","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#),
+            ("cv-cloud-sync", "Cloud Sync Engine", r#"{"enabled":true,"providers":[],"sync_interval_minutes":60,"sync_watched":true,"sync_ratings":true,"sync_metadata":false,"conflict_resolution":"newest_wins"}"#),
+            ("cv-thumb-gen", "Smart Thumbnail Generator", r#"{"enabled":true,"interval_seconds":300,"max_thumbs_per_item":5,"scene_detection":true,"face_detection":false,"composition_score":true,"output_format":"jpg","quality":85}"#),
+            ("cv-chapter-detect", "Chapter Image Detector", r#"{"enabled":true,"auto_extract":true,"interval_seconds":600,"max_chapters":30,"output_format":"jpg","quality":85,"skip_existing":true}"#),
+            ("cv-dup-finder", "Duplicate Finder", r#"{"enabled":true,"match_by":"hash","tolerance_mb":1,"auto_scan":false,"scan_interval_hours":168,"prefer_higher_resolution":true,"prefer_larger_file":false}"#),
+            ("cv-vpn-manager", "VPN Manager", r#"{"enabled":false,"provider":"","config_path":"","auto_connect":false,"kill_switch":true,"reconnect_on_drop":true}"#),
+            ("cv-transcode-engine", "Hardware Transcode Engine", r#"{"enabled":true,"hardware_acceleration":"auto","preferred_codec":"h264","max_bitrate_mbps":20,"crf":23,"preset":"fast","audio_codec":"aac","audio_bitrate_kbps":192}"#),
+            ("cv-intro-skip", "Intro/Outro Skip Engine", r#"{"enabled":true,"detection_method":"chromaprint","min_intro_seconds":10,"max_intro_seconds":300,"skip_on_play":true,"show_skip_button":true}"#),
+            // ── Download/Automation ──
+            ("yt-dlp", "yt-dlp", r#"{"enabled":true,"format":"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best","output_template":"%(title)s.%(ext)s","embed_thumbnail":true,"embed_subs":true,"write_info_json":false,"rate_limit":"50M","concurrent_fragments":4,"retries":3}"#),
+            ("ffmpeg", "FFmpeg", r#"{"enabled":true,"hwaccel":"auto","threads":0,"loglevel":"error","default_video_codec":"libx264","default_audio_codec":"aac","default_subtitle_codec":"srt"}"#),
+            ("mediainfo", "MediaInfo", r#"{"enabled":true,"full_output":false,"output_format":"JSON","cover_data":false}"#),
+            ("mkvtoolnix", "MKVToolNix", r#"{"enabled":true,"default_language":"eng","generate_chapters":false,"attach_fonts":false,"compression":"none"}"#),
+        ];
+        for (plugin_key, name, config_json) in &plugin_configs {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO plugins (plugin_key, name, installed, enabled, config_json) VALUES (?1, ?2, 1, 1, ?3)",
+                params![plugin_key, name, config_json],
+            )?;
+        }
+
+        self.cleanup_non_library_photo_artifacts()?;
         Ok(())
     }
-
     fn cleanup_non_library_photo_artifacts(&self) -> SqlResult<()> {
         // Remove ALL photo-type rows — they are poster/artwork files, not standalone media.
         // This covers: chapter images, sidecar artwork, video-matched posters, and any other

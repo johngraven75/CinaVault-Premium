@@ -1432,7 +1432,7 @@ pub async fn gather_adult_metadata(
         (items, provider_keys)
     };
 
-    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb", "pgma", "porn_site_nuxt"]
+    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb", "pgma", "porn_site_nuxt", "iafd", "phoenixadult"]
         .iter()
         .filter(|&&p| provider_keys.contains_key(p))
         .map(|p| p.to_string())
