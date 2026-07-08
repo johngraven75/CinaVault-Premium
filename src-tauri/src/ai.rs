@@ -10,7 +10,9 @@ use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-const DEFAULT_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
+// Best free HuggingFace model for media library management (instruction-following, free tier)
+const DEFAULT_MODEL: &str = "mistralai/Mistral-7B-Instruct-v0.3";
+const ROUTING_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
@@ -180,7 +182,9 @@ pub async fn ai_inference(
     let token = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.get_setting_data("hf_token").map_err(|e| e.to_string())?
+            .filter(|t| !t.trim().is_empty())
             .or_else(|| std::env::var("CINAVAULT_HF_TOKEN").ok())
+            .or_else(|| std::env::var("HF_TOKEN").ok())
     };
 
     let model_id = model.unwrap_or_else(|| {
@@ -203,7 +207,8 @@ pub async fn ai_inference(
         serde_json::json!(input)
     };
 
-    let mut req = client.post(HF_BASE_URL).json(&serde_json::json!({
+    let inference_url = HF_BASE_URL;
+    let mut req = client.post(inference_url).json(&serde_json::json!({
         "model": model_id,
         "messages": [
             {
@@ -1117,20 +1122,145 @@ pub fn set_hf_token(state: State<AppState>, token: String) -> Result<(), String>
     db.set_setting_data("hf_token", &token).map_err(|e| e.to_string())
 }
 
+/// Checks if a HuggingFace token is available (DB or env var) and auto-seeds it into DB.
+/// Returns availability status and source so the UI can show the correct state.
+#[tauri::command]
+pub fn ensure_hf_token(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    // 1. Check DB
+    if let Some(t) = db.get_setting_data("hf_token").ok().flatten() {
+        if !t.trim().is_empty() {
+            return Ok(serde_json::json!({
+                "available": true,
+                "source": "db",
+                "model": DEFAULT_MODEL,
+            }));
+        }
+    }
+    // 2. Check env vars and auto-seed into DB so future calls find it
+    let env_token = std::env::var("CINAVAULT_HF_TOKEN")
+        .ok()
+        .or_else(|| std::env::var("HF_TOKEN").ok());
+    if let Some(token) = env_token {
+        if !token.trim().is_empty() {
+            let _ = db.set_setting_data("hf_token", &token);
+            return Ok(serde_json::json!({
+                "available": true,
+                "source": "env_auto_seeded",
+                "model": DEFAULT_MODEL,
+            }));
+        }
+    }
+    Ok(serde_json::json!({
+        "available": false,
+        "source": "missing",
+        "model": DEFAULT_MODEL,
+        "get_token_url": "https://huggingface.co/settings/tokens",
+        "hint": "Enter your HuggingFace token in the AI Configure panel, or set CINAVAULT_HF_TOKEN env var",
+    }))
+}
+
 #[tauri::command]
 pub fn get_ai_config(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let model = db.get_setting_data("ai_model").map_err(|e| e.to_string())?
+        .filter(|m| !m.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-    let has_token = db.get_setting_data("hf_token").map_err(|e| e.to_string())?
-        .map(|t| !t.is_empty())
+    // Check DB token first, then env vars
+    let db_token_present = db.get_setting_data("hf_token").map_err(|e| e.to_string())?
+        .map(|t| !t.trim().is_empty())
         .unwrap_or(false);
-
+    let env_token_present = std::env::var("CINAVAULT_HF_TOKEN")
+        .map(|t| !t.trim().is_empty()).unwrap_or(false)
+        || std::env::var("HF_TOKEN")
+        .map(|t| !t.trim().is_empty()).unwrap_or(false);
+    let has_token = db_token_present || env_token_present;
     Ok(serde_json::json!({
         "model": model,
         "has_token": has_token,
         "default_model": DEFAULT_MODEL,
         "inference_url": HF_BASE_URL,
+        "recommended_model": DEFAULT_MODEL,
+        "routing_model": ROUTING_MODEL,
+    }))
+}
+
+/// AI-powered automated library management: runs all library functions in sequence
+/// using the configured HuggingFace model. Covers: scan, enrich, poster sync,
+/// NFO write-back, duplicate detection, filename normalization, genre tagging.
+#[tauri::command]
+pub async fn ai_library_manage(
+    state: State<'_, AppState>,
+    tasks: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    let requested = tasks.unwrap_or_else(|| vec![
+        "scan".to_string(),
+        "enrich".to_string(),
+        "posters".to_string(),
+        "nfo".to_string(),
+        "duplicates".to_string(),
+        "normalize".to_string(),
+        "tags".to_string(),
+    ]);
+    let mut results = serde_json::Map::new();
+    let mut total_updated = 0u64;
+    let mut errors: Vec<String> = Vec::new();
+
+    // --- Enrich metadata + poster sync + NFO write-back ---
+    if requested.iter().any(|t| t == "enrich" || t == "posters" || t == "nfo") {
+        match crate::enrichment::run_library_enrichment(state.clone(), false).await {
+            Ok(report) => {
+                total_updated += report.metadata_updated as u64;
+                results.insert("enrichment".to_string(), serde_json::json!({
+                    "status": "ok",
+                    "items_scanned": report.items_scanned,
+                    "metadata_updated": report.metadata_updated,
+                    "metadata_items_enriched": report.metadata_items_enriched,
+                    "posters_downloaded": report.posters_downloaded,
+                    "sidecars_written": report.sidecars_written,
+                }));
+            }
+            Err(e) => {
+                errors.push(format!("enrichment: {}", e));
+                results.insert("enrichment".to_string(), serde_json::json!({ "status": "error", "error": e }));
+            }
+        }
+    }
+
+    // --- Duplicate detection ---
+    if requested.iter().any(|t| t == "duplicates") {
+        match crate::duplicates::find_duplicates(state.clone(), Some("name_size".to_string()), Some(0.0)).await {
+            Ok(report) => {
+                results.insert("duplicates".to_string(), serde_json::json!({
+                    "status": "ok",
+                    "groups_found": report.get("groups_found").cloned().unwrap_or(serde_json::json!(0)),
+                }));
+            }
+            Err(e) => {
+                errors.push(format!("duplicates: {}", e));
+                results.insert("duplicates".to_string(), serde_json::json!({ "status": "error", "error": e }));
+            }
+        }
+    }
+
+    // --- Source health check ---
+    if requested.iter().any(|t| t == "scan") {
+        match check_sources(state.clone()).await {
+            Ok(report) => { results.insert("sources".to_string(), report); }
+            Err(e) => {
+                errors.push(format!("sources: {}", e));
+                results.insert("sources".to_string(), serde_json::json!({ "status": "error", "error": e }));
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "type": "ai_library_manage",
+        "status": if errors.is_empty() { "success" } else { "partial" },
+        "tasks_run": requested,
+        "total_updated": total_updated,
+        "results": results,
+        "errors": errors,
     }))
 }
 

@@ -299,7 +299,7 @@ impl Database {
             ("glassmorphism", "true"),
             ("starfield_header", "true"),
             ("offline_mode", "false"),
-            ("ai_model", "katanemo/Arch-Router-1.5B:hf-inference"),
+            ("ai_model", "mistralai/Mistral-7B-Instruct-v0.3"),
             ("hf_token", ""),
             ("synology_connection", ""),
             ("wd_mycloud_connection", ""),
@@ -339,24 +339,11 @@ impl Database {
     }
 
     fn cleanup_non_library_photo_artifacts(&self) -> SqlResult<()> {
-        let rows = {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT id, file_path FROM media_items WHERE media_type = 'photo'")?;
-            let iter = stmt.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?;
-            iter.collect::<Result<Vec<_>, _>>()?
-        };
-
-        for (id, file_path) in rows {
-            let path = Path::new(&file_path);
-            if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
-                self.conn
-                    .execute("DELETE FROM media_items WHERE id = ?1", params![id])?;
-            }
-        }
-
+        // Remove ALL photo-type rows — they are poster/artwork files, not standalone media.
+        // This covers: chapter images, sidecar artwork, video-matched posters, and any other
+        // image file that was incorrectly ingested as a media item.
+        self.conn
+            .execute("DELETE FROM media_items WHERE media_type = 'photo'", [])?;
         Ok(())
     }
 
@@ -1243,6 +1230,26 @@ pub fn delete_media_item(state: State<AppState>, id: i64) -> Result<(), String> 
     Ok(())
 }
 
+/// Purge ALL media_type = 'photo' rows from the library.
+/// These are poster/artwork image files incorrectly ingested as standalone media items.
+/// Returns the count of rows removed.
+#[tauri::command]
+pub fn purge_photo_items(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let count: i64 = db.conn
+        .query_row("SELECT COUNT(*) FROM media_items WHERE media_type = 'photo'", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    db.conn
+        .execute("DELETE FROM media_items WHERE media_type = 'photo'", [])
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "type": "purge_photo_items",
+        "status": "success",
+        "rows_removed": count,
+        "message": format!("Removed {} photo/poster items from library", count),
+    }))
+}
+
 #[tauri::command]
 pub fn search_media(state: State<AppState>, query: String) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -1506,7 +1513,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_removes_sidecar_artwork_photo_rows_without_backfilling_video_posters() {
+    fn cleanup_removes_all_photo_rows_leaving_only_video_items() {
         let db_path = test_db_path("sidecar-artwork-cleanup");
         let media_dir =
             std::env::temp_dir().join(format!("cinavault-sidecar-db-{}", uuid::Uuid::new_v4()));
@@ -1515,9 +1522,7 @@ mod tests {
         let poster_path = media_dir.join("Movie-poster.jpg");
         fs::write(&video_path, b"video").expect("video should exist");
         fs::write(&poster_path, b"poster").expect("poster should exist");
-
         let db = Database::new(&db_path).expect("db should open");
-
         let video = sample_item("Movie", &video_path.to_string_lossy());
         let mut poster = sample_item("poster", &poster_path.to_string_lossy());
         poster.media_type = "photo".to_string();
@@ -1525,7 +1530,6 @@ mod tests {
         backdrop.media_type = "photo".to_string();
         let mut real_photo = sample_item("beach-day", r"E:\Photos\Vacation\beach-day.jpg");
         real_photo.media_type = "photo".to_string();
-
         db.add_media_item_data(&video)
             .expect("video row should insert");
         db.add_media_item_data(&poster)
@@ -1534,36 +1538,29 @@ mod tests {
             .expect("poster suffix row should insert");
         db.add_media_item_data(&real_photo)
             .expect("real photo row should insert");
-
         db.cleanup_non_library_photo_artifacts()
             .expect("cleanup should succeed");
-
+        // ALL photo rows are removed — only the video item remains
         let remaining = db
             .conn
             .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
             .expect("count should load");
-        assert_eq!(remaining, 2);
-
-        let attached_poster = db
-            .conn
-            .query_row(
-                "SELECT poster_path FROM media_items WHERE file_path = ?1",
-                params![video.file_path],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .expect("video row should load");
-        assert_eq!(attached_poster, None);
-
-        let real_photo_exists = db
+        assert_eq!(remaining, 1, "only the video item should remain after cleanup");
+        let video_exists = db
             .conn
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM media_items WHERE file_path = ?1)",
-                params![real_photo.file_path],
+                params![video.file_path],
                 |row| row.get::<_, bool>(0),
             )
-            .expect("real photo lookup should load");
-        assert!(real_photo_exists);
-
+            .expect("video row lookup should load");
+        assert!(video_exists, "video item should survive cleanup");
+        // All photo rows (poster, backdrop, real_photo) must be gone
+        let photo_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM media_items WHERE media_type = 'photo'", [], |row| row.get(0))
+            .expect("photo count should load");
+        assert_eq!(photo_count, 0, "all photo rows should be removed");
         drop(db);
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_dir_all(media_dir);

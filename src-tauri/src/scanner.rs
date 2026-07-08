@@ -60,15 +60,25 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
         Some("movie")
     } else if AUDIO_EXTS.contains(&ext_lower.as_str()) {
         Some("music")
-    } else if IMAGE_EXTS.contains(&ext_lower.as_str()) {
-        Some("photo")
     } else {
+        // Image files (.jpg, .png, .webp, etc.) are NEVER indexed as standalone media items.
+        // They are poster/artwork files for video entries and are handled by the poster pipeline.
         None
     }
 }
 
 fn should_index_path(path: &Path) -> bool {
-    !is_generated_chapter_image_path(path) && !is_sidecar_artwork_image(path)
+    // Skip chapter images and all sidecar artwork
+    if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
+        return false;
+    }
+    // Skip ALL image files — they are never standalone media, only posters/artwork
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if IMAGE_EXTS.contains(&ext.to_ascii_lowercase().as_str()) {
+            return false;
+        }
+    }
+    true
 }
 
 fn title_from_filename(path: &Path) -> String {
@@ -453,11 +463,15 @@ mod tests {
     }
 
     #[test]
-    fn keeps_real_media_files() {
+    fn keeps_real_media_files_skips_all_images() {
         let video = test_path(&["Videos", "sample.mp4"]);
         let photo = test_path(&["Photos", "Vacation", "beach-day.jpg"]);
+        let png_art = test_path(&["Videos", "Movie", "Movie.png"]);
+        // Video files should be indexed
         assert!(should_index_path(&video));
-        assert!(should_index_path(&photo));
+        // Image files are NEVER indexed as standalone media — they are poster/artwork
+        assert!(!should_index_path(&photo), "jpg files should be excluded from indexing");
+        assert!(!should_index_path(&png_art), "png files should be excluded from indexing");
     }
 
     #[test]
@@ -498,7 +512,8 @@ mod tests {
         assert_eq!(collection.errors.len(), 0);
         assert!(paths.iter().any(|path| path.ends_with("Movie.One.2026.mkv")));
         assert!(paths.iter().any(|path| path.ends_with("song.flac")));
-        assert!(paths.iter().any(|path| path.ends_with("family-vacation.jpg")));
+        // Image files are never indexed as standalone media items
+        assert!(!paths.iter().any(|path| path.ends_with("family-vacation.jpg")));
         assert!(!paths.iter().any(|path| path.ends_with("chapter_0001.jpg")));
         assert!(!paths.iter().any(|path| path.ends_with("poster.jpg")));
         assert!(!paths.iter().any(|path| path.ends_with("notes.txt")));

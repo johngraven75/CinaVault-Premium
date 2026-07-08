@@ -10,7 +10,7 @@ import {
   metadataTaskPopupVisible,
   MetadataTaskProgress,
 } from "../../utils/metadataTaskProgress";
-import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag, ShieldCheck } from "lucide-react";
+import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag, ShieldCheck, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
@@ -367,7 +367,6 @@ export default function AIDiagnosticsTab() {
   const handleTrackedResult = async (label: string, query: string, result: any) => {
     setAiResult(result);
     setHistory(prev => [{ query, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
-
     let message = `${label} complete`;
     if (isBulkMetadataPostResult(result)) {
       message = formatBulkMetadataPostMessage(label, result);
@@ -378,8 +377,10 @@ export default function AIDiagnosticsTab() {
     } else if (isAdultMetadataGatherResult(result)) {
       message = formatAdultMetadataGatherMessage(label, result);
       await refreshLoadedLibraryPage();
+    } else if (result?.type === "purge_photo_items") {
+      message = result.message || `Removed ${result.rows_removed ?? 0} photo/poster items from library`;
+      await refreshLoadedLibraryPage();
     }
-
     addStatusMessage(message);
     showFinishedProgress(label, message);
   };
@@ -553,6 +554,12 @@ export default function AIDiagnosticsTab() {
       q: "Run adult metadata gather for installed providers and generate posters and chapter images",
       progressTask: "adult_metadata_gather",
       runNow: () => invoke("ai_query", { prompt: "Run adult metadata gather for installed providers and generate posters and chapter images" }),
+    },
+    {
+      label: "Purge Photo Items",
+      icon: Trash2,
+      q: "Purge all photo/poster items incorrectly listed as standalone media",
+      runNow: () => invoke("purge_photo_items"),
     },
   ];
 

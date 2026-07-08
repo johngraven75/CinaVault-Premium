@@ -83,6 +83,7 @@ fn main() {
             db::add_media_item,
             db::update_media_item,
             db::delete_media_item,
+            db::purge_photo_items,
             db::search_media,
             db::get_recent_media,
             db::get_unverified_media,
@@ -163,8 +164,10 @@ fn main() {
             ai::ai_query,
             ai::ai_inference,
             ai::set_hf_token,
+            ai::ensure_hf_token,
             ai::get_ai_config,
             ai::set_ai_model,
+            ai::ai_library_manage,
             // Library Enrichment
             enrichment::run_library_enrichment,
             enrichment::gather_adult_metadata,
