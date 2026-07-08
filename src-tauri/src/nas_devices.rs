@@ -48,7 +48,7 @@ pub struct NasConnectionResult {
 
 fn resolve_quickconnect(quickconnect_id: &str) -> Result<String, String> {
     // Try direct LAN first (common case when on same network)
-    let relay_url = format!(
+    let _relay_url = format!(
         "https://global.quickconnect.to/Serv.php?id={}&serverID=&type=relay",
         quickconnect_id
     );
