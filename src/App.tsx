@@ -6,7 +6,7 @@ import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
 import "./styles/media-row-poster-final-fix.css";
 import { initializePermanentMediaPluginsAtStartup } from "./services/startupMediaPluginService";
-// CinaVault Premium — Build 150 Media Center Application Shell
+// CinaVault Premium — Build 155 Media Center Application Shell
 import { useEffect, useCallback, useMemo, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
