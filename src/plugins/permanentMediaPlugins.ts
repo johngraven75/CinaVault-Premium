@@ -1,4 +1,4 @@
-// CinaVault Premium — Permanent Media Plugins (Build 149)
+// CinaVault Premium — Permanent Media Plugins (Build 150)
 export interface PermanentPlugin {
   id: string;
   name: string;
@@ -10,6 +10,9 @@ export interface PermanentPlugin {
   checkArgs: string[];
   permanent: true;
   enabled: true;
+  installed: true;
+  startup: true;
+  required: true;
   autoInstall: boolean;
   capabilities: string[];
 }
@@ -26,6 +29,9 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     checkArgs: ["-version"],
     permanent: true,
     enabled: true,
+    installed: true,
+    startup: true,
+    required: true,
     autoInstall: true,
     capabilities: ["transcode", "thumbnail", "chapter_extract", "format_probe", "subtitle_extract", "audio_extract", "hls_stream"],
   },
@@ -40,6 +46,9 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     checkArgs: ["-version"],
     permanent: true,
     enabled: true,
+    installed: true,
+    startup: true,
+    required: true,
     autoInstall: true,
     capabilities: ["media_probe", "codec_detect", "resolution_detect", "duration_detect", "embedded_title_extract", "stream_info"],
   },
@@ -54,6 +63,9 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     checkArgs: ["--version"],
     permanent: true,
     enabled: true,
+    installed: true,
+    startup: true,
+    required: true,
     autoInstall: true,
     capabilities: ["video_download", "audio_extract", "playlist_download", "subtitle_download", "thumbnail_download", "format_selection"],
   },
@@ -68,6 +80,9 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     checkArgs: ["--Version"],
     permanent: true,
     enabled: true,
+    installed: true,
+    startup: true,
+    required: true,
     autoInstall: false,
     capabilities: ["deep_media_analysis", "tag_read", "hdr_detect", "dolby_detect", "chapter_read", "track_info"],
   },
@@ -82,6 +97,9 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     checkArgs: ["--version"],
     permanent: true,
     enabled: true,
+    installed: true,
+    startup: true,
+    required: true,
     autoInstall: false,
     capabilities: ["mkv_merge", "subtitle_mux", "chapter_write", "attachment_add", "track_remove"],
   },

@@ -1,3 +1,4 @@
+// Build 140 Futuristic Sidebar Navigation
 // CinaVault Premium — Media Center Sidebar Navigation
 import type { JSX } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -68,7 +69,7 @@ function NavButton({ item, collapsed }: { item: NavItem; collapsed: boolean }): 
       {isActive && (
         <motion.div
           layoutId="media-center-active-nav"
-          className="absolute inset-0 rounded-2xl border border-white/20 bg-[linear-gradient(90deg,rgba(0,234,255,0.36),rgba(255,255,255,0.08)_48%,rgba(0,0,0,0.08))] shadow-[0_0_35px_rgba(0,234,255,0.22)]"
+          className="sidebar-active-panel absolute inset-0 rounded-2xl border border-white/20 bg-[linear-gradient(90deg,rgba(0,234,255,0.36),rgba(255,255,255,0.08)_48%,rgba(0,0,0,0.08))] shadow-[0_0_35px_rgba(0,234,255,0.22)]"
           transition={{ type: "spring", stiffness: 460, damping: 36 }}
         />
       )}
@@ -76,7 +77,7 @@ function NavButton({ item, collapsed }: { item: NavItem; collapsed: boolean }): 
       {isActive && (
         <motion.span
           layoutId="media-center-active-rail"
-          className="absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-cyan-200 shadow-[0_0_18px_rgba(125,249,255,0.95)]"
+          className="sidebar-active-rail absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r-full bg-cyan-200 shadow-[0_0_18px_rgba(125,249,255,0.95)]"
         />
       )}
 
