@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.0.154",
+  "version": "1.0.155",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -12,7 +12,10 @@
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
     "test": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs",
-    "test:build140": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs"
+    "test:build140": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs",
+    "test:all": "node --test tests/*.test.mjs",
+    "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
+    "test:governance": "node --test tests/build140GovernanceSurface.test.mjs tests/buildNumberDriftGuard.test.mjs tests/build140RuntimeRouting.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
