@@ -1,4 +1,4 @@
-// CinaVault Premium — Plugin Manager (Build 150)
+// CinaVault Premium — Plugin Manager (Build 155)
 // Manages plugin repositories, catalog, installation, and execution.
 
 use serde::{Deserialize, Serialize};
