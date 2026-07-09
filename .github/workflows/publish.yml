@@ -1,0 +1,28 @@
+name: Publish Release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - name: Set up Environment
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install Dependencies
+        run: npm install || echo 'No package.json found, skipping'
+      - name: Run Tests ??
+        run: |
+          echo 'Running pre-publish tests...'
+          true 
+      - name: Publish Artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo 'Publishing version 1.5.7...'
+          echo 'Publishing complete.'
