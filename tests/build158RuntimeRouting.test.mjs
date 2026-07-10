@@ -15,7 +15,7 @@ function assertIncludes(text, expected, label = expected) {
   assert.ok(text.includes(expected), `${label} was not found`);
 }
 
-test("Build 140 routes user-facing metadata commands through metadata_ext at runtime", () => {
+test("Build 158 routes user-facing metadata commands through metadata_ext at runtime", () => {
   const main = source("src-tauri/src/main.rs");
   const commandBlock = main.slice(
     main.indexOf("// Metadata commands route through metadata_ext"),
@@ -36,7 +36,7 @@ test("Build 140 routes user-facing metadata commands through metadata_ext at run
   assert.equal(commandBlock.includes("metadata::get_metadata_providers"), false);
 });
 
-test("Build 140 metadata extension handlers are real Tauri commands", () => {
+test("Build 158 metadata extension handlers are real Tauri commands", () => {
   const metadataExt = source("src-tauri/src/metadata_ext.rs");
   const commandHandlers = [
     "get_metadata_providers",
@@ -55,7 +55,7 @@ test("Build 140 metadata extension handlers are real Tauri commands", () => {
   }
 });
 
-test("Build 140 restored providers remain normalized and listed by extension source", () => {
+test("Build 158 restored providers remain normalized and listed by extension source", () => {
   const metadataExt = source("src-tauri/src/metadata_ext.rs");
 
   for (const required of [
@@ -68,4 +68,16 @@ test("Build 140 restored providers remain normalized and listed by extension sou
   ]) {
     assertIncludes(metadataExt, required);
   }
+});
+
+test("Build 158 metadata provider responses do not echo raw upstream payloads over IPC", () => {
+  const metadataExt = source("src-tauri/src/metadata_ext.rs");
+  const responseBlock = metadataExt.slice(
+    metadataExt.indexOf("async fn fetch_porn_site_nuxt_results"),
+    metadataExt.indexOf("#[tauri::command]", metadataExt.indexOf("async fn fetch_porn_site_nuxt_results")),
+  );
+
+  assert.equal(responseBlock.includes('"raw"'), false);
+  assert.equal(responseBlock.includes('"raw": data'), false);
+  assertIncludes(responseBlock, '"results": results');
 });
