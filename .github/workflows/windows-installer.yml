@@ -36,7 +36,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Check Rust compilation
-        run: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
 
   test:
     name: Test Suite
@@ -74,7 +74,7 @@ jobs:
       - name: Build TypeScript
         run: npm run build
       - name: Run Rust tests
-        run: cargo test -- --nocapture
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture
       - name: Build Tauri Windows installer
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
       - name: Stage installer artifacts
