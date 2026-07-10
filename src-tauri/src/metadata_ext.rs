@@ -139,8 +139,7 @@ async fn fetch_porn_site_nuxt_results(
         "query": query,
         "status": "success",
         "base_url": base_url,
-        "results": results,
-        "raw": data
+        "results": results
     }))
 }
 
