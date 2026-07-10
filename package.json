@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.5.7",
+  "version": "1.5.8",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -11,11 +11,11 @@
     "tauri": "tauri",
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
-    "test": "node --test tests/build157RuntimeRouting.test.mjs tests/buildNumberDriftGuard.test.mjs tests/carryForwardVerification.test.mjs",
-    "test:build157": "node --test tests/build157RuntimeRouting.test.mjs tests/buildNumberDriftGuard.test.mjs tests/carryForwardVerification.test.mjs",
+    "test": "node --test tests/build158RuntimeRouting.test.mjs tests/buildNumberDriftGuard.test.mjs tests/carryForwardVerification.test.mjs",
+    "test:build158": "node --test tests/build158RuntimeRouting.test.mjs tests/buildNumberDriftGuard.test.mjs tests/carryForwardVerification.test.mjs",
     "test:all": "node --test tests/*.test.mjs",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
-    "test:governance": "node --test tests/build157RuntimeRouting.test.mjs tests/buildNumberDriftGuard.test.mjs tests/carryForwardVerification.test.mjs"
+    "test:governance": "node --test tests/build158RuntimeRouting.test.mjs tests/buildNumberDriftGuard.test.mjs tests/carryForwardVerification.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
