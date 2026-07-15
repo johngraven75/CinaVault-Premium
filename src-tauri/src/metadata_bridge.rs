@@ -77,8 +77,7 @@ fn full_media_item(state: &State<'_, AppState>, id: i64) -> Result<serde_json::V
         .map_err(|err| err.to_string())
 }
 
-#[tauri::command]
-pub async fn check_media_item_metadata(
+async fn check_media_item_metadata(
     state: State<'_, AppState>,
     id: i64,
 ) -> Result<serde_json::Value, String> {

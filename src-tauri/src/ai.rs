@@ -1188,8 +1188,7 @@ pub fn get_ai_config(state: State<AppState>) -> Result<serde_json::Value, String
 /// AI-powered automated library management: runs all library functions in sequence
 /// using the configured HuggingFace model. Covers: scan, enrich, poster sync,
 /// NFO write-back, duplicate detection, filename normalization, genre tagging.
-#[tauri::command]
-pub async fn ai_library_manage(
+async fn ai_library_manage(
     state: State<'_, AppState>,
     tasks: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {

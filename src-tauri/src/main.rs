@@ -140,7 +140,6 @@ fn main() {
             metadata_ext::fetch_metadata,
             metadata_ext::search_metadata,
             metadata_ext::check_media_item_metadata,
-            metadata_bridge::check_media_item_metadata,
             metadata_ext::get_provider_status,
             metadata_ext::test_api_key,
             metadata_ext::set_api_key,
