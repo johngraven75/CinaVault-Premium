@@ -7,7 +7,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 const currentBuild = "164";
-const historicalBuilds = Array.from({ length: 32 }, (_, index) => String(132 + index));
+const historicalBuilds = ["159", "160", "161", "162", "163"];
 const excludedDirectories = new Set([
   ".git",
   "node_modules",
@@ -20,23 +20,9 @@ const excludedDirectories = new Set([
   "coverage",
 ]);
 const textExtensions = new Set([
-  ".cjs",
-  ".css",
-  ".html",
-  ".json",
-  ".json5",
-  ".js",
-  ".jsx",
-  ".md",
-  ".mjs",
-  ".ps1",
-  ".rs",
-  ".toml",
-  ".ts",
-  ".tsx",
-  ".txt",
-  ".yml",
-  ".yaml",
+  ".cjs", ".css", ".html", ".json", ".json5", ".js", ".jsx",
+  ".md", ".mjs", ".ps1", ".rs", ".toml", ".ts", ".tsx", ".txt",
+  ".yml", ".yaml",
 ]);
 
 function isArchiveFile(rel) {
@@ -66,9 +52,7 @@ function walk(directory, files = []) {
       continue;
     }
 
-    if (stats.isFile() && textExtensions.has(extname(entry))) {
-      files.push(absolute);
-    }
+    if (stats.isFile() && textExtensions.has(extname(entry))) files.push(absolute);
   }
 
   return files;
