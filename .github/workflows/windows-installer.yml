@@ -1,21 +1,30 @@
-name: Windows Installer Build 157
+name: Windows Installer Build 164
 
 on:
   push:
     branches:
       - main
+      - build-164
     paths-ignore:
       - 'releases/**'
       - 'docs/**'
       - '**.md'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: build-164-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  BUILD_NUMBER: 157
+  BUILD_NUMBER: 164
+  APP_VERSION: 1.6.4
   RUST_BACKTRACE: 1
 
 jobs:
@@ -27,28 +36,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
       - name: TypeScript type check
-        run: npx tsc --noEmit
-
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-      - name: Install dependencies
-        run: npm ci
-      - name: Run tests
-        run: npm run test:all 2>&1 || true
+        run: npm run type-check
+      - name: Run Build 164 governance tests
+        run: npm test
+      - name: Reduce workspace footprint
+        if: always()
+        run: rm -rf node_modules dist coverage .cache
 
   build:
     name: Build Windows Installer
@@ -59,18 +57,23 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
       - name: Install dependencies
         run: npm ci
       - name: Build TypeScript
         run: npm run build
       - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked -- --nocapture
       - name: Build Tauri Windows installer
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
       - name: Stage installer artifacts
@@ -79,81 +82,86 @@ jobs:
           $stagingDir = "installer-staging"
           New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
           $bundlePath = "src-tauri\target\x86_64-pc-windows-msvc\release\bundle"
-          Copy-Item "$bundlePath\msi\*.msi" $stagingDir -ErrorAction SilentlyContinue -Verbose
-          Copy-Item "$bundlePath\nsis\*.exe" $stagingDir -ErrorAction SilentlyContinue -Verbose
-          $files = Get-ChildItem $stagingDir -Include *.msi, *.exe
-          if ($files) {
-            $checksums = @()
-            foreach ($file in $files) {
-              $hash = Get-FileHash -Path $file.FullName -Algorithm SHA256
-              $checksums += "$($hash.Hash)  $($file.Name)"
-            }
-            Set-Content -Path "$stagingDir\SHA256SUMS.txt" -Value $checksums
+          Copy-Item "$bundlePath\msi\*.msi" $stagingDir -ErrorAction SilentlyContinue
+          Copy-Item "$bundlePath\nsis\*.exe" $stagingDir -ErrorAction SilentlyContinue
+          $files = Get-ChildItem $stagingDir -File | Where-Object { $_.Extension -in '.msi', '.exe' }
+          if (-not $files) { throw "No MSI or EXE installer was produced." }
+          $checksums = foreach ($file in $files) {
+            $hash = Get-FileHash -Path $file.FullName -Algorithm SHA256
+            "$($hash.Hash)  $($file.Name)"
           }
+          Set-Content -Path "$stagingDir\SHA256SUMS.txt" -Value $checksums
       - name: Upload staging artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CinaVault-Premium-Windows-Installer-Build157
+          name: CinaVault-Premium-Windows-Installer-Build164
           path: installer-staging/
-          retention-days: 30
+          if-no-files-found: error
+          compression-level: 9
+          retention-days: 15
+      - name: Reduce post-build workspace footprint by at least 50 percent
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item node_modules, dist, installer-staging -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item src-tauri\target -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$env:USERPROFILE\.cargo\registry\src" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$env:USERPROFILE\.cargo\git\checkouts" -Recurse -Force -ErrorAction SilentlyContinue
 
   release:
-    name: Create GitHub Release
+    name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build
-    if: success()
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
-      - name: Download artifacts
+      - name: Download installer artifacts
         uses: actions/download-artifact@v4
         with:
-          name: CinaVault-Premium-Windows-Installer-Build157
-          path: artifacts/
-      - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: CinaVault-Premium-Windows-Installer-Build164
+          path: artifacts
+      - name: Publish Build 164 release and assets
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.157-windows
-          release_name: 'CinaVault Premium Build 157 - Windows Version'
+          tag_name: v1.6.4
+          name: CinaVault Premium Build 164
           body: |
-            # CinaVault Premium Build 157 - Windows Release
-            
-            This release contains the Windows installers for Build 157.
-            
-            ## Installation
-            ### Via MSI (Recommended)
-            ```powershell
-            msiexec /i "CinaVault-Premium-Build157-Installer.msi" MSIINSTALLPERUSER=1 ALLUSERS=2 /qn /norestart
-            ```
-            
-            ### Via EXE
-            Double-click the `.exe` file and follow prompts.
-            
-            ## Changes in Build 157
-            - Build 157 metadata IPC fix and validation alignment
-            - Aligns Tauri version metadata to 1.5.7
-            - Enhanced validation tests
-            
-            [PR #22](https://github.com/johngraven75/CinaVault-Premium/pull/22)
+            # CinaVault Premium Build 164
+
+            Windows MSI and NSIS installers for CinaVault Premium version 1.6.4.
+
+            This release carries forward the Build 158 metadata IPC protections, provider routing, regression coverage, and installer validation.
           draft: false
           prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/*.msi
+            artifacts/*.exe
+            artifacts/SHA256SUMS.txt
 
-  on-failure:
+  failure-report:
     name: Report Build Failure
     runs-on: ubuntu-latest
-    if: failure()
+    needs: [validate, build]
+    if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
       - name: Create failure issue
         uses: actions/github-script@v7
         with:
           script: |
-            const runUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
-            github.rest.issues.create({
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = 'Build 164 Windows Installer - Build Failed';
+            const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Build 157 Windows Installer - Build Failed`,
-              body: `Build 157 Windows installer workflow failed.\n\n[View workflow run](${runUrl})`,
-              labels: ['build-failure', 'windows-installer']
+              state: 'open',
+              labels: 'build-failure,windows-installer',
             });
+            if (!existing.data.some(issue => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `Build 164 failed before publication.\n\n[View workflow run](${runUrl})`,
+                labels: ['build-failure', 'windows-installer'],
+              });
+            }
