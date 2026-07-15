@@ -6,12 +6,8 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
-const currentBuild = "155";
-const historicalBuilds = [
-  "132", "133", "134", "135", "136", "137", "138", "139",
-  "141", "142", "143", "144", "145", "146", "147", "148", "149",
-  "150", "151", "152", "153", "154",
-];
+const currentBuild = "164";
+const historicalBuilds = Array.from({ length: 32 }, (_, index) => String(132 + index));
 const excludedDirectories = new Set([
   ".git",
   "node_modules",
@@ -43,18 +39,13 @@ const textExtensions = new Set([
   ".yaml",
 ]);
 
-// Patterns for files that are intentional historical archives and must not be flagged
 function isArchiveFile(rel) {
   const normalized = rel.split(sep).join("/");
   return (
-    // Release notes for past builds
     /^RELEASE_NOTES_BUILD\d+\.md$/.test(normalized) ||
-    // Build-specific test result logs
     /^build\d+-.*-test-results\.txt$/.test(normalized) ||
     /^build\d+-test-results\.txt$/.test(normalized) ||
-    // Docs folder — historical audit documents
     normalized.startsWith("docs/") ||
-    // Test files themselves reference historical build numbers in their names/assertions
     normalized.startsWith("tests/")
   );
 }
@@ -98,17 +89,12 @@ test("active repository files do not contain stale build-number drift", () => {
 
   for (const file of walk(root)) {
     const rel = relative(root, file).split(sep).join("/");
-
-    // Skip historical archive files — they legitimately reference old build numbers
     if (isArchiveFile(rel)) continue;
 
     const text = readFileSync(file, "utf8");
-
     for (const build of historicalBuilds) {
       for (const pattern of stalePatternsFor(build)) {
-        if (pattern.test(text)) {
-          offenders.push(`${rel} matched ${pattern}`);
-        }
+        if (pattern.test(text)) offenders.push(`${rel} matched ${pattern}`);
       }
     }
   }
