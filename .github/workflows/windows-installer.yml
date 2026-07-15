@@ -22,4 +22,133 @@ concurrency:
   group: build-164-${{ github.ref }}
   cancel-in-progress: true
 
-en
+env:
+  BUILD_NUMBER: '164'
+  BUILD_OUTPUT_DIR: releases/build-164
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build164
+  BUILD_TRIGGER: build-164-workflow-repair
+
+jobs:
+  build-windows-installer:
+    name: Build CinaVault Premium Build 164 Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Refresh npm lockfile
+        shell: pwsh
+        run: |
+          $branch = $env:GITHUB_REF_NAME
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin $branch
+          git pull --rebase --autostash origin $branch
+
+          npm install --package-lock-only --legacy-peer-deps
+
+          git add package.json package-lock.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 1) {
+            git commit -m 'Refresh npm lockfile for Build ${{ env.BUILD_NUMBER }}'
+            git push origin HEAD:$branch
+          } else {
+            Write-Host 'No package lock refresh needed.'
+          }
+
+      - name: Build installer with one-step PowerShell script
+        shell: pwsh
+        working-directory: ./
+        run: .\scripts\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
+
+      - name: Stage installer artifacts and hashes
+        shell: pwsh
+        run: |
+          $artifact = 'artifact'
+          New-Item -ItemType Directory -Path $artifact -Force | Out-Null
+
+          $bundle = 'src-tauri\target\release\bundle'
+          if (-not (Test-Path $bundle)) {
+            throw "Installer bundle directory not found: $bundle"
+          }
+
+          Get-ChildItem -Path $bundle -Recurse -File -Include *.exe,*.msi,*.zip |
+            Copy-Item -Destination $artifact -Force
+
+          if (Test-Path 'BUILD_NOTES_PGMA.md') {
+            Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
+          }
+
+          @(
+            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Notes',
+            '',
+            'Build: ${{ env.BUILD_NUMBER }}',
+            "Source commit: $env:GITHUB_SHA",
+            "Workflow run: $env:GITHUB_RUN_ID",
+            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
+            '',
+            'Build 164 carries forward the Build 140 cleanup line and validates the current runtime routing, version governance, installer generation, and repository artifact publishing path.',
+            '',
+            'Build 164 validation targets:',
+            '- npm lockfile refresh before installer generation.',
+            '- Vite production build and TypeScript validation through scripts/build-installer.ps1.',
+            '- Rust/Tauri compile and installer bundle creation.',
+            '- Rebase-safe release artifact publishing to avoid non-fast-forward push failures.',
+            '- SHA256 manifest publication for generated Windows installer artifacts.'
+          ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
+
+          $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
+          if (-not $files) {
+            throw 'No installer artifacts were staged.'
+          }
+
+          $hashLines = foreach ($file in $files) {
+            $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
+            "$($hash.Hash)  $($file.Name)"
+          }
+          $hashLines | Set-Content -Path "$artifact\SHA256SUMS.txt" -Encoding UTF8
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.INSTALLER_ARTIFACT_NAME }}
+          path: artifact/*
+          if-no-files-found: error
+
+      - name: Publish release folder to branch
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $branch = $env:GITHUB_REF_NAME
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin $branch
+          git pull --rebase --autostash origin $branch
+
+          New-Item -ItemType Directory -Path "${{ env.BUILD_OUTPUT_DIR }}" -Force | Out-Null
+          Copy-Item artifact\* "${{ env.BUILD_OUTPUT_DIR }}" -Force
+          git add "${{ env.BUILD_OUTPUT_DIR }}"
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 1) {
+            git commit -m 'Publish Windows installer artifacts for Build ${{ env.BUILD_NUMBER }}'
+            git push origin HEAD:$branch
+          } else {
+            Write-Host 'No installer artifact changes to publish.'
+          }
