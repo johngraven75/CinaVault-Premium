@@ -24,7 +24,7 @@ env:
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build164
   RUST_BACKTRACE: 1
 
-# Release trigger: 2026-07-15
+# Release rerun trigger: 2026-07-15T18:00:00-04:00
 jobs:
   validate:
     name: Validate Build 164
