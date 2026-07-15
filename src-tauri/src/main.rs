@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 155)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 164)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -13,12 +13,14 @@ mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
 mod metadata_ext;
+mod metadata_bridge;
 mod adult_site_provider;
 mod chapters;
 mod duplicates;
 mod vpn;
 mod downloads;
 mod ai;
+mod ai_automation;
 mod enrichment;
 mod task_progress;
 mod library_artifacts;
@@ -60,7 +62,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 155 initialized successfully");
+            log::info!("CinaVault Premium Build 164 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -134,10 +136,10 @@ fn main() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-            // Metadata commands route through metadata_ext so restored providers are live at runtime.
+            // Metadata commands route through metadata_ext; writeback uses the compatibility bridge.
             metadata_ext::fetch_metadata,
             metadata_ext::search_metadata,
-            metadata_ext::check_media_item_metadata,
+            metadata_bridge::check_media_item_metadata,
             metadata_ext::get_provider_status,
             metadata_ext::test_api_key,
             metadata_ext::set_api_key,
@@ -167,7 +169,7 @@ fn main() {
             ai::ensure_hf_token,
             ai::get_ai_config,
             ai::set_ai_model,
-            ai::ai_library_manage,
+            ai_automation::ai_library_manage,
             // Library Enrichment
             enrichment::run_library_enrichment,
             enrichment::gather_adult_metadata,
@@ -324,8 +326,8 @@ fn cloud_get_status() -> Result<serde_json::Value, String> {
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.0.155",
-        "build": "155",
+        "version": "1.6.4",
+        "build": "164",
         "edition": "Premium"
     })
 }
