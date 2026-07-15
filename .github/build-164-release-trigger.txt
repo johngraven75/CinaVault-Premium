@@ -1,0 +1,3 @@
+Build 164 release trigger
+
+This file exists to create a normal merged pull-request push event on main so the Windows Installer Build 164 workflow runs and publishes v1.6.4.
