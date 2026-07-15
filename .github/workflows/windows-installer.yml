@@ -4,14 +4,10 @@ on:
   push:
     branches:
       - main
-      - build-164
     paths-ignore:
       - 'releases/**'
       - 'docs/**'
       - '**.md'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -24,131 +20,103 @@ concurrency:
 
 env:
   BUILD_NUMBER: '164'
-  BUILD_OUTPUT_DIR: releases/build-164
+  APP_VERSION: 1.6.4
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build164
-  BUILD_TRIGGER: build-164-workflow-repair
+  RUST_BACKTRACE: 1
 
 jobs:
-  build-windows-installer:
-    name: Build CinaVault Premium Build 164 Windows installer
-    runs-on: windows-latest
-
+  validate:
+    name: Validate Build 164
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: true
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
           cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Run Build 164 governance tests
+        run: npm test
 
+  build:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-
-      - name: Refresh npm lockfile
-        shell: pwsh
-        run: |
-          $branch = $env:GITHUB_REF_NAME
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin $branch
-          git pull --rebase --autostash origin $branch
-
-          npm install --package-lock-only --legacy-peer-deps
-
-          git add package.json package-lock.json
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Refresh npm lockfile for Build ${{ env.BUILD_NUMBER }}'
-            git push origin HEAD:$branch
-          } else {
-            Write-Host 'No package lock refresh needed.'
-          }
-
-      - name: Build installer with one-step PowerShell script
-        shell: pwsh
-        working-directory: ./
-        run: .\scripts\build-installer.ps1 -NoDesktopCopy -NoOpenDesktop
-
+          cache-on-failure: true
+      - name: Install dependencies
+        run: npm ci
+      - name: Build frontend
+        run: npm run build
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked -- --nocapture
+      - name: Build Tauri Windows installer
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
       - name: Stage installer artifacts and hashes
         shell: pwsh
         run: |
-          $artifact = 'artifact'
-          New-Item -ItemType Directory -Path $artifact -Force | Out-Null
-
-          $bundle = 'src-tauri\target\release\bundle'
-          if (-not (Test-Path $bundle)) {
-            throw "Installer bundle directory not found: $bundle"
-          }
-
-          Get-ChildItem -Path $bundle -Recurse -File -Include *.exe,*.msi,*.zip |
-            Copy-Item -Destination $artifact -Force
-
-          if (Test-Path 'BUILD_NOTES_PGMA.md') {
-            Copy-Item 'BUILD_NOTES_PGMA.md' "$artifact\BUILD_NOTES_PGMA.md" -Force
-          }
-
-          @(
-            '# CinaVault Premium Build ${{ env.BUILD_NUMBER }} Notes',
-            '',
-            'Build: ${{ env.BUILD_NUMBER }}',
-            "Source commit: $env:GITHUB_SHA",
-            "Workflow run: $env:GITHUB_RUN_ID",
-            'Artifact name: ${{ env.INSTALLER_ARTIFACT_NAME }}',
-            '',
-            'Build 164 carries forward the Build 140 cleanup line and validates the current runtime routing, version governance, installer generation, and repository artifact publishing path.',
-            '',
-            'Build 164 validation targets:',
-            '- npm lockfile refresh before installer generation.',
-            '- Vite production build and TypeScript validation through scripts/build-installer.ps1.',
-            '- Rust/Tauri compile and installer bundle creation.',
-            '- Rebase-safe release artifact publishing to avoid non-fast-forward push failures.',
-            '- SHA256 manifest publication for generated Windows installer artifacts.'
-          ) | Set-Content -Path "$artifact\RELEASE-NOTES.md" -Encoding UTF8
-
-          $files = Get-ChildItem -Path $artifact -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' }
-          if (-not $files) {
-            throw 'No installer artifacts were staged.'
-          }
-
-          $hashLines = foreach ($file in $files) {
-            $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
+          $stagingDir = 'installer-staging'
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+          $bundlePath = 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle'
+          Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.msi', '.exe' } |
+            Copy-Item -Destination $stagingDir -Force
+          $files = Get-ChildItem $stagingDir -File | Where-Object { $_.Extension -in '.msi', '.exe' }
+          if (-not $files) { throw 'No MSI or EXE installer was produced.' }
+          $checksums = foreach ($file in $files) {
+            $hash = Get-FileHash -Path $file.FullName -Algorithm SHA256
             "$($hash.Hash)  $($file.Name)"
           }
-          $hashLines | Set-Content -Path "$artifact\SHA256SUMS.txt" -Encoding UTF8
-
+          Set-Content -Path "$stagingDir\SHA256SUMS.txt" -Value $checksums -Encoding utf8
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.INSTALLER_ARTIFACT_NAME }}
-          path: artifact/*
+          path: installer-staging/
           if-no-files-found: error
+          compression-level: 9
+          retention-days: 15
 
-      - name: Publish release folder to branch
-        if: github.event_name != 'pull_request'
-        shell: pwsh
-        run: |
-          $branch = $env:GITHUB_REF_NAME
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin $branch
-          git pull --rebase --autostash origin $branch
-
-          New-Item -ItemType Directory -Path "${{ env.BUILD_OUTPUT_DIR }}" -Force | Out-Null
-          Copy-Item artifact\* "${{ env.BUILD_OUTPUT_DIR }}" -Force
-          git add "${{ env.BUILD_OUTPUT_DIR }}"
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Publish Windows installer artifacts for Build ${{ env.BUILD_NUMBER }}'
-            git push origin HEAD:$branch
-          } else {
-            Write-Host 'No installer artifact changes to publish.'
-          }
+  release:
+    name: Publish v1.6.4
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.INSTALLER_ARTIFACT_NAME }}
+          path: artifacts
+      - name: Publish Build 164 release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.6.4
+          name: CinaVault Premium Build 164
+          body: |
+            Windows MSI and NSIS installers for CinaVault Premium version 1.6.4.
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/*.msi
+            artifacts/*.exe
+            artifacts/SHA256SUMS.txt
