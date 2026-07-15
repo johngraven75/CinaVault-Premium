@@ -7,6 +7,7 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
 const currentBuild = "164";
+const currentVersion = "1.6.4";
 const historicalBuilds = ["159", "160", "161", "162", "163"];
 const excludedDirectories = new Set([
   ".git",
@@ -24,6 +25,14 @@ const textExtensions = new Set([
   ".md", ".mjs", ".ps1", ".rs", ".toml", ".ts", ".tsx", ".txt",
   ".yml", ".yaml",
 ]);
+
+function readProjectFile(path) {
+  return readFileSync(resolve(root, path), "utf8");
+}
+
+function readJson(path) {
+  return JSON.parse(readProjectFile(path));
+}
 
 function isArchiveFile(rel) {
   const normalized = rel.split(sep).join("/");
@@ -68,6 +77,12 @@ function stalePatternsFor(build) {
   ];
 }
 
+function cargoVersion(text) {
+  const match = text.match(/^version\s*=\s*"([^"]+)"/m);
+  assert.ok(match, "Cargo.toml package version was not found");
+  return match[1];
+}
+
 test("active repository files do not contain stale build-number drift", () => {
   const offenders = [];
 
@@ -84,4 +99,27 @@ test("active repository files do not contain stale build-number drift", () => {
   }
 
   assert.deepEqual(offenders, [], `Stale build-number references found in active files while current build is ${currentBuild}.`);
+});
+
+test("version manifests carry forward together for the current build", () => {
+  const packageJson = readJson("package.json");
+  const packageLock = readJson("package-lock.json");
+  const tauriConfig = readJson("src-tauri/tauri.conf.json");
+  const cargoToml = readProjectFile("src-tauri/Cargo.toml");
+
+  assert.equal(packageJson.version, currentVersion, "package.json version must match the current build version");
+  assert.equal(packageLock.version, currentVersion, "package-lock.json root version must match the current build version");
+  assert.equal(packageLock.packages[""].version, currentVersion, "package-lock.json package entry version must match the current build version");
+  assert.equal(tauriConfig.version, currentVersion, "Tauri config version must match the current build version");
+  assert.equal(cargoVersion(cargoToml), currentVersion, "Cargo.toml package version must match the current build version");
+});
+
+test("installer workflow carries forward the current build number", () => {
+  const workflow = readProjectFile(".github/workflows/windows-installer.yml");
+
+  assert.match(workflow, new RegExp(`BUILD_NUMBER:\\s*['\"]${currentBuild}['\"]`));
+  assert.match(workflow, new RegExp(`BUILD_OUTPUT_DIR:\\s*releases/build-${currentBuild}`));
+  assert.match(workflow, new RegExp(`CinaVault-Premium-Windows-Installer-Build${currentBuild}`));
+  assert.equal(workflow.includes("releases/build-139"), false, "installer workflow must not publish to the old Build 139 release folder");
+  assert.equal(workflow.includes("Build139"), false, "installer workflow must not publish the old Build 139 artifact name");
 });
