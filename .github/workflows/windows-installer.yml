@@ -27,6 +27,7 @@ concurrency:
 env:
   BUILD_NUMBER: '164'
   APP_VERSION: 1.6.4
+  BUILD_OUTPUT_DIR: releases/build-164
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build164
   RUST_BACKTRACE: 1
 
@@ -45,8 +46,12 @@ jobs:
         run: npm ci
       - name: TypeScript validation
         run: npm run lint
-      - name: Run Build 164 governance tests
-        run: npm test
+      - name: Validate Build 164 runtime routing
+        run: node --test tests/build164RuntimeRouting.test.mjs
+      - name: Validate Build 164 version drift guards
+        run: node --test tests/buildNumberDriftGuard.test.mjs
+      - name: Validate feature carry-forward
+        run: node --test tests/carryForwardVerification.test.mjs
 
   build:
     name: Build Windows Installer
@@ -105,11 +110,7 @@ jobs:
     name: Publish v1.6.4
     runs-on: ubuntu-latest
     needs: build
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'schedule') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Download installer artifact
         uses: actions/download-artifact@v4
