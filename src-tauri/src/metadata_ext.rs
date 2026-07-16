@@ -143,6 +143,26 @@ async fn fetch_porn_site_nuxt_results(
     }))
 }
 
+fn result_string(result: &serde_json::Value, key: &str) -> Option<String> {
+    result
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn append_provider_error(response: &mut serde_json::Value, error: String) {
+    if let Some(object) = response.as_object_mut() {
+        let errors = object
+            .entry("provider_errors")
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        if let Some(errors) = errors.as_array_mut() {
+            errors.push(serde_json::Value::String(error));
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_metadata_providers() -> Vec<MetadataProvider> {
     let mut providers = crate::metadata::get_metadata_providers();
@@ -209,7 +229,159 @@ pub async fn check_media_item_metadata(
     state: State<'_, AppState>,
     id: i64,
 ) -> Result<serde_json::Value, String> {
-    crate::metadata::check_media_item_metadata(state, id).await
+    let mut legacy = crate::metadata::check_media_item_metadata(state.clone(), id).await?;
+    if legacy.get("status").and_then(|value| value.as_str()) != Some("no_match") {
+        return Ok(legacy);
+    }
+
+    let (title, file_path, media_type, configured) = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        let item = db
+            .conn
+            .query_row(
+                "SELECT title, file_path, media_type FROM media_items WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        let mut stmt = db
+            .conn
+            .prepare("SELECT provider, api_key FROM api_keys")
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+        let mut configured = std::collections::HashMap::new();
+        for row in rows {
+            let (provider, value) = row.map_err(|error| error.to_string())?;
+            configured.insert(normalize_provider_key(&provider), value);
+        }
+        (item.0, item.1, item.2, configured)
+    };
+
+    let query = if title.trim().is_empty() {
+        clean_local_metadata_title(&file_path)
+    } else {
+        title.clone()
+    };
+
+    if let Some(base_url) = configured.get("porn_site_nuxt") {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .map_err(|error| error.to_string())?;
+        match fetch_porn_site_nuxt_results(
+            &client,
+            (!base_url.trim().is_empty()).then_some(base_url.as_str()),
+            &query,
+        )
+        .await
+        {
+            Ok(response) => {
+                if let Some(result) = response
+                    .get("results")
+                    .and_then(|value| value.as_array())
+                    .and_then(|results| results.first())
+                {
+                    let matched_title = result_string(result, "title");
+                    let overview = result_string(result, "overview");
+                    let poster_path = result_string(result, "poster_path");
+                    let genre = result_string(result, "genre");
+                    let rating = result.get("rating").and_then(|value| value.as_f64());
+                    let changed_fields = usize::from(matched_title.as_deref() != Some(title.as_str()))
+                        + usize::from(overview.is_some())
+                        + usize::from(poster_path.is_some())
+                        + usize::from(rating.is_some())
+                        + usize::from(genre.is_some())
+                        + usize::from(!media_type.eq_ignore_ascii_case("adult"));
+                    let db = state.db.lock().map_err(|error| error.to_string())?;
+                    db.update_media_metadata_data(
+                        &file_path,
+                        matched_title.as_deref(),
+                        overview.as_deref(),
+                        poster_path.as_deref(),
+                        None,
+                        rating,
+                        genre.as_deref(),
+                        None,
+                        None,
+                        Some("adult"),
+                    )
+                    .map_err(|error| error.to_string())?;
+                    return Ok(serde_json::json!({
+                        "type": "single_item_metadata_check",
+                        "status": if changed_fields > 0 { "success" } else { "no_changes" },
+                        "item_id": id,
+                        "provider": "porn_site_nuxt",
+                        "metadata_updated": changed_fields > 0,
+                        "metadata_fields_updated": changed_fields,
+                        "provider_errors": legacy.get("provider_errors").cloned().unwrap_or_else(|| serde_json::json!([])),
+                        "message": format!("Metadata check completed for {} with Porn Site Nuxt", matched_title.as_deref().unwrap_or(&title)),
+                        "updated_item": {
+                            "id": id,
+                            "title": matched_title.unwrap_or(title),
+                            "file_path": file_path,
+                            "media_type": "adult",
+                            "overview": overview,
+                            "poster_path": poster_path,
+                            "rating": rating,
+                            "genre": genre
+                        }
+                    }));
+                }
+            }
+            Err(error) => append_provider_error(&mut legacy, format!("porn_site_nuxt/{query}: {error}")),
+        }
+    }
+
+    if configured.contains_key(PGMA_PROVIDER_KEY) {
+        let cleaned_title = clean_local_metadata_title(&query);
+        let title_update = (!cleaned_title.eq_ignore_ascii_case(title.trim())).then_some(cleaned_title);
+        let changed_fields = usize::from(title_update.is_some())
+            + usize::from(!media_type.eq_ignore_ascii_case("adult"))
+            + 1;
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        db.update_media_metadata_data(
+            &file_path,
+            title_update.as_deref(),
+            None,
+            None,
+            None,
+            None,
+            Some("Adult"),
+            None,
+            None,
+            Some("adult"),
+        )
+        .map_err(|error| error.to_string())?;
+        return Ok(serde_json::json!({
+            "type": "single_item_metadata_check",
+            "status": "success",
+            "item_id": id,
+            "provider": PGMA_PROVIDER_KEY,
+            "metadata_updated": true,
+            "metadata_fields_updated": changed_fields,
+            "provider_errors": legacy.get("provider_errors").cloned().unwrap_or_else(|| serde_json::json!([])),
+            "message": format!("Metadata check completed for {} with PGMA Modernized", title_update.as_deref().unwrap_or(&title)),
+            "updated_item": {
+                "id": id,
+                "title": title_update.unwrap_or(title),
+                "file_path": file_path,
+                "media_type": "adult",
+                "genre": "Adult"
+            }
+        }));
+    }
+
+    Ok(legacy)
 }
 
 #[tauri::command]
