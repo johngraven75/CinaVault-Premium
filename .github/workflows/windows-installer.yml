@@ -1,5 +1,7 @@
 name: Windows Installer Build 164
 
+# Auto Build, Test, Cleanup
+
 on:
   push:
     branches:
@@ -27,6 +29,7 @@ concurrency:
 env:
   BUILD_NUMBER: '164'
   APP_VERSION: 1.6.4
+  BUILD_OUTPUT_DIR: releases/build-164
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build164
   RUST_BACKTRACE: 1
 
