@@ -1,14 +1,17 @@
-# APIsec scan. The scan is skipped cleanly when repository credentials are not configured.
+# APIsec scan. Runs only when explicitly dispatched and credentials are configured.
 name: APIsec
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-  schedule:
-    - cron: '32 14 * * 3'
   workflow_dispatch:
+    inputs:
+      project:
+        description: APIsec project name to scan
+        required: true
+        type: string
+      profile:
+        description: Optional APIsec scan profile
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -26,29 +29,25 @@ jobs:
       APISEC_PASSWORD: ${{ secrets.apisec_password }}
 
     steps:
-      - name: Check APIsec configuration
-        id: config
+      - name: Validate APIsec configuration
         shell: bash
         run: |
-          if [[ -n "$APISEC_USERNAME" && -n "$APISEC_PASSWORD" ]]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "APIsec credentials are configured."
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "APIsec scan skipped: apisec_username and/or apisec_password is not configured."
+          if [[ -z "$APISEC_USERNAME" || -z "$APISEC_PASSWORD" ]]; then
+            echo "APIsec credentials are not configured. Add apisec_username and apisec_password repository secrets."
+            exit 1
           fi
 
       - name: APIsec scan
-        if: steps.config.outputs.configured == 'true'
         uses: apisec-inc/apisec-run-scan@025432089674a28ba8fb55f8ab06c10215e772ea
         with:
           apisec-username: ${{ secrets.apisec_username }}
           apisec-password: ${{ secrets.apisec_password }}
-          apisec-project: VAmPI
+          apisec-project: ${{ inputs.project }}
+          apisec-profile: ${{ inputs.profile }}
           sarif-result-file: apisec-results.sarif
 
       - name: Import results
-        if: steps.config.outputs.configured == 'true' && success()
+        if: success()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ./apisec-results.sarif
