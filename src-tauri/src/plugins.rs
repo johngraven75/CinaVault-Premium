@@ -42,7 +42,11 @@ fn init_catalog(lock: &mut std::sync::MutexGuard<Option<Vec<PluginEntry>>>) {
                 repo_id: "official".to_string(),
                 author: "CinaVault Team".to_string(),
                 homepage: "https://www.themoviedb.org".to_string(),
-                tags: vec!["metadata".to_string(), "movies".to_string(), "tv".to_string()],
+                tags: vec![
+                    "metadata".to_string(),
+                    "movies".to_string(),
+                    "tv".to_string(),
+                ],
             },
             PluginEntry {
                 id: "subtitle-opensubtitles".to_string(),
@@ -64,7 +68,11 @@ fn init_catalog(lock: &mut std::sync::MutexGuard<Option<Vec<PluginEntry>>>) {
                 repo_id: "official".to_string(),
                 author: "CinaVault Team".to_string(),
                 homepage: "https://cinavault.app/plugins/chromecast".to_string(),
-                tags: vec!["cast".to_string(), "chromecast".to_string(), "google".to_string()],
+                tags: vec![
+                    "cast".to_string(),
+                    "chromecast".to_string(),
+                    "google".to_string(),
+                ],
             },
         ]);
     }
@@ -134,7 +142,12 @@ pub fn add_plugin_repo(id: String, name: String, url: String) -> Result<Vec<Plug
     if repos.iter().any(|r| r.id == id) {
         return Err(format!("Repository '{}' already exists.", id));
     }
-    repos.push(PluginRepo { id, name, url, enabled: true });
+    repos.push(PluginRepo {
+        id,
+        name,
+        url,
+        enabled: true,
+    });
     Ok(repos.clone())
 }
 

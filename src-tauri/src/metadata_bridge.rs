@@ -2,11 +2,7 @@ use crate::{metadata_ext, AppState};
 use rusqlite::{params, OptionalExtension};
 use tauri::State;
 
-async fn fetch_tmdb_backdrop(
-    tmdb_id: &str,
-    media_type: &str,
-    api_key: &str,
-) -> Option<String> {
+async fn fetch_tmdb_backdrop(tmdb_id: &str, media_type: &str, api_key: &str) -> Option<String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -18,9 +14,7 @@ async fn fetch_tmdb_backdrop(
     };
 
     for endpoint in preferred {
-        let url = format!(
-            "https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={api_key}"
-        );
+        let url = format!("https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={api_key}");
         let response = client.get(url).send().await.ok()?;
         if !response.status().is_success() {
             continue;

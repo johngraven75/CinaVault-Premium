@@ -25,11 +25,15 @@ test("buildAddXtreamProfileArgs sends serverUrl for the Tauri command", () => {
 
 test("normalizeXtreamServerUrl strips common Xtream endpoint paths to the server base", () => {
   assert.equal(
-    normalizeXtreamServerUrl("https://provider.example.com:8443/player_api.php?username=u&password=p"),
+    normalizeXtreamServerUrl(
+      "https://provider.example.com:8443/player_api.php?username=u&password=p",
+    ),
     "https://provider.example.com:8443",
   );
   assert.equal(
-    normalizeXtreamServerUrl("http://provider.example.com:8080/get.php?username=u&password=p&type=m3u_plus"),
+    normalizeXtreamServerUrl(
+      "http://provider.example.com:8080/get.php?username=u&password=p&type=m3u_plus",
+    ),
     "http://provider.example.com:8080",
   );
 });

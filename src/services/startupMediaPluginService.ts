@@ -1,6 +1,6 @@
 import {
   arePermanentMediaPluginsReady,
-  getStartupMediaPlugins
+  getStartupMediaPlugins,
 } from "../plugins/permanentMediaPlugins";
 
 export function initializePermanentMediaPluginsAtStartup() {
@@ -8,6 +8,6 @@ export function initializePermanentMediaPluginsAtStartup() {
     ready: arePermanentMediaPluginsReady(),
     startupPlugins: getStartupMediaPlugins(),
     message:
-      "Permanent media plugins are installed, enabled, configured, and initialized for startup."
+      "Permanent media plugins are installed, enabled, configured, and initialized for startup.",
   };
 }

@@ -1,9 +1,15 @@
 // CinaVault Premium — AI Activity Visualizer (Rotating Ring + Waveform + Comet)
 import React, { useRef, useEffect } from "react";
 
-interface Props { active?: boolean; className?: string; }
+interface Props {
+  active?: boolean;
+  className?: string;
+}
 
-export default function AIVisualizer({ active = false, className = "" }: Props) {
+export default function AIVisualizer({
+  active = false,
+  className = "",
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -56,7 +62,9 @@ export default function AIVisualizer({ active = false, className = "" }: Props) 
       const barBaseY = cy + ringR + 30;
 
       for (let i = 0; i < barCount; i++) {
-        const freq = active ? Math.sin(t * 4 + i * 0.4) * 0.8 + Math.sin(t * 7 + i * 0.7) * 0.3 : Math.sin(t + i * 0.3) * 0.15;
+        const freq = active
+          ? Math.sin(t * 4 + i * 0.4) * 0.8 + Math.sin(t * 7 + i * 0.7) * 0.3
+          : Math.sin(t + i * 0.3) * 0.15;
         const barH = Math.abs(freq) * 25 * intensity + 2;
         const x = barStartX + i * barWidth;
         const alpha = 0.3 + Math.abs(freq) * 0.5;
@@ -82,7 +90,14 @@ export default function AIVisualizer({ active = false, className = "" }: Props) 
       }
 
       // Center orb
-      const orbGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20 + intensity * 10);
+      const orbGlow = ctx.createRadialGradient(
+        cx,
+        cy,
+        0,
+        cx,
+        cy,
+        20 + intensity * 10,
+      );
       orbGlow.addColorStop(0, `rgba(192,132,252,${0.4 * intensity})`);
       orbGlow.addColorStop(0.5, `rgba(167,139,250,${0.15 * intensity})`);
       orbGlow.addColorStop(1, "transparent");

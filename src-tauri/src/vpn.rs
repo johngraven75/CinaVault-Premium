@@ -16,7 +16,8 @@ const VPN_LOCATIONS: &[(&str, &str)] = &[
 
 #[tauri::command]
 pub async fn vpn_connect(location: String) -> Result<serde_json::Value, String> {
-    let loc_code = VPN_LOCATIONS.iter()
+    let loc_code = VPN_LOCATIONS
+        .iter()
         .find(|(name, _)| *name == location)
         .map(|(_, code)| *code)
         .unwrap_or(&location);
@@ -52,9 +53,7 @@ pub async fn vpn_disconnect() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub async fn vpn_status() -> Result<serde_json::Value, String> {
-    let output = Command::new("windscribe")
-        .arg("status")
-        .output();
+    let output = Command::new("windscribe").arg("status").output();
 
     match output {
         Ok(out) => {
@@ -69,16 +68,14 @@ pub async fn vpn_status() -> Result<serde_json::Value, String> {
                 }).collect::<Vec<_>>(),
             }))
         }
-        Err(_) => {
-            Ok(serde_json::json!({
-                "installed": false,
-                "connected": false,
-                "details": "Windscribe CLI not found. Install via windscribe.com",
-                "locations": VPN_LOCATIONS.iter().map(|(name, code)| {
-                    serde_json::json!({ "name": name, "code": code })
-                }).collect::<Vec<_>>(),
-            }))
-        }
+        Err(_) => Ok(serde_json::json!({
+            "installed": false,
+            "connected": false,
+            "details": "Windscribe CLI not found. Install via windscribe.com",
+            "locations": VPN_LOCATIONS.iter().map(|(name, code)| {
+                serde_json::json!({ "name": name, "code": code })
+            }).collect::<Vec<_>>(),
+        })),
     }
 }
 
@@ -137,7 +134,13 @@ pub async fn install_security_tools() -> Result<serde_json::Value, String> {
     {
         // Install Windscribe via winget
         let output = Command::new("winget")
-            .args(&["install", "--id", "Windscribe.Windscribe", "--accept-package-agreements", "--accept-source-agreements"])
+            .args(&[
+                "install",
+                "--id",
+                "Windscribe.Windscribe",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
             .output()
             .map_err(|e| format!("winget failed: {}", e))?;
 

@@ -11,5 +11,7 @@ export function filterItemsByTitleInitial<T extends { title: string }>(
   selectedInitial: TitleInitialFilter,
 ): T[] {
   if (selectedInitial === "all") return items;
-  return items.filter((item) => getTitleInitial(item.title) === selectedInitial);
+  return items.filter(
+    (item) => getTitleInitial(item.title) === selectedInitial,
+  );
 }

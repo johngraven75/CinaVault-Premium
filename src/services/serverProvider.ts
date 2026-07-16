@@ -1,7 +1,7 @@
 import {
   getCinaVaultServerSettings,
   shouldKeepCurrentAppFeatures,
-  shouldUseCinaVaultServerFirst
+  shouldUseCinaVaultServerFirst,
 } from "../server/cinavaultServer";
 
 export function getPreferredMediaServer() {
@@ -10,6 +10,6 @@ export function getPreferredMediaServer() {
     fallback: "jellyfin-compatible",
     settings: getCinaVaultServerSettings(),
     keepExistingFeatures: shouldKeepCurrentAppFeatures(),
-    useCinaVaultServerFirst: shouldUseCinaVaultServerFirst()
+    useCinaVaultServerFirst: shouldUseCinaVaultServerFirst(),
   };
 }

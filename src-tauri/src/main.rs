@@ -4,30 +4,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
-mod scanner;
 mod iptv;
 mod jellyfin;
-mod plugins;
 mod player;
+mod plugins;
+mod scanner;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
-mod metadata_ext;
-mod metadata_bridge;
 mod adult_site_provider;
-mod chapters;
-mod duplicates;
-mod vpn;
-mod downloads;
 mod ai;
 mod ai_automation;
+mod chapters;
+mod downloads;
+mod duplicates;
 mod enrichment;
-mod task_progress;
 mod library_artifacts;
-mod pgma_bridge;
-mod nas_devices;
+mod metadata_bridge;
+mod metadata_ext;
 #[cfg(test)]
 mod metadata_posting_tests;
+mod nas_devices;
+mod pgma_bridge;
+mod task_progress;
+mod vpn;
 
 use db::Database;
 use std::sync::Mutex;
@@ -48,7 +48,10 @@ fn main() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+            let app_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
 
             let plugin_dirs = ["jellyfin", "emby", "plex", "native"];
@@ -57,8 +60,8 @@ fn main() {
             }
 
             let db_path = app_dir.join("cinavault.db");
-            let database = Database::new(db_path.to_str().unwrap())
-                .expect("Failed to initialize database");
+            let database =
+                Database::new(db_path.to_str().unwrap()).expect("Failed to initialize database");
             app.manage(AppState {
                 db: Mutex::new(database),
             });

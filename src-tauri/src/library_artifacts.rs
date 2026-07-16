@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg", "avif", "heic"];
+const IMAGE_EXTS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg", "avif", "heic",
+];
 const POSTER_EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "avif", "heic"];
 
 fn extension_lower(path: &Path) -> Option<String> {
@@ -114,7 +116,15 @@ pub fn sidecar_poster_path_for_video(video_path: &Path) -> Option<PathBuf> {
         }
     }
 
-    let generic_candidates = ["poster", "cover", "folder", "fanart", "backdrop", "landscape", "banner"];
+    let generic_candidates = [
+        "poster",
+        "cover",
+        "folder",
+        "fanart",
+        "backdrop",
+        "landscape",
+        "banner",
+    ];
     for name in generic_candidates {
         for ext in POSTER_EXTS {
             let candidate = parent.join(format!("{name}.{ext}"));

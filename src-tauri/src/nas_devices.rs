@@ -1,8 +1,8 @@
 // CinaVault Premium — NAS Device Integration
 // Synology QuickConnect + WD My Cloud Home
+use crate::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use crate::AppState;
 
 // ════════════════════════════════════════════════════════════
 //  Shared types
@@ -105,7 +105,13 @@ fn resolve_quickconnect(quickconnect_id: &str) -> Result<String, String> {
     Ok(format!("{}.quickconnect.to", quickconnect_id))
 }
 
-fn synology_login(host: &str, port: u16, use_https: bool, username: &str, password: &str) -> Result<String, String> {
+fn synology_login(
+    host: &str,
+    port: u16,
+    use_https: bool,
+    username: &str,
+    password: &str,
+) -> Result<String, String> {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!(
         "{}://{}:{}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account={}&passwd={}&session=CinaVault&format=sid",
@@ -120,10 +126,17 @@ fn synology_login(host: &str, port: u16, use_https: bool, username: &str, passwo
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&url).send().map_err(|e| format!("Synology login error: {}", e))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("Synology login error: {}", e))?;
     let json: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
 
-    if json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if json
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let sid = json["data"]["sid"].as_str().unwrap_or("").to_string();
         Ok(sid)
     } else {
@@ -132,7 +145,12 @@ fn synology_login(host: &str, port: u16, use_https: bool, username: &str, passwo
     }
 }
 
-fn synology_get_shares(host: &str, port: u16, use_https: bool, sid: &str) -> Result<Vec<NasLibrary>, String> {
+fn synology_get_shares(
+    host: &str,
+    port: u16,
+    use_https: bool,
+    sid: &str,
+) -> Result<Vec<NasLibrary>, String> {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!(
         "{}://{}:{}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&_sid={}",
@@ -154,7 +172,9 @@ fn synology_get_shares(host: &str, port: u16, use_https: bool, sid: &str) -> Res
             let name = share["name"].as_str().unwrap_or("").to_string();
             let path = share["path"].as_str().unwrap_or("").to_string();
             let additional = &share["additional"];
-            let size_bytes = additional["volume_status"]["totalspace"].as_u64().unwrap_or(0);
+            let size_bytes = additional["volume_status"]["totalspace"]
+                .as_u64()
+                .unwrap_or(0);
 
             // Infer media type from share name
             let media_type = infer_media_type_from_name(&name);
@@ -173,7 +193,12 @@ fn synology_get_shares(host: &str, port: u16, use_https: bool, sid: &str) -> Res
     Ok(libraries)
 }
 
-fn synology_get_info(host: &str, port: u16, use_https: bool, sid: &str) -> (String, String, String) {
+fn synology_get_info(
+    host: &str,
+    port: u16,
+    use_https: bool,
+    sid: &str,
+) -> (String, String, String) {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!(
         "{}://{}:{}/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=getinfo&_sid={}",
@@ -187,13 +212,26 @@ fn synology_get_info(host: &str, port: u16, use_https: bool, sid: &str) -> (Stri
 
     if let Ok(resp) = client.get(&url).send() {
         if let Ok(json) = resp.json::<serde_json::Value>() {
-            let model = json["data"]["model"].as_str().unwrap_or("Synology NAS").to_string();
-            let firmware = json["data"]["version_string"].as_str().unwrap_or("DSM").to_string();
-            let hostname = json["data"]["hostname"].as_str().unwrap_or(host).to_string();
+            let model = json["data"]["model"]
+                .as_str()
+                .unwrap_or("Synology NAS")
+                .to_string();
+            let firmware = json["data"]["version_string"]
+                .as_str()
+                .unwrap_or("DSM")
+                .to_string();
+            let hostname = json["data"]["hostname"]
+                .as_str()
+                .unwrap_or(host)
+                .to_string();
             return (hostname, model, firmware);
         }
     }
-    (host.to_string(), "Synology NAS".to_string(), "DSM".to_string())
+    (
+        host.to_string(),
+        "Synology NAS".to_string(),
+        "DSM".to_string(),
+    )
 }
 
 // ════════════════════════════════════════════════════════════
@@ -201,11 +239,20 @@ fn synology_get_info(host: &str, port: u16, use_https: bool, sid: &str) -> (Stri
 //  Authenticates via the WD My Cloud REST API (local or cloud)
 // ════════════════════════════════════════════════════════════
 
-fn wd_mycloud_login(host: &str, port: u16, use_https: bool, username: &str, password: &str) -> Result<String, String> {
+fn wd_mycloud_login(
+    host: &str,
+    port: u16,
+    use_https: bool,
+    username: &str,
+    password: &str,
+) -> Result<String, String> {
     let scheme = if use_https { "https" } else { "http" };
 
     // WD My Cloud uses a cookie-based session
-    let login_url = format!("{}://{}:{}/api/2.1/rest/users?method=login", scheme, host, port);
+    let login_url = format!(
+        "{}://{}:{}/api/2.1/rest/users?method=login",
+        scheme, host, port
+    );
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -229,7 +276,8 @@ fn wd_mycloud_login(host: &str, port: u16, use_https: bool, username: &str, pass
     if status.is_success() {
         // Extract session token from response headers or body
         let json: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
-        let token = json["token"].as_str()
+        let token = json["token"]
+            .as_str()
             .or_else(|| json["data"]["token"].as_str())
             .or_else(|| json["session_id"].as_str())
             .unwrap_or("authenticated")
@@ -240,7 +288,12 @@ fn wd_mycloud_login(host: &str, port: u16, use_https: bool, username: &str, pass
     }
 }
 
-fn wd_mycloud_get_shares(host: &str, port: u16, use_https: bool, token: &str) -> Result<Vec<NasLibrary>, String> {
+fn wd_mycloud_get_shares(
+    host: &str,
+    port: u16,
+    use_https: bool,
+    token: &str,
+) -> Result<Vec<NasLibrary>, String> {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!("{}://{}:{}/api/2.1/rest/shares", scheme, host, port);
 
@@ -259,22 +312,26 @@ fn wd_mycloud_get_shares(host: &str, port: u16, use_https: bool, token: &str) ->
     let json: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
     let mut libraries = Vec::new();
 
-    let shares_arr = json["shares"].as_array()
+    let shares_arr = json["shares"]
+        .as_array()
         .or_else(|| json["data"].as_array())
         .or_else(|| json.as_array())
         .cloned()
         .unwrap_or_default();
 
     for share in shares_arr {
-        let name = share["name"].as_str()
+        let name = share["name"]
+            .as_str()
             .or_else(|| share["share_name"].as_str())
             .unwrap_or("Share")
             .to_string();
-        let path = share["path"].as_str()
+        let path = share["path"]
+            .as_str()
             .or_else(|| share["mount_path"].as_str())
             .unwrap_or("")
             .to_string();
-        let size_bytes = share["total_size"].as_u64()
+        let size_bytes = share["total_size"]
+            .as_u64()
             .or_else(|| share["size"].as_u64())
             .unwrap_or(0);
         let media_type = infer_media_type_from_name(&name);
@@ -306,7 +363,12 @@ fn wd_mycloud_get_shares(host: &str, port: u16, use_https: bool, token: &str) ->
     Ok(libraries)
 }
 
-fn wd_mycloud_get_info(host: &str, port: u16, use_https: bool, token: &str) -> (String, String, String) {
+fn wd_mycloud_get_info(
+    host: &str,
+    port: u16,
+    use_https: bool,
+    token: &str,
+) -> (String, String, String) {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!("{}://{}:{}/api/2.1/rest/device", scheme, host, port);
 
@@ -322,22 +384,29 @@ fn wd_mycloud_get_info(host: &str, port: u16, use_https: bool, token: &str) -> (
         .send()
     {
         if let Ok(json) = resp.json::<serde_json::Value>() {
-            let name = json["name"].as_str()
+            let name = json["name"]
+                .as_str()
                 .or_else(|| json["device_name"].as_str())
                 .unwrap_or("WD My Cloud")
                 .to_string();
-            let model = json["model"].as_str()
+            let model = json["model"]
+                .as_str()
                 .or_else(|| json["device_model"].as_str())
                 .unwrap_or("WD My Cloud")
                 .to_string();
-            let fw = json["firmware"].as_str()
+            let fw = json["firmware"]
+                .as_str()
                 .or_else(|| json["firmware_version"].as_str())
                 .unwrap_or("")
                 .to_string();
             return (name, model, fw);
         }
     }
-    ("WD My Cloud".to_string(), "WD My Cloud".to_string(), "".to_string())
+    (
+        "WD My Cloud".to_string(),
+        "WD My Cloud".to_string(),
+        "".to_string(),
+    )
 }
 
 // ════════════════════════════════════════════════════════════
@@ -348,7 +417,11 @@ fn infer_media_type_from_name(name: &str) -> String {
     let lower = name.to_lowercase();
     if lower.contains("movie") || lower.contains("film") || lower.contains("cinema") {
         "movies".to_string()
-    } else if lower.contains("tv") || lower.contains("series") || lower.contains("show") || lower.contains("episode") {
+    } else if lower.contains("tv")
+        || lower.contains("series")
+        || lower.contains("show")
+        || lower.contains("episode")
+    {
         "tv".to_string()
     } else if lower.contains("music") || lower.contains("audio") || lower.contains("song") {
         "music".to_string()
@@ -360,10 +433,12 @@ fn infer_media_type_from_name(name: &str) -> String {
 }
 
 fn urlencoding_simple(s: &str) -> String {
-    s.chars().map(|c| match c {
-        'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-        _ => format!("%{:02X}", c as u32),
-    }).collect()
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            _ => format!("%{:02X}", c as u32),
+        })
+        .collect()
 }
 
 // ════════════════════════════════════════════════════════════
@@ -385,15 +460,15 @@ pub fn synology_connect(
     log::info!("Synology connect: id={}", quickconnect_id);
 
     // Resolve host
-    let host = if quickconnect_id.contains('.') || quickconnect_id.parse::<std::net::IpAddr>().is_ok() {
-        // Direct IP or hostname provided
-        quickconnect_id.clone()
-    } else {
-        // QuickConnect ID — resolve via relay
-        resolve_quickconnect(&quickconnect_id).unwrap_or_else(|_| {
-            format!("{}.quickconnect.to", quickconnect_id)
-        })
-    };
+    let host =
+        if quickconnect_id.contains('.') || quickconnect_id.parse::<std::net::IpAddr>().is_ok() {
+            // Direct IP or hostname provided
+            quickconnect_id.clone()
+        } else {
+            // QuickConnect ID — resolve via relay
+            resolve_quickconnect(&quickconnect_id)
+                .unwrap_or_else(|_| format!("{}.quickconnect.to", quickconnect_id))
+        };
 
     let resolved_port = port.unwrap_or(if use_https { 5001 } else { 5000 });
 
@@ -401,7 +476,8 @@ pub fn synology_connect(
     let sid = synology_login(&host, resolved_port, use_https, &username, &password)?;
 
     // Get device info
-    let (device_name, device_model, firmware) = synology_get_info(&host, resolved_port, use_https, &sid);
+    let (device_name, device_model, firmware) =
+        synology_get_info(&host, resolved_port, use_https, &sid);
 
     // Get shared folders
     let libraries = synology_get_shares(&host, resolved_port, use_https, &sid)?;
@@ -439,7 +515,8 @@ pub fn synology_connect(
 #[tauri::command]
 pub fn synology_disconnect(state: State<AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data("synology_connection", "").map_err(|e| e.to_string())?;
+    db.set_setting_data("synology_connection", "")
+        .map_err(|e| e.to_string())?;
     log::info!("Synology disconnected");
     Ok(())
 }
@@ -448,7 +525,9 @@ pub fn synology_disconnect(state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn synology_get_status(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let raw = db.get_setting_data("synology_connection").map_err(|e| e.to_string())?;
+    let raw = db
+        .get_setting_data("synology_connection")
+        .map_err(|e| e.to_string())?;
     match raw {
         Some(s) if !s.is_empty() => {
             let val: serde_json::Value = serde_json::from_str(&s).unwrap_or(serde_json::json!({}));
@@ -468,13 +547,19 @@ pub fn synology_add_library(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     // Get connection info
-    let raw = db.get_setting_data("synology_connection").map_err(|e| e.to_string())?;
+    let raw = db
+        .get_setting_data("synology_connection")
+        .map_err(|e| e.to_string())?;
     let conn: serde_json::Value = raw
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let host = conn["host"].as_str().unwrap_or("nas");
     let port = conn["port"].as_u64().unwrap_or(5000);
-    let scheme = if conn["use_https"].as_bool().unwrap_or(false) { "https" } else { "http" };
+    let scheme = if conn["use_https"].as_bool().unwrap_or(false) {
+        "https"
+    } else {
+        "http"
+    };
     let source_path = format!("{}://{}:{}{}", scheme, host, port, share_path);
     let source = crate::db::MediaSource {
         id: None,
@@ -508,7 +593,8 @@ pub fn wd_mycloud_connect(
     let token = wd_mycloud_login(&host, resolved_port, use_https, &username, &password)?;
 
     // Get device info
-    let (device_name, device_model, firmware) = wd_mycloud_get_info(&host, resolved_port, use_https, &token);
+    let (device_name, device_model, firmware) =
+        wd_mycloud_get_info(&host, resolved_port, use_https, &token);
 
     // Get shares
     let libraries = wd_mycloud_get_shares(&host, resolved_port, use_https, &token)?;
@@ -546,7 +632,8 @@ pub fn wd_mycloud_connect(
 #[tauri::command]
 pub fn wd_mycloud_disconnect(state: State<AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data("wd_mycloud_connection", "").map_err(|e| e.to_string())?;
+    db.set_setting_data("wd_mycloud_connection", "")
+        .map_err(|e| e.to_string())?;
     log::info!("WD My Cloud disconnected");
     Ok(())
 }
@@ -555,7 +642,9 @@ pub fn wd_mycloud_disconnect(state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn wd_mycloud_get_status(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let raw = db.get_setting_data("wd_mycloud_connection").map_err(|e| e.to_string())?;
+    let raw = db
+        .get_setting_data("wd_mycloud_connection")
+        .map_err(|e| e.to_string())?;
     match raw {
         Some(s) if !s.is_empty() => {
             let val: serde_json::Value = serde_json::from_str(&s).unwrap_or(serde_json::json!({}));
@@ -574,13 +663,19 @@ pub fn wd_mycloud_add_library(
     media_type: String,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let raw = db.get_setting_data("wd_mycloud_connection").map_err(|e| e.to_string())?;
+    let raw = db
+        .get_setting_data("wd_mycloud_connection")
+        .map_err(|e| e.to_string())?;
     let conn: serde_json::Value = raw
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let host = conn["host"].as_str().unwrap_or("wd-mycloud");
     let port = conn["port"].as_u64().unwrap_or(80);
-    let scheme = if conn["use_https"].as_bool().unwrap_or(false) { "https" } else { "http" };
+    let scheme = if conn["use_https"].as_bool().unwrap_or(false) {
+        "https"
+    } else {
+        "http"
+    };
     let source_path = format!("{}://{}:{}{}", scheme, host, port, share_path);
     let source = crate::db::MediaSource {
         id: None,
@@ -592,6 +687,10 @@ pub fn wd_mycloud_add_library(
         item_count: 0,
     };
     db.add_source_data(&source).map_err(|e| e.to_string())?;
-    log::info!("WD My Cloud library added: {} -> {}", share_name, source_path);
+    log::info!(
+        "WD My Cloud library added: {} -> {}",
+        share_name,
+        source_path
+    );
     Ok(())
 }

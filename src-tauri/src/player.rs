@@ -1,10 +1,10 @@
 // CinaVault Premium — Media Player Module
-use serde::{Deserialize, Serialize};
-use std::process::Command;
-use tauri::State;
 use crate::AppState;
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::Command;
+use tauri::State;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -17,22 +17,44 @@ pub struct PlayerInfo {
 }
 
 const KNOWN_PLAYERS: &[(&str, &[&str])] = &[
-    ("VLC Media Player", &["C:\\Program Files\\VideoLAN\\VLC\\vlc.exe", "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe"]),
-    ("mpv", &["C:\\Program Files\\mpv\\mpv.exe", "C:\\ProgramData\\chocolatey\\bin\\mpv.exe"]),
-    ("MPC-HC", &["C:\\Program Files\\MPC-HC\\mpc-hc64.exe", "C:\\Program Files (x86)\\MPC-HC\\mpc-hc.exe"]),
-    ("PotPlayer", &["C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe"]),
-    ("Windows Media Player", &["C:\\Program Files\\Windows Media Player\\wmplayer.exe"]),
+    (
+        "VLC Media Player",
+        &[
+            "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe",
+            "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe",
+        ],
+    ),
+    (
+        "mpv",
+        &[
+            "C:\\Program Files\\mpv\\mpv.exe",
+            "C:\\ProgramData\\chocolatey\\bin\\mpv.exe",
+        ],
+    ),
+    (
+        "MPC-HC",
+        &[
+            "C:\\Program Files\\MPC-HC\\mpc-hc64.exe",
+            "C:\\Program Files (x86)\\MPC-HC\\mpc-hc.exe",
+        ],
+    ),
+    (
+        "PotPlayer",
+        &["C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe"],
+    ),
+    (
+        "Windows Media Player",
+        &["C:\\Program Files\\Windows Media Player\\wmplayer.exe"],
+    ),
 ];
 
 #[tauri::command]
 pub fn get_available_players() -> Vec<PlayerInfo> {
-    let mut players = vec![
-        PlayerInfo {
-            name: "System Default".to_string(),
-            executable: "system".to_string(),
-            available: true,
-        }
-    ];
+    let mut players = vec![PlayerInfo {
+        name: "System Default".to_string(),
+        executable: "system".to_string(),
+        available: true,
+    }];
 
     for (name, paths) in KNOWN_PLAYERS {
         let mut found = false;
@@ -55,7 +77,11 @@ pub fn get_available_players() -> Vec<PlayerInfo> {
 }
 
 #[tauri::command]
-pub async fn play_media(state: State<'_, AppState>, file_path: String, player: Option<String>) -> Result<(), String> {
+pub async fn play_media(
+    state: State<'_, AppState>,
+    file_path: String,
+    player: Option<String>,
+) -> Result<(), String> {
     if !std::path::Path::new(&file_path).exists() {
         return Err(format!("Media file not found: {}", file_path));
     }
@@ -75,9 +101,12 @@ pub async fn play_media(state: State<'_, AppState>, file_path: String, player: O
                 let mut fallback = Command::new("explorer");
                 fallback.arg(&file_path);
                 fallback.creation_flags(CREATE_NO_WINDOW);
-                fallback
-                    .spawn()
-                    .map_err(|e| format!("System open failed (open + explorer fallback): {}; {}", primary_err, e))?;
+                fallback.spawn().map_err(|e| {
+                    format!(
+                        "System open failed (open + explorer fallback): {}; {}",
+                        primary_err, e
+                    )
+                })?;
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -100,5 +129,6 @@ pub async fn play_media(state: State<'_, AppState>, file_path: String, player: O
 #[tauri::command]
 pub fn set_default_player(state: State<AppState>, player: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data("default_player", &player).map_err(|e| e.to_string())
+    db.set_setting_data("default_player", &player)
+        .map_err(|e| e.to_string())
 }

@@ -1,15 +1,15 @@
 // CinaVault Premium — SQLite Database Layer (rusqlite) — Build 115
 // Premium defaults: all features ON, full persistence support
 
-use rusqlite::{Connection, OptionalExtension, params, Result as SqlResult};
+#[cfg(test)]
+use crate::library_artifacts::sidecar_poster_path_for_video;
+use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
+use crate::AppState;
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use tauri::State;
-use crate::AppState;
-use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
-#[cfg(test)]
-use crate::library_artifacts::sidecar_poster_path_for_video;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaItem {
@@ -304,7 +304,10 @@ impl Database {
             ("synology_connection", ""),
             ("wd_mycloud_connection", ""),
             // Scheduled task defaults
-            ("_scheduledTasks", r#"{"thumbnails":"on_scan","chapter_images":"on_scan","metadata_check":"daily","match_unmatch":"on_import"}"#),
+            (
+                "_scheduledTasks",
+                r#"{"thumbnails":"on_scan","chapter_images":"on_scan","metadata_check":"daily","match_unmatch":"on_import"}"#,
+            ),
         ];
         for (key, value) in defaults {
             self.conn.execute(
@@ -319,12 +322,29 @@ impl Database {
 
         // ── Premium feature defaults: ALL enabled ──
         let features = vec![
-            "smart_collections", "poster_sync", "unified_library", "watchlist",
-            "skip_intro", "skip_outro", "auto_next", "auto_subtitles",
-            "chapter_thumbs", "hw_transcoding", "motion_effects", "splash_screen",
-            "particle_effects", "ai_visualizer", "glassmorphism", "starfield_header",
-            "animated_sidebar", "emby_sdk", "vpn_integration", "ai_diagnostics",
-            "duplicate_finder", "iptv_support", "plugin_system",
+            "smart_collections",
+            "poster_sync",
+            "unified_library",
+            "watchlist",
+            "skip_intro",
+            "skip_outro",
+            "auto_next",
+            "auto_subtitles",
+            "chapter_thumbs",
+            "hw_transcoding",
+            "motion_effects",
+            "splash_screen",
+            "particle_effects",
+            "ai_visualizer",
+            "glassmorphism",
+            "starfield_header",
+            "animated_sidebar",
+            "emby_sdk",
+            "vpn_integration",
+            "ai_diagnostics",
+            "duplicate_finder",
+            "iptv_support",
+            "plugin_system",
         ];
         for feature in features {
             self.conn.execute(
@@ -359,70 +379,302 @@ impl Database {
         let plugin_configs: Vec<(&str, &str, &str)> = vec![
             // (plugin_key, name, config_json)
             // ── Adult Metadata Providers ──
-            ("tpdb", "ThePornDB", r#"{"enabled":true,"api_key":"","base_url":"https://api.theporndb.net","search_limit":10,"include_adult":true,"auto_match":true,"poster_download":true,"nfo_write":true}"#),
-            ("stashdb", "StashDB", r#"{"enabled":true,"api_key":"","endpoint":"https://stashdb.org/graphql","auto_match":true,"poster_download":true,"nfo_write":true}"#),
-            ("pgma", "PGMA Modernized", r#"{"enabled":true,"mode":"local_sidecar_bridge","auto_match":true,"nfo_write":true,"poster_download":true}"#),
-            ("porn_site_nuxt", "Porn Site Nuxt", r#"{"enabled":true,"base_url":"http://localhost:42069/","auto_match":true,"poster_download":true,"nfo_write":true}"#),
-            ("iafd", "IAFD", r#"{"enabled":true,"base_url":"https://www.iafd.com","scrape_mode":true,"auto_match":true,"poster_download":true}"#),
-            ("phoenixadult", "PhoenixAdult", r#"{"enabled":true,"manifest_url":"https://raw.githubusercontent.com/DirtyRacer1337/Jellyfin.Plugin.PhoenixAdult/master/manifest.json","auto_match":true,"poster_download":true}"#),
+            (
+                "tpdb",
+                "ThePornDB",
+                r#"{"enabled":true,"api_key":"","base_url":"https://api.theporndb.net","search_limit":10,"include_adult":true,"auto_match":true,"poster_download":true,"nfo_write":true}"#,
+            ),
+            (
+                "stashdb",
+                "StashDB",
+                r#"{"enabled":true,"api_key":"","endpoint":"https://stashdb.org/graphql","auto_match":true,"poster_download":true,"nfo_write":true}"#,
+            ),
+            (
+                "pgma",
+                "PGMA Modernized",
+                r#"{"enabled":true,"mode":"local_sidecar_bridge","auto_match":true,"nfo_write":true,"poster_download":true}"#,
+            ),
+            (
+                "porn_site_nuxt",
+                "Porn Site Nuxt",
+                r#"{"enabled":true,"base_url":"http://localhost:42069/","auto_match":true,"poster_download":true,"nfo_write":true}"#,
+            ),
+            (
+                "iafd",
+                "IAFD",
+                r#"{"enabled":true,"base_url":"https://www.iafd.com","scrape_mode":true,"auto_match":true,"poster_download":true}"#,
+            ),
+            (
+                "phoenixadult",
+                "PhoenixAdult",
+                r#"{"enabled":true,"manifest_url":"https://raw.githubusercontent.com/DirtyRacer1337/Jellyfin.Plugin.PhoenixAdult/master/manifest.json","auto_match":true,"poster_download":true}"#,
+            ),
             // ── Standard Metadata Providers ──
-            ("tmdb", "TMDb", r#"{"enabled":true,"api_key":"","base_url":"https://api.themoviedb.org/3","language":"en-US","include_adult":true,"poster_size":"w500","backdrop_size":"w1280","auto_match":true,"nfo_write":true}"#),
-            ("omdb", "OMDb", r#"{"enabled":true,"api_key":"","base_url":"https://www.omdbapi.com","plot":"full","auto_match":true,"nfo_write":true}"#),
-            ("tvdb", "TVDB", r#"{"enabled":true,"api_key":"","base_url":"https://api4.thetvdb.com/v4","language":"eng","auto_match":true,"nfo_write":true}"#),
-            ("fanart", "Fanart.tv", r#"{"enabled":true,"api_key":"","base_url":"https://webservice.fanart.tv/v3","prefer_language":"en","poster_download":true,"backdrop_download":true}"#),
-            ("trakt", "Trakt", r#"{"enabled":true,"client_id":"","client_secret":"","base_url":"https://api.trakt.tv","sync_watched":true,"sync_ratings":true,"sync_watchlist":true}"#),
-            ("opensubtitles", "OpenSubtitles", r#"{"enabled":true,"api_key":"","base_url":"https://api.opensubtitles.com/api/v1","languages":["en"],"auto_download":true,"hearing_impaired":false}"#),
-            ("anidb", "AniDB", r#"{"enabled":true,"client":"cinavault","clientver":1,"base_url":"https://api.anidb.net:9001/httpapi","auto_match":true,"nfo_write":true}"#),
-            ("mal", "MyAnimeList", r#"{"enabled":true,"client_id":"","base_url":"https://api.myanimelist.net/v2","auto_match":true,"nfo_write":true}"#),
-            ("kitsu", "Kitsu", r#"{"enabled":true,"base_url":"https://kitsu.io/api/edge","auto_match":true,"nfo_write":true}"#),
-            ("anilist", "AniList", r#"{"enabled":true,"base_url":"https://graphql.anilist.co","auto_match":true,"nfo_write":true}"#),
-            ("audiodb", "AudioDB", r#"{"enabled":true,"api_key":"2","base_url":"https://theaudiodb.com/api/v1/json","auto_match":true}"#),
-            ("musicbrainz", "MusicBrainz", r#"{"enabled":true,"base_url":"https://musicbrainz.org/ws/2","format":"json","auto_match":true}"#),
-            ("lastfm", "Last.fm", r#"{"enabled":true,"api_key":"","base_url":"https://ws.audioscrobbler.com/2.0","auto_scrobble":true}"#),
-            ("discogs", "Discogs", r#"{"enabled":true,"token":"","base_url":"https://api.discogs.com","auto_match":true}"#),
-            ("igdb", "IGDB", r#"{"enabled":true,"client_id":"","client_secret":"","base_url":"https://api.igdb.com/v4","auto_match":true}"#),
-            ("tvmaze", "TVMaze", r#"{"enabled":true,"base_url":"https://api.tvmaze.com","auto_match":true,"nfo_write":true}"#),
-            ("cinemeta", "Cinemeta", r#"{"enabled":true,"base_url":"https://v3-cinemeta.strem.io","auto_match":true}"#),
+            (
+                "tmdb",
+                "TMDb",
+                r#"{"enabled":true,"api_key":"","base_url":"https://api.themoviedb.org/3","language":"en-US","include_adult":true,"poster_size":"w500","backdrop_size":"w1280","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "omdb",
+                "OMDb",
+                r#"{"enabled":true,"api_key":"","base_url":"https://www.omdbapi.com","plot":"full","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "tvdb",
+                "TVDB",
+                r#"{"enabled":true,"api_key":"","base_url":"https://api4.thetvdb.com/v4","language":"eng","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "fanart",
+                "Fanart.tv",
+                r#"{"enabled":true,"api_key":"","base_url":"https://webservice.fanart.tv/v3","prefer_language":"en","poster_download":true,"backdrop_download":true}"#,
+            ),
+            (
+                "trakt",
+                "Trakt",
+                r#"{"enabled":true,"client_id":"","client_secret":"","base_url":"https://api.trakt.tv","sync_watched":true,"sync_ratings":true,"sync_watchlist":true}"#,
+            ),
+            (
+                "opensubtitles",
+                "OpenSubtitles",
+                r#"{"enabled":true,"api_key":"","base_url":"https://api.opensubtitles.com/api/v1","languages":["en"],"auto_download":true,"hearing_impaired":false}"#,
+            ),
+            (
+                "anidb",
+                "AniDB",
+                r#"{"enabled":true,"client":"cinavault","clientver":1,"base_url":"https://api.anidb.net:9001/httpapi","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "mal",
+                "MyAnimeList",
+                r#"{"enabled":true,"client_id":"","base_url":"https://api.myanimelist.net/v2","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "kitsu",
+                "Kitsu",
+                r#"{"enabled":true,"base_url":"https://kitsu.io/api/edge","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "anilist",
+                "AniList",
+                r#"{"enabled":true,"base_url":"https://graphql.anilist.co","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "audiodb",
+                "AudioDB",
+                r#"{"enabled":true,"api_key":"2","base_url":"https://theaudiodb.com/api/v1/json","auto_match":true}"#,
+            ),
+            (
+                "musicbrainz",
+                "MusicBrainz",
+                r#"{"enabled":true,"base_url":"https://musicbrainz.org/ws/2","format":"json","auto_match":true}"#,
+            ),
+            (
+                "lastfm",
+                "Last.fm",
+                r#"{"enabled":true,"api_key":"","base_url":"https://ws.audioscrobbler.com/2.0","auto_scrobble":true}"#,
+            ),
+            (
+                "discogs",
+                "Discogs",
+                r#"{"enabled":true,"token":"","base_url":"https://api.discogs.com","auto_match":true}"#,
+            ),
+            (
+                "igdb",
+                "IGDB",
+                r#"{"enabled":true,"client_id":"","client_secret":"","base_url":"https://api.igdb.com/v4","auto_match":true}"#,
+            ),
+            (
+                "tvmaze",
+                "TVMaze",
+                r#"{"enabled":true,"base_url":"https://api.tvmaze.com","auto_match":true,"nfo_write":true}"#,
+            ),
+            (
+                "cinemeta",
+                "Cinemeta",
+                r#"{"enabled":true,"base_url":"https://v3-cinemeta.strem.io","auto_match":true}"#,
+            ),
             // ── MS-C (Jellyfin) Plugins ──
-            ("jf-open-subtitles", "OpenSubtitles (MS-C)", r#"{"enabled":true,"username":"","password":"","auto_download":true,"languages":["en"],"hearing_impaired":false,"foreign_parts_only":false}"#),
-            ("jf-trakt", "Trakt (MS-C)", r#"{"enabled":true,"client_id":"","client_secret":"","sync_watched":true,"sync_ratings":true,"sync_watchlist":true,"sync_interval_hours":24}"#),
-            ("jf-simkl", "Simkl (MS-C)", r#"{"enabled":true,"client_id":"","client_secret":"","auto_scrobble":true,"sync_watched":true}"#),
-            ("jf-kodi-sync", "Kodi Sync Queue (MS-C)", r#"{"enabled":true,"retain_days":30,"auto_clean":true}"#),
-            ("jf-webhook", "Webhook (MS-C)", r#"{"enabled":true,"endpoints":[],"notify_on_play":true,"notify_on_stop":true,"notify_on_new_item":true,"template":"discord"}"#),
-            ("jf-playback-reporting", "Playback Reporting (MS-C)", r#"{"enabled":true,"retain_days":365,"keep_watching_items":true}"#),
-            ("jf-session-cleaner", "Session Cleaner (MS-C)", r#"{"enabled":true,"max_session_age_days":30,"auto_clean":true,"clean_interval_hours":24}"#),
-            ("jf-ldap", "LDAP Auth (MS-C)", r#"{"enabled":false,"server":"","port":389,"base_dn":"","bind_dn":"","bind_password":"","user_filter":"(objectClass=person)","use_ssl":false}"#),
-            ("jf-dlna", "DLNA (MS-C)", r#"{"enabled":true,"server_name":"CinaVault","alive_message_interval_seconds":1800,"auto_start":true}"#),
-            ("jf-chapter-segments", "Chapter Segments (MS-C)", r#"{"enabled":true,"auto_detect":true,"skip_intro":true,"skip_outro":true,"min_segment_seconds":10}"#),
+            (
+                "jf-open-subtitles",
+                "OpenSubtitles (MS-C)",
+                r#"{"enabled":true,"username":"","password":"","auto_download":true,"languages":["en"],"hearing_impaired":false,"foreign_parts_only":false}"#,
+            ),
+            (
+                "jf-trakt",
+                "Trakt (MS-C)",
+                r#"{"enabled":true,"client_id":"","client_secret":"","sync_watched":true,"sync_ratings":true,"sync_watchlist":true,"sync_interval_hours":24}"#,
+            ),
+            (
+                "jf-simkl",
+                "Simkl (MS-C)",
+                r#"{"enabled":true,"client_id":"","client_secret":"","auto_scrobble":true,"sync_watched":true}"#,
+            ),
+            (
+                "jf-kodi-sync",
+                "Kodi Sync Queue (MS-C)",
+                r#"{"enabled":true,"retain_days":30,"auto_clean":true}"#,
+            ),
+            (
+                "jf-webhook",
+                "Webhook (MS-C)",
+                r#"{"enabled":true,"endpoints":[],"notify_on_play":true,"notify_on_stop":true,"notify_on_new_item":true,"template":"discord"}"#,
+            ),
+            (
+                "jf-playback-reporting",
+                "Playback Reporting (MS-C)",
+                r#"{"enabled":true,"retain_days":365,"keep_watching_items":true}"#,
+            ),
+            (
+                "jf-session-cleaner",
+                "Session Cleaner (MS-C)",
+                r#"{"enabled":true,"max_session_age_days":30,"auto_clean":true,"clean_interval_hours":24}"#,
+            ),
+            (
+                "jf-ldap",
+                "LDAP Auth (MS-C)",
+                r#"{"enabled":false,"server":"","port":389,"base_dn":"","bind_dn":"","bind_password":"","user_filter":"(objectClass=person)","use_ssl":false}"#,
+            ),
+            (
+                "jf-dlna",
+                "DLNA (MS-C)",
+                r#"{"enabled":true,"server_name":"CinaVault","alive_message_interval_seconds":1800,"auto_start":true}"#,
+            ),
+            (
+                "jf-chapter-segments",
+                "Chapter Segments (MS-C)",
+                r#"{"enabled":true,"auto_detect":true,"skip_intro":true,"skip_outro":true,"min_segment_seconds":10}"#,
+            ),
             // ── MS-B (Emby) Plugins ──
-            ("em-bookshelf", "Bookshelf (MS-B)", r#"{"enabled":true,"scan_epub":true,"scan_pdf":true,"scan_audiobook":true,"metadata_language":"en"}"#),
-            ("em-bulky", "Bulky (MS-B)", r#"{"enabled":true,"batch_size":50,"auto_apply":false}"#),
-            ("em-gamebrowser", "GameBrowser (MS-B)", r#"{"enabled":true,"emulator_path":"","roms_path":"","auto_scan":true}"#),
+            (
+                "em-bookshelf",
+                "Bookshelf (MS-B)",
+                r#"{"enabled":true,"scan_epub":true,"scan_pdf":true,"scan_audiobook":true,"metadata_language":"en"}"#,
+            ),
+            (
+                "em-bulky",
+                "Bulky (MS-B)",
+                r#"{"enabled":true,"batch_size":50,"auto_apply":false}"#,
+            ),
+            (
+                "em-gamebrowser",
+                "GameBrowser (MS-B)",
+                r#"{"enabled":true,"emulator_path":"","roms_path":"","auto_scan":true}"#,
+            ),
             // ── MS-A (Plex) Plugins ──
-            ("px-hama", "HAMA (MS-A)", r#"{"enabled":true,"anidb_client":"cinavault","anidb_clientver":1,"prefer_anidb":true,"use_tvdb_fallback":true,"use_mal_fallback":true,"poster_language":"en"}"#),
-            ("px-ass", "Absolute Series Scanner (MS-A)", r#"{"enabled":true,"absolute_numbering":true,"anime_mode":true}"#),
-            ("px-kometa", "Kometa (MS-A)", r#"{"enabled":true,"config_path":"","run_interval_hours":24,"overlay_update":true,"collection_update":true}"#),
-            ("px-bazarr", "Bazarr (MS-A)", r#"{"enabled":true,"host":"localhost","port":6767,"api_key":"","languages":["en"],"auto_download":true}"#),
-            ("px-lambda", "Lambda (MS-A)", r#"{"enabled":true,"prefer_local":false,"fallback_tmdb":true}"#),
-            ("px-kitana", "Kitana (MS-A)", r#"{"enabled":true,"host":"localhost","port":31337}"#),
-            ("px-webtools", "WebTools (MS-A)", r#"{"enabled":true,"port":33400,"auto_update":true}"#),
-            ("px-filebot", "FileBot (MS-A)", r#"{"enabled":true,"rename_format":"{n} ({y})","db":"TheMovieDB","lang":"en","non_strict":true}"#),
+            (
+                "px-hama",
+                "HAMA (MS-A)",
+                r#"{"enabled":true,"anidb_client":"cinavault","anidb_clientver":1,"prefer_anidb":true,"use_tvdb_fallback":true,"use_mal_fallback":true,"poster_language":"en"}"#,
+            ),
+            (
+                "px-ass",
+                "Absolute Series Scanner (MS-A)",
+                r#"{"enabled":true,"absolute_numbering":true,"anime_mode":true}"#,
+            ),
+            (
+                "px-kometa",
+                "Kometa (MS-A)",
+                r#"{"enabled":true,"config_path":"","run_interval_hours":24,"overlay_update":true,"collection_update":true}"#,
+            ),
+            (
+                "px-bazarr",
+                "Bazarr (MS-A)",
+                r#"{"enabled":true,"host":"localhost","port":6767,"api_key":"","languages":["en"],"auto_download":true}"#,
+            ),
+            (
+                "px-lambda",
+                "Lambda (MS-A)",
+                r#"{"enabled":true,"prefer_local":false,"fallback_tmdb":true}"#,
+            ),
+            (
+                "px-kitana",
+                "Kitana (MS-A)",
+                r#"{"enabled":true,"host":"localhost","port":31337}"#,
+            ),
+            (
+                "px-webtools",
+                "WebTools (MS-A)",
+                r#"{"enabled":true,"port":33400,"auto_update":true}"#,
+            ),
+            (
+                "px-filebot",
+                "FileBot (MS-A)",
+                r#"{"enabled":true,"rename_format":"{n} ({y})","db":"TheMovieDB","lang":"en","non_strict":true}"#,
+            ),
             // ── CinaVault Native Plugins ──
-            ("cv-unified-adapter", "CinaVault Unified Adapter", r#"{"enabled":true,"compat_mode":"auto","api_translation":true,"event_bridge":true}"#),
-            ("cv-metadata-engine", "CinaVault Metadata Engine", r#"{"enabled":true,"providers":["tmdb","omdb","tvdb","fanart","tpdb","stashdb","pgma","porn_site_nuxt","iafd","phoenixadult","trakt","anidb","mal"],"conflict_resolution":"highest_confidence","merge_strategy":"union","auto_enrich":true,"poster_download":true,"nfo_write":true,"batch_size":20}"#),
-            ("cv-ai-match", "AI Media Matcher", r#"{"enabled":true,"model":"mistralai/Mistral-7B-Instruct-v0.3","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#),
-            ("cv-cloud-sync", "Cloud Sync Engine", r#"{"enabled":true,"providers":[],"sync_interval_minutes":60,"sync_watched":true,"sync_ratings":true,"sync_metadata":false,"conflict_resolution":"newest_wins"}"#),
-            ("cv-thumb-gen", "Smart Thumbnail Generator", r#"{"enabled":true,"interval_seconds":300,"max_thumbs_per_item":5,"scene_detection":true,"face_detection":false,"composition_score":true,"output_format":"jpg","quality":85}"#),
-            ("cv-chapter-detect", "Chapter Image Detector", r#"{"enabled":true,"auto_extract":true,"interval_seconds":600,"max_chapters":30,"output_format":"jpg","quality":85,"skip_existing":true}"#),
-            ("cv-dup-finder", "Duplicate Finder", r#"{"enabled":true,"match_by":"hash","tolerance_mb":1,"auto_scan":false,"scan_interval_hours":168,"prefer_higher_resolution":true,"prefer_larger_file":false}"#),
-            ("cv-vpn-manager", "VPN Manager", r#"{"enabled":false,"provider":"","config_path":"","auto_connect":false,"kill_switch":true,"reconnect_on_drop":true}"#),
-            ("cv-transcode-engine", "Hardware Transcode Engine", r#"{"enabled":true,"hardware_acceleration":"auto","preferred_codec":"h264","max_bitrate_mbps":20,"crf":23,"preset":"fast","audio_codec":"aac","audio_bitrate_kbps":192}"#),
-            ("cv-intro-skip", "Intro/Outro Skip Engine", r#"{"enabled":true,"detection_method":"chromaprint","min_intro_seconds":10,"max_intro_seconds":300,"skip_on_play":true,"show_skip_button":true}"#),
+            (
+                "cv-unified-adapter",
+                "CinaVault Unified Adapter",
+                r#"{"enabled":true,"compat_mode":"auto","api_translation":true,"event_bridge":true}"#,
+            ),
+            (
+                "cv-metadata-engine",
+                "CinaVault Metadata Engine",
+                r#"{"enabled":true,"providers":["tmdb","omdb","tvdb","fanart","tpdb","stashdb","pgma","porn_site_nuxt","iafd","phoenixadult","trakt","anidb","mal"],"conflict_resolution":"highest_confidence","merge_strategy":"union","auto_enrich":true,"poster_download":true,"nfo_write":true,"batch_size":20}"#,
+            ),
+            (
+                "cv-ai-match",
+                "AI Media Matcher",
+                r#"{"enabled":true,"model":"mistralai/Mistral-7B-Instruct-v0.3","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#,
+            ),
+            (
+                "cv-cloud-sync",
+                "Cloud Sync Engine",
+                r#"{"enabled":true,"providers":[],"sync_interval_minutes":60,"sync_watched":true,"sync_ratings":true,"sync_metadata":false,"conflict_resolution":"newest_wins"}"#,
+            ),
+            (
+                "cv-thumb-gen",
+                "Smart Thumbnail Generator",
+                r#"{"enabled":true,"interval_seconds":300,"max_thumbs_per_item":5,"scene_detection":true,"face_detection":false,"composition_score":true,"output_format":"jpg","quality":85}"#,
+            ),
+            (
+                "cv-chapter-detect",
+                "Chapter Image Detector",
+                r#"{"enabled":true,"auto_extract":true,"interval_seconds":600,"max_chapters":30,"output_format":"jpg","quality":85,"skip_existing":true}"#,
+            ),
+            (
+                "cv-dup-finder",
+                "Duplicate Finder",
+                r#"{"enabled":true,"match_by":"hash","tolerance_mb":1,"auto_scan":false,"scan_interval_hours":168,"prefer_higher_resolution":true,"prefer_larger_file":false}"#,
+            ),
+            (
+                "cv-vpn-manager",
+                "VPN Manager",
+                r#"{"enabled":false,"provider":"","config_path":"","auto_connect":false,"kill_switch":true,"reconnect_on_drop":true}"#,
+            ),
+            (
+                "cv-transcode-engine",
+                "Hardware Transcode Engine",
+                r#"{"enabled":true,"hardware_acceleration":"auto","preferred_codec":"h264","max_bitrate_mbps":20,"crf":23,"preset":"fast","audio_codec":"aac","audio_bitrate_kbps":192}"#,
+            ),
+            (
+                "cv-intro-skip",
+                "Intro/Outro Skip Engine",
+                r#"{"enabled":true,"detection_method":"chromaprint","min_intro_seconds":10,"max_intro_seconds":300,"skip_on_play":true,"show_skip_button":true}"#,
+            ),
             // ── Download/Automation ──
-            ("yt-dlp", "yt-dlp", r#"{"enabled":true,"format":"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best","output_template":"%(title)s.%(ext)s","embed_thumbnail":true,"embed_subs":true,"write_info_json":false,"rate_limit":"50M","concurrent_fragments":4,"retries":3}"#),
-            ("ffmpeg", "FFmpeg", r#"{"enabled":true,"hwaccel":"auto","threads":0,"loglevel":"error","default_video_codec":"libx264","default_audio_codec":"aac","default_subtitle_codec":"srt"}"#),
-            ("mediainfo", "MediaInfo", r#"{"enabled":true,"full_output":false,"output_format":"JSON","cover_data":false}"#),
-            ("mkvtoolnix", "MKVToolNix", r#"{"enabled":true,"default_language":"eng","generate_chapters":false,"attach_fonts":false,"compression":"none"}"#),
+            (
+                "yt-dlp",
+                "yt-dlp",
+                r#"{"enabled":true,"format":"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best","output_template":"%(title)s.%(ext)s","embed_thumbnail":true,"embed_subs":true,"write_info_json":false,"rate_limit":"50M","concurrent_fragments":4,"retries":3}"#,
+            ),
+            (
+                "ffmpeg",
+                "FFmpeg",
+                r#"{"enabled":true,"hwaccel":"auto","threads":0,"loglevel":"error","default_video_codec":"libx264","default_audio_codec":"aac","default_subtitle_codec":"srt"}"#,
+            ),
+            (
+                "mediainfo",
+                "MediaInfo",
+                r#"{"enabled":true,"full_output":false,"output_format":"JSON","cover_data":false}"#,
+            ),
+            (
+                "mkvtoolnix",
+                "MKVToolNix",
+                r#"{"enabled":true,"default_language":"eng","generate_chapters":false,"attach_fonts":false,"compression":"none"}"#,
+            ),
         ];
         for (plugin_key, name, config_json) in &plugin_configs {
             self.conn.execute(
@@ -502,7 +754,9 @@ impl Database {
     }
 
     pub fn get_setting_data(&self, key: &str) -> SqlResult<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE key = ?1")?;
         let mut rows = stmt.query_map(params![key], |row| row.get::<_, String>(0))?;
         match rows.next() {
             Some(Ok(val)) => Ok(Some(val)),
@@ -520,9 +774,9 @@ impl Database {
 
     // ── Feature settings ──
     pub fn get_feature_settings_data(&self) -> SqlResult<Vec<serde_json::Value>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT feature_key, enabled, config_json FROM feature_settings"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT feature_key, enabled, config_json FROM feature_settings")?;
         let rows = stmt.query_map([], |row| {
             let key: String = row.get(0)?;
             let enabled: bool = row.get(1)?;
@@ -536,7 +790,12 @@ impl Database {
         rows.collect()
     }
 
-    pub fn set_feature_setting_data(&self, key: &str, enabled: bool, config: &str) -> SqlResult<()> {
+    pub fn set_feature_setting_data(
+        &self,
+        key: &str,
+        enabled: bool,
+        config: &str,
+    ) -> SqlResult<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO feature_settings (feature_key, enabled, config_json) VALUES (?1, ?2, ?3)",
             params![key, enabled, config],
@@ -545,7 +804,12 @@ impl Database {
     }
 
     // ── Media items ──
-    pub fn get_media_items_data(&self, media_type: Option<&str>, limit: Option<i64>, offset: Option<i64>) -> SqlResult<Vec<MediaItem>> {
+    pub fn get_media_items_data(
+        &self,
+        media_type: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> SqlResult<Vec<MediaItem>> {
         let off = offset.unwrap_or(0);
         match (media_type, limit) {
             (Some(mt), Some(lim)) => {
@@ -557,22 +821,22 @@ impl Database {
             }
             (Some(mt), None) => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC"
+                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC",
                 )?;
                 let rows = stmt.query_map(params![mt], Self::row_to_media)?;
                 rows.collect()
             }
             (None, Some(lim)) => {
                 let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2"
+                    "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
                 )?;
                 let rows = stmt.query_map(params![lim, off], Self::row_to_media)?;
                 rows.collect()
             }
             (None, None) => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items ORDER BY date_added DESC"
-                )?;
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT * FROM media_items ORDER BY date_added DESC")?;
                 let rows = stmt.query_map([], Self::row_to_media)?;
                 rows.collect()
             }
@@ -702,24 +966,26 @@ impl Database {
     }
 
     pub fn get_recent_media_data(&self, limit: i64) -> SqlResult<Vec<MediaItem>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1")?;
         let rows = stmt.query_map(params![limit], |row| Self::row_to_media(row))?;
         rows.collect()
     }
 
     pub fn get_unverified_media_data(&self) -> SqlResult<Vec<MediaItem>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC")?;
         let rows = stmt.query_map([], |row| Self::row_to_media(row))?;
         rows.collect()
     }
 
     // ── Sources ──
     pub fn get_sources_data(&self) -> SqlResult<Vec<MediaSource>> {
-        let mut stmt = self.conn.prepare("SELECT * FROM media_sources ORDER BY name")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM media_sources ORDER BY name")?;
         let rows = stmt.query_map([], |row| {
             Ok(MediaSource {
                 id: Some(row.get(0)?),
@@ -743,8 +1009,10 @@ impl Database {
     }
 
     pub fn remove_source_data(&self, id: i64) -> SqlResult<()> {
-        self.conn.execute("DELETE FROM media_items WHERE source_id = ?1", params![id])?;
-        self.conn.execute("DELETE FROM media_sources WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM media_items WHERE source_id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM media_sources WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -939,7 +1207,13 @@ impl Database {
                      access_key_preview = ?3,
                      updated_at = ?4
                  WHERE email = ?5",
-                params![access_key_salt, access_key_hash, access_key_preview, updated_at, email],
+                params![
+                    access_key_salt,
+                    access_key_hash,
+                    access_key_preview,
+                    updated_at,
+                    email
+                ],
             )
             .map_err(|err| err.to_string())?;
         if changed == 0 {
@@ -953,11 +1227,7 @@ impl Database {
         }))
     }
 
-    pub fn set_remote_access_user_enabled(
-        &self,
-        email: &str,
-        enabled: bool,
-    ) -> Result<(), String> {
+    pub fn set_remote_access_user_enabled(&self, email: &str, enabled: bool) -> Result<(), String> {
         let email = normalize_remote_email(email)?;
         self.conn
             .execute(
@@ -1021,7 +1291,14 @@ impl Database {
                 "INSERT INTO remote_access_sessions
                  (user_id, token_salt, token_hash, auth_method, created_at, expires_at, revoked)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
-                params![user_id, token_salt, token_hash, auth_method, created_at, expires_at_string],
+                params![
+                    user_id,
+                    token_salt,
+                    token_hash,
+                    auth_method,
+                    created_at,
+                    expires_at_string
+                ],
             )
             .map_err(|err| err.to_string())?;
         self.conn
@@ -1193,9 +1470,15 @@ pub fn get_feature_settings(state: State<AppState>) -> Result<Vec<serde_json::Va
 }
 
 #[tauri::command]
-pub fn set_feature_setting(state: State<AppState>, key: String, enabled: bool, config: String) -> Result<(), String> {
+pub fn set_feature_setting(
+    state: State<AppState>,
+    key: String,
+    enabled: bool,
+    config: String,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_feature_setting_data(&key, enabled, &config).map_err(|e| e.to_string())
+    db.set_feature_setting_data(&key, enabled, &config)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1248,13 +1531,17 @@ pub fn set_remote_access_user_enabled(
 }
 
 #[tauri::command]
-pub fn list_remote_access_users(state: State<AppState>) -> Result<Vec<RemoteAccessUserSummary>, String> {
+pub fn list_remote_access_users(
+    state: State<AppState>,
+) -> Result<Vec<RemoteAccessUserSummary>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.list_remote_access_users()
 }
 
 #[tauri::command]
-pub fn get_remote_access_security_status(state: State<AppState>) -> Result<serde_json::Value, String> {
+pub fn get_remote_access_security_status(
+    state: State<AppState>,
+) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let user_count = db.list_remote_access_users()?.len();
     let remote_enabled = db
@@ -1283,15 +1570,23 @@ pub fn get_remote_access_security_status(state: State<AppState>) -> Result<serde
 }
 
 #[tauri::command]
-pub fn get_media_items(state: State<AppState>, media_type: Option<String>, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<MediaItem>, String> {
+pub fn get_media_items(
+    state: State<AppState>,
+    media_type: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_media_items_data(media_type.as_deref(), limit, offset).map_err(|e| e.to_string())
+    db.get_media_items_data(media_type.as_deref(), limit, offset)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_media_item(state: State<AppState>, id: i64) -> Result<Option<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let items = db.get_media_items_data(None, Some(1), None).map_err(|e| e.to_string())?;
+    let items = db
+        .get_media_items_data(None, Some(1), None)
+        .map_err(|e| e.to_string())?;
     Ok(items.into_iter().find(|i| i.id == Some(id)))
 }
 
@@ -1302,19 +1597,46 @@ pub fn add_media_item(state: State<AppState>, item: MediaItem) -> Result<i64, St
 }
 
 #[tauri::command]
-pub fn update_media_item(state: State<AppState>, id: i64, title: Option<String>, verified: Option<bool>, watched: Option<bool>, favorite: Option<bool>) -> Result<(), String> {
+pub fn update_media_item(
+    state: State<AppState>,
+    id: i64,
+    title: Option<String>,
+    verified: Option<bool>,
+    watched: Option<bool>,
+    favorite: Option<bool>,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     if let Some(t) = title {
-        db.conn.execute("UPDATE media_items SET title = ?1 WHERE id = ?2", params![t, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET title = ?1 WHERE id = ?2",
+                params![t, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     if let Some(v) = verified {
-        db.conn.execute("UPDATE media_items SET verified = ?1 WHERE id = ?2", params![v, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET verified = ?1 WHERE id = ?2",
+                params![v, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     if let Some(w) = watched {
-        db.conn.execute("UPDATE media_items SET watched = ?1 WHERE id = ?2", params![w, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET watched = ?1 WHERE id = ?2",
+                params![w, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     if let Some(f) = favorite {
-        db.conn.execute("UPDATE media_items SET favorite = ?1 WHERE id = ?2", params![f, id]).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "UPDATE media_items SET favorite = ?1 WHERE id = ?2",
+                params![f, id],
+            )
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1322,7 +1644,9 @@ pub fn update_media_item(state: State<AppState>, id: i64, title: Option<String>,
 #[tauri::command]
 pub fn delete_media_item(state: State<AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("DELETE FROM media_items WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute("DELETE FROM media_items WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1332,8 +1656,13 @@ pub fn delete_media_item(state: State<AppState>, id: i64) -> Result<(), String> 
 #[tauri::command]
 pub fn purge_photo_items(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let count: i64 = db.conn
-        .query_row("SELECT COUNT(*) FROM media_items WHERE media_type = 'photo'", [], |row| row.get(0))
+    let count: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM media_items WHERE media_type = 'photo'",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
     db.conn
         .execute("DELETE FROM media_items WHERE media_type = 'photo'", [])
@@ -1353,9 +1682,13 @@ pub fn search_media(state: State<AppState>, query: String) -> Result<Vec<MediaIt
 }
 
 #[tauri::command]
-pub fn get_recent_media(state: State<AppState>, limit: Option<i64>) -> Result<Vec<MediaItem>, String> {
+pub fn get_recent_media(
+    state: State<AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_recent_media_data(limit.unwrap_or(20)).map_err(|e| e.to_string())
+    db.get_recent_media_data(limit.unwrap_or(20))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1367,7 +1700,12 @@ pub fn get_unverified_media(state: State<AppState>) -> Result<Vec<MediaItem>, St
 #[tauri::command]
 pub fn verify_media_item(state: State<AppState>, id: i64) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.conn.execute("UPDATE media_items SET verified = 1 WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    db.conn
+        .execute(
+            "UPDATE media_items SET verified = 1 WHERE id = ?1",
+            params![id],
+        )
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1378,11 +1716,21 @@ pub fn get_sources(state: State<AppState>) -> Result<Vec<MediaSource>, String> {
 }
 
 #[tauri::command]
-pub fn add_source(state: State<AppState>, path: String, source_type: String, name: String) -> Result<i64, String> {
+pub fn add_source(
+    state: State<AppState>,
+    path: String,
+    source_type: String,
+    name: String,
+) -> Result<i64, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let source = MediaSource {
-        id: None, path, source_type, name,
-        enabled: true, last_scanned: None, item_count: 0,
+        id: None,
+        path,
+        source_type,
+        name,
+        enabled: true,
+        last_scanned: None,
+        item_count: 0,
     };
     db.add_source_data(&source).map_err(|e| e.to_string())
 }
@@ -1438,11 +1786,14 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let mut original = sample_item("File Name", r"C:\media\movie.mkv");
-        db.add_media_item_data(&original).expect("initial insert should succeed");
-        db.conn.execute(
-            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
-            params![&original.file_path],
-        ).expect("should update flags");
+        db.add_media_item_data(&original)
+            .expect("initial insert should succeed");
+        db.conn
+            .execute(
+                "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+                params![&original.file_path],
+            )
+            .expect("should update flags");
 
         original.title = "Embedded Title".to_string();
         original.file_size = Some(200);
@@ -1450,7 +1801,10 @@ mod tests {
             .upsert_scanned_media_item_data(&original)
             .expect("scan upsert should succeed");
 
-        assert!(!inserted, "existing rows should be refreshed, not counted as new");
+        assert!(
+            !inserted,
+            "existing rows should be refreshed, not counted as new"
+        );
 
         let row = db
             .conn
@@ -1483,7 +1837,8 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let mut original = sample_item("Movie", r"C:\media\movie.mkv");
-        db.add_media_item_data(&original).expect("initial insert should succeed");
+        db.add_media_item_data(&original)
+            .expect("initial insert should succeed");
 
         original.poster_path = Some(r"C:\media\movie-poster.jpg".to_string());
         let inserted = db
@@ -1554,7 +1909,9 @@ mod tests {
                 .expect("insert should succeed");
         }
 
-        let matches = db.search_media_data("Match").expect("search should succeed");
+        let matches = db
+            .search_media_data("Match")
+            .expect("search should succeed");
         assert_eq!(matches.len(), 230);
 
         drop(db);
@@ -1567,11 +1924,14 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let item = sample_item("Old Title", r"C:\media\old-title.mp4");
-        db.add_media_item_data(&item).expect("insert should succeed");
-        db.conn.execute(
-            "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
-            params![&item.file_path],
-        ).expect("flag update should succeed");
+        db.add_media_item_data(&item)
+            .expect("insert should succeed");
+        db.conn
+            .execute(
+                "UPDATE media_items SET watched = 1, favorite = 1 WHERE file_path = ?1",
+                params![&item.file_path],
+            )
+            .expect("flag update should succeed");
 
         db.update_media_metadata_data(
             &item.file_path,
@@ -1584,7 +1944,8 @@ mod tests {
             Some("123"),
             Some("tt123"),
             Some("adult"),
-        ).expect("metadata update should succeed");
+        )
+        .expect("metadata update should succeed");
 
         let row = db.conn.query_row(
             "SELECT title, overview, watched, favorite, media_type FROM media_items WHERE file_path = ?1",
@@ -1639,9 +2000,14 @@ mod tests {
         // ALL photo rows are removed — only the video item remains
         let remaining = db
             .conn
-            .query_row("SELECT COUNT(*) FROM media_items", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM media_items", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .expect("count should load");
-        assert_eq!(remaining, 1, "only the video item should remain after cleanup");
+        assert_eq!(
+            remaining, 1,
+            "only the video item should remain after cleanup"
+        );
         let video_exists = db
             .conn
             .query_row(
@@ -1654,7 +2020,11 @@ mod tests {
         // All photo rows (poster, backdrop, real_photo) must be gone
         let photo_count: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM media_items WHERE media_type = 'photo'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM media_items WHERE media_type = 'photo'",
+                [],
+                |row| row.get(0),
+            )
             .expect("photo count should load");
         assert_eq!(photo_count, 0, "all photo rows should be removed");
         drop(db);
@@ -1665,8 +2035,10 @@ mod tests {
     #[test]
     fn manual_sidecar_artwork_backfill_populates_video_posters() {
         let db_path = test_db_path("manual-sidecar-backfill");
-        let media_dir =
-            std::env::temp_dir().join(format!("cinavault-manual-backfill-{}", uuid::Uuid::new_v4()));
+        let media_dir = std::env::temp_dir().join(format!(
+            "cinavault-manual-backfill-{}",
+            uuid::Uuid::new_v4()
+        ));
         fs::create_dir_all(&media_dir).expect("media dir should be created");
         let video_path = media_dir.join("Movie.mp4");
         let poster_path = media_dir.join("Movie-poster.jpg");
@@ -1689,7 +2061,10 @@ mod tests {
                 |row| row.get::<_, Option<String>>(0),
             )
             .expect("video row should load");
-        assert_eq!(attached_poster.as_deref(), Some(poster_path.to_string_lossy().as_ref()));
+        assert_eq!(
+            attached_poster.as_deref(),
+            Some(poster_path.to_string_lossy().as_ref())
+        );
 
         drop(db);
         let _ = fs::remove_file(db_path);
@@ -1736,16 +2111,20 @@ mod tests {
         let db = Database::new(&db_path).expect("db should open");
 
         let item = sample_item("Old Title", r"C:\media\old-title.mp4");
-        db.add_media_item_data(&item).expect("insert should succeed");
+        db.add_media_item_data(&item)
+            .expect("insert should succeed");
 
         db.update_media_file_path_data(&item.file_path, r"C:\media\New Title.mp4", "New Title")
             .expect("rename update should succeed");
 
-        let row = db.conn.query_row(
-            "SELECT title, file_path FROM media_items WHERE file_path = ?1",
-            params![r"C:\media\New Title.mp4"],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).expect("renamed row should exist");
+        let row = db
+            .conn
+            .query_row(
+                "SELECT title, file_path FROM media_items WHERE file_path = ?1",
+                params![r"C:\media\New Title.mp4"],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .expect("renamed row should exist");
 
         assert_eq!(row.0, "New Title");
         assert_eq!(row.1, r"C:\media\New Title.mp4");

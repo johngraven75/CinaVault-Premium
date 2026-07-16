@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { FULL_PLUGIN_REGISTRY, type PluginEntry } from "./pluginRegistry";
-import { PGMA_PLUGIN_ID, PGMA_DEFAULT_CONFIG, pluginEngine } from "./pluginAdapter";
+import {
+  PGMA_PLUGIN_ID,
+  PGMA_DEFAULT_CONFIG,
+  pluginEngine,
+} from "./pluginAdapter";
 
 declare module "./pluginAdapter" {
   interface PluginAdapterEngine {
@@ -34,7 +38,9 @@ function isValidConfig(raw: string | undefined): boolean {
   if (!raw || !raw.trim()) return false;
   try {
     const parsed = JSON.parse(raw);
-    return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed));
+    return Boolean(
+      parsed && typeof parsed === "object" && !Array.isArray(parsed),
+    );
   } catch {
     return false;
   }

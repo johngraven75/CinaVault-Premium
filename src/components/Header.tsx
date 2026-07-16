@@ -2,7 +2,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, Bell, Cpu, Maximize2, RadioTower, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  Cpu,
+  Maximize2,
+  RadioTower,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { useAppStore, TabId } from "../store/appStore";
 import { getUnreadStatusMessages } from "../utils/pluginUiSafety";
 
@@ -15,7 +25,8 @@ interface TabMeta {
 const TAB_META: Record<TabId, TabMeta> = {
   home: {
     label: "Movies",
-    subtitle: "Holographic library carousel, vault inventory, and instant playback",
+    subtitle:
+      "Holographic library carousel, vault inventory, and instant playback",
     signal: "Vault",
   },
   sources: {
@@ -75,7 +86,16 @@ const TAB_META: Record<TabId, TabMeta> = {
   },
 };
 
-const PRIMARY_TABS: TabId[] = ["home", "livetv", "downloads", "sources", "server", "plugins", "ai", "settings"];
+const PRIMARY_TABS: TabId[] = [
+  "home",
+  "livetv",
+  "downloads",
+  "sources",
+  "server",
+  "plugins",
+  "ai",
+  "settings",
+];
 
 interface Particle {
   x: number;
@@ -86,12 +106,21 @@ interface Particle {
 }
 
 export default function Header(): JSX.Element {
-  const { activeTab, setActiveTab, searchQuery, setSearchQuery, statusMessages } = useAppStore();
+  const {
+    activeTab,
+    setActiveTab,
+    searchQuery,
+    setSearchQuery,
+    statusMessages,
+  } = useAppStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [clock, setClock] = useState(new Date());
   const [showNotifications, setShowNotifications] = useState(false);
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
-  const unreadMessages = getUnreadStatusMessages(statusMessages, lastReadMessageIndex);
+  const unreadMessages = getUnreadStatusMessages(
+    statusMessages,
+    lastReadMessageIndex,
+  );
   const activeMeta = TAB_META[activeTab] ?? TAB_META.home;
 
   useEffect(() => {
@@ -124,7 +153,14 @@ export default function Header(): JSX.Element {
       const now = performance.now();
       context.clearRect(0, 0, width, height);
 
-      const glow = context.createRadialGradient(width * 0.18, height * 0.32, 0, width * 0.18, height * 0.32, width * 0.7);
+      const glow = context.createRadialGradient(
+        width * 0.18,
+        height * 0.32,
+        0,
+        width * 0.18,
+        height * 0.32,
+        width * 0.7,
+      );
       glow.addColorStop(0, "rgba(0,245,255,0.16)");
       glow.addColorStop(0.48, "rgba(189,0,255,0.055)");
       glow.addColorStop(1, "transparent");
@@ -183,7 +219,11 @@ export default function Header(): JSX.Element {
 
   return (
     <header className="cyber-header relative z-20 shrink-0 overflow-visible">
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden="true" />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full"
+        aria-hidden="true"
+      />
 
       <div className="relative z-10 flex h-full flex-col gap-3 px-4 py-3 xl:px-5">
         <div className="flex min-h-0 items-center justify-between gap-4">
@@ -195,8 +235,12 @@ export default function Header(): JSX.Element {
             >
               <Zap size={18} className="text-cyan-200" />
               <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-200">CinaVault B157</div>
-                <div className="truncate text-sm font-black uppercase tracking-[0.16em]">Hyper-Neon Fusion</div>
+                <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-200">
+                  CinaVault B157
+                </div>
+                <div className="truncate text-sm font-black uppercase tracking-[0.16em]">
+                  Hyper-Neon Fusion
+                </div>
               </div>
             </motion.div>
 
@@ -210,10 +254,15 @@ export default function Header(): JSX.Element {
                 className="hidden min-w-0 md:block"
               >
                 <div className="cyber-eyebrow flex items-center gap-2">
-                  <Sparkles size={12} /> Quantum Grid Active / {activeMeta.signal}
+                  <Sparkles size={12} /> Quantum Grid Active /{" "}
+                  {activeMeta.signal}
                 </div>
-                <h1 className="cyber-title truncate text-xl font-black tracking-tight">{activeMeta.label}</h1>
-                <p className="truncate text-xs text-cv-subtext">{activeMeta.subtitle}</p>
+                <h1 className="cyber-title truncate text-xl font-black tracking-tight">
+                  {activeMeta.label}
+                </h1>
+                <p className="truncate text-xs text-cv-subtext">
+                  {activeMeta.subtitle}
+                </p>
               </motion.div>
             </AnimatePresence>
           </div>
@@ -225,7 +274,10 @@ export default function Header(): JSX.Element {
             </div>
 
             <div className="cyber-search-core hidden sm:block">
-              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cyan-200" />
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cyan-200"
+              />
               <input
                 type="text"
                 value={searchQuery}
@@ -237,10 +289,19 @@ export default function Header(): JSX.Element {
             </div>
 
             <div className="hidden min-w-[94px] text-right font-mono text-[11px] tracking-wide text-cv-subtext/90 md:block">
-              {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              {clock.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
             </div>
 
-            <button type="button" onClick={toggleFullscreen} className="cyber-button h-11 w-11 px-0" title="Toggle fullscreen">
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="cyber-button h-11 w-11 px-0"
+              title="Toggle fullscreen"
+            >
               <Maximize2 size={15} />
             </button>
 
@@ -262,7 +323,10 @@ export default function Header(): JSX.Element {
         </div>
 
         <div className="flex items-center gap-3">
-          <nav className="quantum-nav flex-1" aria-label="Primary CinaVault navigation">
+          <nav
+            className="quantum-nav flex-1"
+            aria-label="Primary CinaVault navigation"
+          >
             {PRIMARY_TABS.map((tab) => {
               const meta = TAB_META[tab];
               const isActive = activeTab === tab;
@@ -302,17 +366,29 @@ export default function Header(): JSX.Element {
               <span className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-200">
                 <RadioTower size={14} /> Command Feed
               </span>
-              <span className="text-[10px] uppercase tracking-[0.18em] text-cv-subtext">{statusMessages.length} messages</span>
+              <span className="text-[10px] uppercase tracking-[0.18em] text-cv-subtext">
+                {statusMessages.length} messages
+              </span>
             </div>
             <div className="max-h-80 overflow-y-auto py-1">
               {statusMessages.length === 0 ? (
-                <div className="px-4 py-5 text-xs text-cv-subtext">No notifications yet</div>
+                <div className="px-4 py-5 text-xs text-cv-subtext">
+                  No notifications yet
+                </div>
               ) : (
-                statusMessages.slice(-12).reverse().map((message, index) => (
-                  <div key={`${message}-${index}`} className="border-b border-cyan-300/[0.07] px-4 py-3 last:border-b-0">
-                    <div className="text-xs leading-relaxed text-cv-text">{message}</div>
-                  </div>
-                ))
+                statusMessages
+                  .slice(-12)
+                  .reverse()
+                  .map((message, index) => (
+                    <div
+                      key={`${message}-${index}`}
+                      className="border-b border-cyan-300/[0.07] px-4 py-3 last:border-b-0"
+                    >
+                      <div className="text-xs leading-relaxed text-cv-text">
+                        {message}
+                      </div>
+                    </div>
+                  ))
               )}
             </div>
           </motion.div>

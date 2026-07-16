@@ -34,22 +34,49 @@ body,
     linear-gradient(rgba(0, 245, 255, 0.12) 1px, transparent 1px),
     linear-gradient(90deg, rgba(189, 0, 255, 0.11) 1px, transparent 1px),
     radial-gradient(circle at 50% 0%, rgba(0, 245, 255, 0.16), transparent 42%);
-  background-size: 46px 46px, 46px 46px, auto;
+  background-size:
+    46px 46px,
+    46px 46px,
+    auto;
   animation: cyberGridDrift 24s linear infinite;
   opacity: 0.72;
 }
 
 .app-shell.cv-app::after {
   background:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0, rgba(255, 255, 255, 0.035) 1px, transparent 1px, transparent 4px),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.035) 0,
+      rgba(255, 255, 255, 0.035) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
     linear-gradient(90deg, transparent, rgba(0, 245, 255, 0.1), transparent);
   mix-blend-mode: screen;
   opacity: 0.34;
 }
 
-.app-shell-orb-a { background: radial-gradient(circle, rgba(0, 245, 255, 0.72), transparent 70%) !important; }
-.app-shell-orb-b { background: radial-gradient(circle, rgba(189, 0, 255, 0.58), transparent 72%) !important; }
-.app-shell-orb-c { background: radial-gradient(circle, rgba(255, 153, 0, 0.34), transparent 72%) !important; }
+.app-shell-orb-a {
+  background: radial-gradient(
+    circle,
+    rgba(0, 245, 255, 0.72),
+    transparent 70%
+  ) !important;
+}
+.app-shell-orb-b {
+  background: radial-gradient(
+    circle,
+    rgba(189, 0, 255, 0.58),
+    transparent 72%
+  ) !important;
+}
+.app-shell-orb-c {
+  background: radial-gradient(
+    circle,
+    rgba(255, 153, 0, 0.34),
+    transparent 72%
+  ) !important;
+}
 
 .cv-sidebar {
   border-color: rgba(0, 245, 255, 0.18) !important;
@@ -95,7 +122,13 @@ body,
 }
 
 .cyber-header::after {
-  background: linear-gradient(90deg, transparent, rgba(0, 245, 255, 0.2), rgba(189, 0, 255, 0.16), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 245, 255, 0.2),
+    rgba(189, 0, 255, 0.16),
+    transparent
+  );
   transform: translateX(-120%);
   animation: cyberHeaderSweep 8s ease-in-out infinite;
 }
@@ -106,10 +139,23 @@ body,
   align-items: center;
   gap: 0.6rem;
   border: 1px solid rgba(0, 245, 255, 0.5);
-  background: linear-gradient(135deg, rgba(0, 245, 255, 0.12), rgba(189, 0, 255, 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(0, 245, 255, 0.12),
+    rgba(189, 0, 255, 0.1)
+  );
   color: var(--cyber-text);
-  box-shadow: 0 0 24px rgba(0, 245, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  box-shadow:
+    0 0 24px rgba(0, 245, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 14px) 0,
+    100% 14px,
+    100% 100%,
+    14px 100%,
+    0 calc(100% - 14px)
+  );
 }
 
 .quantum-nav {
@@ -123,10 +169,19 @@ body,
     linear-gradient(90deg, rgba(189, 0, 255, 0.08) 1px, transparent 1px),
     rgba(5, 5, 10, 0.44);
   background-size: 18px 18px;
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
 }
 
-.quantum-nav::-webkit-scrollbar { display: none; }
+.quantum-nav::-webkit-scrollbar {
+  display: none;
+}
 
 .quantum-tab {
   position: relative;
@@ -138,7 +193,11 @@ body,
   font-size: 0.66rem;
   font-weight: 800;
   border-right: 1px solid rgba(0, 245, 255, 0.14);
-  transition: color var(--cyber-fast), background var(--cyber-fast), text-shadow var(--cyber-fast), transform var(--cyber-spring);
+  transition:
+    color var(--cyber-fast),
+    background var(--cyber-fast),
+    text-shadow var(--cyber-fast),
+    transform var(--cyber-spring);
 }
 
 .quantum-tab:hover,
@@ -172,9 +231,16 @@ body,
   right: 50%;
   bottom: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--cyber-cyan), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--cyber-cyan),
+    transparent
+  );
   box-shadow: 0 0 16px rgba(0, 245, 255, 0.85);
-  transition: left var(--cyber-spring), right var(--cyber-spring);
+  transition:
+    left var(--cyber-spring),
+    right var(--cyber-spring);
 }
 
 .quantum-tab:hover::after,
@@ -185,24 +251,44 @@ body,
 
 .quantum-tab.is-active {
   color: var(--cyber-text);
-  background: linear-gradient(135deg, rgba(0, 245, 255, 0.16), rgba(189, 0, 255, 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(0, 245, 255, 0.16),
+    rgba(189, 0, 255, 0.1)
+  );
   text-shadow: 0 0 15px rgba(0, 245, 255, 0.5);
-  box-shadow: inset 0 0 24px rgba(0, 245, 255, 0.08), 0 0 15px rgba(0, 245, 255, 0.18);
+  box-shadow:
+    inset 0 0 24px rgba(0, 245, 255, 0.08),
+    0 0 15px rgba(0, 245, 255, 0.18);
 }
 
 .cyber-search-core {
   position: relative;
   border: 1px solid rgba(0, 245, 255, 0.28);
   background: rgba(5, 5, 10, 0.72);
-  box-shadow: inset 0 0 24px rgba(0, 245, 255, 0.05), 0 0 24px rgba(189, 0, 255, 0.06);
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-  transition: transform var(--cyber-spring), border-color var(--cyber-fast), box-shadow var(--cyber-fast);
+  box-shadow:
+    inset 0 0 24px rgba(0, 245, 255, 0.05),
+    0 0 24px rgba(189, 0, 255, 0.06);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 12px) 0,
+    100% 12px,
+    100% 100%,
+    12px 100%,
+    0 calc(100% - 12px)
+  );
+  transition:
+    transform var(--cyber-spring),
+    border-color var(--cyber-fast),
+    box-shadow var(--cyber-fast);
 }
 
 .cyber-search-core:focus-within {
   transform: scale(1.035);
   border-color: var(--cyber-cyan);
-  box-shadow: 0 0 28px rgba(0, 245, 255, 0.28), inset 0 0 30px rgba(0, 245, 255, 0.08);
+  box-shadow:
+    0 0 28px rgba(0, 245, 255, 0.28),
+    inset 0 0 30px rgba(0, 245, 255, 0.08);
 }
 
 .cyber-search-core::after {
@@ -210,7 +296,13 @@ body,
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent 0%, rgba(0, 245, 255, 0.32) 48%, rgba(255, 255, 255, 0.55) 50%, transparent 54%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 245, 255, 0.32) 48%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 54%
+  );
   transform: translateX(-120%);
   opacity: 0;
 }
@@ -248,7 +340,11 @@ body,
   pointer-events: none;
   background:
     radial-gradient(circle at 24% 0%, rgba(0, 245, 255, 0.14), transparent 34%),
-    radial-gradient(circle at 100% 14%, rgba(189, 0, 255, 0.13), transparent 32%);
+    radial-gradient(
+      circle at 100% 14%,
+      rgba(189, 0, 255, 0.13),
+      transparent 32%
+    );
   z-index: -1;
 }
 
@@ -261,7 +357,11 @@ body,
   overflow: hidden;
   border: 1px solid rgba(0, 245, 255, 0.24);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.055),
+      rgba(255, 255, 255, 0.018)
+    ),
     var(--cyber-glass);
   backdrop-filter: blur(12px) saturate(1.4);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
@@ -275,7 +375,14 @@ body,
 .cyber-hero {
   min-height: 310px;
   border-radius: var(--cyber-radius);
-  clip-path: polygon(0 0, calc(100% - 26px) 0, 100% 26px, 100% 100%, 26px 100%, 0 calc(100% - 26px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 26px) 0,
+    100% 26px,
+    100% 100%,
+    26px 100%,
+    0 calc(100% - 26px)
+  );
 }
 
 .cyber-hero::before,
@@ -301,7 +408,13 @@ body,
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(110deg, transparent, rgba(0, 245, 255, 0.18), rgba(189, 0, 255, 0.13), transparent);
+  background: linear-gradient(
+    110deg,
+    transparent,
+    rgba(0, 245, 255, 0.18),
+    rgba(189, 0, 255, 0.13),
+    transparent
+  );
   transform: translateX(-130%);
   animation: panelLaserSweep 9s ease-in-out infinite;
 }
@@ -317,7 +430,9 @@ body,
 
 .cyber-title {
   color: var(--cyber-text);
-  text-shadow: 0 0 26px rgba(0, 245, 255, 0.28), 0 0 40px rgba(189, 0, 255, 0.18);
+  text-shadow:
+    0 0 26px rgba(0, 245, 255, 0.28),
+    0 0 40px rgba(189, 0, 255, 0.18);
 }
 
 .cyber-chip {
@@ -332,7 +447,14 @@ body,
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+  clip-path: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
 }
 
 .cyber-chip.is-hot {
@@ -399,8 +521,19 @@ body,
   padding: 0.58rem 0.82rem;
   overflow: hidden;
   isolation: isolate;
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
-  transition: transform var(--cyber-spring), color var(--cyber-fast), border-color var(--cyber-fast), box-shadow var(--cyber-fast);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% 100%,
+    10px 100%,
+    0 calc(100% - 10px)
+  );
+  transition:
+    transform var(--cyber-spring),
+    color var(--cyber-fast),
+    border-color var(--cyber-fast),
+    box-shadow var(--cyber-fast);
 }
 
 .cyber-button::before {
@@ -417,7 +550,9 @@ body,
 .cyber-button:focus-visible {
   color: #03040a !important;
   border-color: rgba(255, 255, 255, 0.78) !important;
-  box-shadow: 0 0 24px rgba(0, 245, 255, 0.42), 0 0 34px rgba(189, 0, 255, 0.2);
+  box-shadow:
+    0 0 24px rgba(0, 245, 255, 0.42),
+    0 0 34px rgba(189, 0, 255, 0.2);
   transform: translateY(-1px);
   outline: none;
 }
@@ -429,7 +564,8 @@ body,
 
 .cyber-button:active {
   transform: translateY(0) scale(0.985);
-  filter: drop-shadow(1px 0 rgba(255, 0, 102, 0.7)) drop-shadow(-1px 0 rgba(0, 245, 255, 0.7));
+  filter: drop-shadow(1px 0 rgba(255, 0, 102, 0.7))
+    drop-shadow(-1px 0 rgba(0, 245, 255, 0.7));
 }
 
 .cyber-button.is-amber {
@@ -453,12 +589,20 @@ body,
   overflow: hidden;
   border: 1px solid rgba(0, 245, 255, 0.32);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.01)),
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.055),
+      rgba(255, 255, 255, 0.01)
+    ),
     var(--cyber-glass);
   border-radius: 16px;
-  transform: perspective(1000px) rotateX(var(--tilt-y)) rotateY(var(--tilt-x)) translateZ(0);
+  transform: perspective(1000px) rotateX(var(--tilt-y)) rotateY(var(--tilt-x))
+    translateZ(0);
   transform-style: preserve-3d;
-  transition: transform 180ms ease, border-color var(--cyber-fast), box-shadow var(--cyber-fast);
+  transition:
+    transform 180ms ease,
+    border-color var(--cyber-fast),
+    box-shadow var(--cyber-fast);
   animation: resultCompile 440ms cubic-bezier(0.16, 1, 0.3, 1) both;
   cursor: pointer;
 }
@@ -466,8 +610,12 @@ body,
 .cyber-card:hover,
 .cyber-card:focus-within {
   border-color: var(--cyber-cyan);
-  box-shadow: 0 0 0 1px rgba(0, 245, 255, 0.28), 0 0 36px rgba(0, 245, 255, 0.26), 0 22px 48px rgba(0, 0, 0, 0.42);
-  transform: perspective(1000px) rotateX(var(--tilt-y)) rotateY(var(--tilt-x)) scale(1.03) translateZ(0);
+  box-shadow:
+    0 0 0 1px rgba(0, 245, 255, 0.28),
+    0 0 36px rgba(0, 245, 255, 0.26),
+    0 22px 48px rgba(0, 0, 0, 0.42);
+  transform: perspective(1000px) rotateX(var(--tilt-y)) rotateY(var(--tilt-x))
+    scale(1.03) translateZ(0);
 }
 
 .cyber-card::before {
@@ -479,7 +627,10 @@ body,
     linear-gradient(135deg, rgba(0, 245, 255, 0.18), transparent 32%),
     linear-gradient(rgba(0, 245, 255, 0.12) 1px, transparent 1px),
     linear-gradient(90deg, rgba(189, 0, 255, 0.1) 1px, transparent 1px);
-  background-size: auto, 22px 22px, 22px 22px;
+  background-size:
+    auto,
+    22px 22px,
+    22px 22px;
   opacity: 0.52;
   transform: translateZ(24px);
 }
@@ -489,7 +640,13 @@ body,
   position: absolute;
   inset: -22% -60%;
   pointer-events: none;
-  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.78) 48%, rgba(0, 245, 255, 0.32) 52%, transparent 60%);
+  background: linear-gradient(
+    115deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.78) 48%,
+    rgba(0, 245, 255, 0.32) 52%,
+    transparent 60%
+  );
   transform: translateX(-55%) rotate(10deg);
   opacity: 0;
 }
@@ -502,7 +659,11 @@ body,
 .cyber-poster {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(0, 245, 255, 0.12), rgba(189, 0, 255, 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(0, 245, 255, 0.12),
+    rgba(189, 0, 255, 0.1)
+  );
   transform: translateZ(18px);
 }
 
@@ -510,7 +671,9 @@ body,
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform var(--cyber-spring), filter var(--cyber-fast);
+  transition:
+    transform var(--cyber-spring),
+    filter var(--cyber-fast);
 }
 
 .cyber-card:hover .cyber-poster img {
@@ -526,7 +689,9 @@ body,
   padding: 0.7rem;
   opacity: 0;
   transform: translateY(18px);
-  transition: opacity var(--cyber-fast), transform var(--cyber-spring);
+  transition:
+    opacity var(--cyber-fast),
+    transform var(--cyber-spring);
   background: linear-gradient(0deg, rgba(5, 5, 10, 0.9), transparent);
 }
 
@@ -576,7 +741,10 @@ body,
   padding: 0.8rem 1rem;
   align-items: center;
   border-bottom: 1px solid rgba(0, 245, 255, 0.08);
-  transition: background var(--cyber-fast), color var(--cyber-fast), transform var(--cyber-spring);
+  transition:
+    background var(--cyber-fast),
+    color var(--cyber-fast),
+    transform var(--cyber-spring);
 }
 
 .cyber-table-row:hover {
@@ -595,7 +763,11 @@ body,
 }
 
 .alphabet-filter-button.active {
-  background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-violet)) !important;
+  background: linear-gradient(
+    135deg,
+    var(--cyber-cyan),
+    var(--cyber-violet)
+  ) !important;
   color: #05050a !important;
 }
 
@@ -608,67 +780,156 @@ body,
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(0, 245, 255, 0.18), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 245, 255, 0.18),
+    transparent
+  );
   animation: searchScan 1.3s ease-in-out infinite;
 }
 
 @keyframes cyberGridDrift {
-  from { background-position: 0 0, 0 0, 0 0; }
-  to { background-position: 92px 92px, -92px 92px, 0 0; }
+  from {
+    background-position:
+      0 0,
+      0 0,
+      0 0;
+  }
+  to {
+    background-position:
+      92px 92px,
+      -92px 92px,
+      0 0;
+  }
 }
 
 @keyframes cyberHeaderSweep {
-  0%, 62% { transform: translateX(-120%); opacity: 0; }
-  70% { opacity: 1; }
-  88%, 100% { transform: translateX(120%); opacity: 0; }
+  0%,
+  62% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  70% {
+    opacity: 1;
+  }
+  88%,
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
 }
 
 @keyframes panelLaserSweep {
-  0%, 68% { transform: translateX(-130%); opacity: 0; }
-  76% { opacity: 1; }
-  96%, 100% { transform: translateX(130%); opacity: 0; }
+  0%,
+  68% {
+    transform: translateX(-130%);
+    opacity: 0;
+  }
+  76% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    transform: translateX(130%);
+    opacity: 0;
+  }
 }
 
 @keyframes microGlitch {
-  0% { opacity: 0; transform: translateX(-3px); }
-  25% { opacity: 0.9; transform: translateX(3px); }
-  50% { opacity: 0.5; transform: translateX(-1px); }
-  100% { opacity: 0; transform: translateX(0); }
+  0% {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+  25% {
+    opacity: 0.9;
+    transform: translateX(3px);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translateX(-1px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(0);
+  }
 }
 
 @keyframes searchScan {
-  from { transform: translateX(-120%); }
-  to { transform: translateX(120%); }
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
 }
 
 @keyframes resultCompile {
-  0% { opacity: 0; transform: perspective(1000px) translateY(20px) scale(0.98); filter: blur(10px) hue-rotate(30deg); }
-  38% { opacity: 0.75; clip-path: inset(0 0 46% 0); }
-  70% { clip-path: inset(0); }
-  100% { opacity: 1; transform: perspective(1000px) translateY(0) scale(1); filter: blur(0) hue-rotate(0deg); }
+  0% {
+    opacity: 0;
+    transform: perspective(1000px) translateY(20px) scale(0.98);
+    filter: blur(10px) hue-rotate(30deg);
+  }
+  38% {
+    opacity: 0.75;
+    clip-path: inset(0 0 46% 0);
+  }
+  70% {
+    clip-path: inset(0);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1000px) translateY(0) scale(1);
+    filter: blur(0) hue-rotate(0deg);
+  }
 }
 
 @keyframes laserSheen {
-  from { transform: translateX(-55%) rotate(10deg); }
-  to { transform: translateX(55%) rotate(10deg); }
+  from {
+    transform: translateX(-55%) rotate(10deg);
+  }
+  to {
+    transform: translateX(55%) rotate(10deg);
+  }
 }
 
 @keyframes terminalSlideIn {
-  from { opacity: 0; transform: translateX(26px) scale(0.98); filter: blur(8px); }
-  to { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+  from {
+    opacity: 0;
+    transform: translateX(26px) scale(0.98);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    filter: blur(0);
+  }
 }
 
 @media (max-width: 1180px) {
-  .cyber-search-input { width: 14rem; }
-  .cyber-header { height: 118px; }
+  .cyber-search-input {
+    width: 14rem;
+  }
+  .cyber-header {
+    height: 118px;
+  }
 }
 
 @media (max-width: 860px) {
-  .cyber-header { height: auto; min-height: 132px; }
-  .cyber-search-input { width: min(66vw, 20rem); }
-  .cyber-table-row { grid-template-columns: minmax(160px, 1fr) 80px 70px; }
+  .cyber-header {
+    height: auto;
+    min-height: 132px;
+  }
+  .cyber-search-input {
+    width: min(66vw, 20rem);
+  }
+  .cyber-table-row {
+    grid-template-columns: minmax(160px, 1fr) 80px 70px;
+  }
   .cyber-table-row span:nth-child(4),
-  .cyber-table-row span:nth-child(5) { display: none; }
+  .cyber-table-row span:nth-child(5) {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -7,7 +7,11 @@ interface Props {
   color?: string;
 }
 
-export default function ParticleField({ className = "", particleCount = 60, color = "167,139,250" }: Props) {
+export default function ParticleField({
+  className = "",
+  particleCount = 60,
+  color = "167,139,250",
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {

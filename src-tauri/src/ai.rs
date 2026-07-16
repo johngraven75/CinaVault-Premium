@@ -1,14 +1,14 @@
 // CinaVault Premium — AI Diagnostics Module (HuggingFace Inference)
-use tauri::State;
-use rusqlite::params;
-use crate::{task_progress, AppState};
 use crate::enrichment::{classify_library_item, LibraryItemRecord, SourceKind};
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::{task_progress, AppState};
+use rusqlite::params;
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
-use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::State;
 
 // Best free HuggingFace model for media library management (instruction-following, free tier)
 const DEFAULT_MODEL: &str = "mistralai/Mistral-7B-Instruct-v0.3";
@@ -30,7 +30,11 @@ enum AiQueryRoute {
 fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
     let lower = prompt.to_lowercase();
 
-    if lower.contains("network") || lower.contains("ping") || lower.contains("dns") || lower.contains("connection") {
+    if lower.contains("network")
+        || lower.contains("ping")
+        || lower.contains("dns")
+        || lower.contains("connection")
+    {
         return AiQueryRoute::NetworkDiagnostics;
     }
     if lower.contains("adult metadata")
@@ -40,7 +44,11 @@ fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
     {
         return AiQueryRoute::AdultMetadataGather;
     }
-    if lower.contains("source") || lower.contains("folder") || lower.contains("media") || lower.contains("library") {
+    if lower.contains("source")
+        || lower.contains("folder")
+        || lower.contains("media")
+        || lower.contains("library")
+    {
         return AiQueryRoute::SourceCheck;
     }
     if lower.contains("provider") || lower.contains("api") || lower.contains("metadata") {
@@ -53,8 +61,8 @@ fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
 pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bool {
     let path_lower = file_path.replace('/', "\\").to_lowercase();
     let is_video = [
-        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg",
-        ".ts", ".m2ts", ".vob", ".ogv", ".3gp", ".divx", ".rm", ".rmvb", ".asf",
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg", ".ts",
+        ".m2ts", ".vob", ".ogv", ".3gp", ".divx", ".rm", ".rmvb", ".asf",
     ]
     .iter()
     .any(|ext| path_lower.ends_with(ext));
@@ -137,9 +145,12 @@ fn should_refresh_title_from_embedded(current_title: &str, file_path: &str) -> b
 fn extract_embedded_title(file_path: &str) -> Option<String> {
     let mut cmd = Command::new("ffprobe");
     cmd.args([
-        "-v", "error",
-        "-show_entries", "format_tags=title:stream_tags=title",
-        "-of", "default=nw=1:nk=1",
+        "-v",
+        "error",
+        "-show_entries",
+        "format_tags=title:stream_tags=title",
+        "-of",
+        "default=nw=1:nk=1",
         file_path,
     ]);
     #[cfg(target_os = "windows")]
@@ -181,7 +192,8 @@ pub async fn ai_inference(
 ) -> Result<serde_json::Value, String> {
     let token = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.get_setting_data("hf_token").map_err(|e| e.to_string())?
+        db.get_setting_data("hf_token")
+            .map_err(|e| e.to_string())?
             .filter(|t| !t.trim().is_empty())
             .or_else(|| std::env::var("CINAVAULT_HF_TOKEN").ok())
             .or_else(|| std::env::var("HF_TOKEN").ok())
@@ -230,7 +242,10 @@ pub async fn ai_inference(
         }
     }
 
-    let resp = req.send().await.map_err(|e| format!("AI request failed: {}", e))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("AI request failed: {}", e))?;
     let status = resp.status();
 
     if !status.is_success() {
@@ -267,12 +282,15 @@ async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
     let dns = std::process::Command::new("nslookup")
         .arg("google.com")
         .output();
-    results.insert("dns".to_string(), serde_json::json!({
-        "test": "DNS Resolution",
-        "target": "google.com",
-        "success": dns.as_ref().map(|o| o.status.success()).unwrap_or(false),
-        "output": dns.ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
-    }));
+    results.insert(
+        "dns".to_string(),
+        serde_json::json!({
+            "test": "DNS Resolution",
+            "target": "google.com",
+            "success": dns.as_ref().map(|o| o.status.success()).unwrap_or(false),
+            "output": dns.ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
+        }),
+    );
 
     // Ping check
     #[cfg(target_os = "windows")]
@@ -284,23 +302,30 @@ async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
         .args(&["-c", "3", "8.8.8.8"])
         .output();
 
-    results.insert("ping".to_string(), serde_json::json!({
-        "test": "Ping (Google DNS)",
-        "target": "8.8.8.8",
-        "success": ping.as_ref().map(|o| o.status.success()).unwrap_or(false),
-        "output": ping.ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
-    }));
+    results.insert(
+        "ping".to_string(),
+        serde_json::json!({
+            "test": "Ping (Google DNS)",
+            "target": "8.8.8.8",
+            "success": ping.as_ref().map(|o| o.status.success()).unwrap_or(false),
+            "output": ping.ok().map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
+        }),
+    );
 
     // HTTP check
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
-        .build().map_err(|e| e.to_string())?;
+        .build()
+        .map_err(|e| e.to_string())?;
     let http = client.get("https://www.google.com").send().await;
-    results.insert("http".to_string(), serde_json::json!({
-        "test": "HTTPS Connectivity",
-        "target": "https://www.google.com",
-        "success": http.as_ref().map(|r| r.status().is_success()).unwrap_or(false),
-    }));
+    results.insert(
+        "http".to_string(),
+        serde_json::json!({
+            "test": "HTTPS Connectivity",
+            "target": "https://www.google.com",
+            "success": http.as_ref().map(|r| r.status().is_success()).unwrap_or(false),
+        }),
+    );
 
     Ok(serde_json::json!({
         "type": "network_diagnostics",
@@ -333,8 +358,12 @@ async fn check_sources(state: State<'_, AppState>) -> Result<serde_json::Value, 
 
 async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db.conn.prepare("SELECT provider FROM api_keys").map_err(|e| e.to_string())?;
-    let providers: Vec<String> = stmt.query_map([], |row| row.get::<_, String>(0))
+    let mut stmt = db
+        .conn
+        .prepare("SELECT provider FROM api_keys")
+        .map_err(|e| e.to_string())?;
+    let providers: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
@@ -368,7 +397,12 @@ fn chapter_dir_for(file_path: &str) -> Option<String> {
     let p = std::path::Path::new(file_path);
     let parent = p.parent()?;
     let stem = p.file_stem()?.to_string_lossy();
-    Some(parent.join(format!("{stem}_chapters")).to_string_lossy().to_string())
+    Some(
+        parent
+            .join(format!("{stem}_chapters"))
+            .to_string_lossy()
+            .to_string(),
+    )
 }
 
 fn count_existing_chapter_images(chapter_dir: &str) -> usize {
@@ -457,7 +491,11 @@ fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
     match current_poster.map(str::trim).filter(|v| !v.is_empty()) {
         None => true,
         Some(path) => {
-            if path.starts_with("http://") || path.starts_with("https://") || path.starts_with("data:") || path.starts_with("asset:") {
+            if path.starts_with("http://")
+                || path.starts_with("https://")
+                || path.starts_with("data:")
+                || path.starts_with("asset:")
+            {
                 return false;
             }
             let lower = path.replace('/', "\\").to_lowercase();
@@ -470,12 +508,23 @@ fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
     }
 }
 
-async fn fetch_tmdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
+async fn fetch_tmdb_metadata(
+    client: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+) -> Option<RemoteMetadata> {
     let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
     let url = format!(
         "https://api.themoviedb.org/3/search/multi?api_key={api_key}&query={encoded}&include_adult=true&page=1"
     );
-    let data = client.get(url).send().await.ok()?.json::<serde_json::Value>().await.ok()?;
+    let data = client
+        .get(url)
+        .send()
+        .await
+        .ok()?
+        .json::<serde_json::Value>()
+        .await
+        .ok()?;
     let first = data.get("results")?.as_array()?.first()?;
 
     let title = non_empty_string(first.get("title").and_then(|v| v.as_str()))
@@ -492,7 +541,10 @@ async fn fetch_tmdb_metadata(client: &reqwest::Client, api_key: &str, query: &st
         .get("vote_average")
         .and_then(|v| v.as_f64())
         .filter(|v| *v > 0.0);
-    let tmdb_id = first.get("id").and_then(|v| v.as_i64()).map(|id| id.to_string());
+    let tmdb_id = first
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .map(|id| id.to_string());
 
     Some(RemoteMetadata {
         title,
@@ -506,10 +558,21 @@ async fn fetch_tmdb_metadata(client: &reqwest::Client, api_key: &str, query: &st
     })
 }
 
-async fn fetch_omdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
+async fn fetch_omdb_metadata(
+    client: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+) -> Option<RemoteMetadata> {
     let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
     let url = format!("https://www.omdbapi.com/?apikey={api_key}&t={encoded}&plot=full");
-    let data = client.get(url).send().await.ok()?.json::<serde_json::Value>().await.ok()?;
+    let data = client
+        .get(url)
+        .send()
+        .await
+        .ok()?
+        .json::<serde_json::Value>()
+        .await
+        .ok()?;
     if data.get("Response").and_then(|v| v.as_str()) != Some("True") {
         return None;
     }
@@ -538,7 +601,11 @@ async fn fetch_omdb_metadata(client: &reqwest::Client, api_key: &str, query: &st
     })
 }
 
-async fn fetch_stashdb_metadata(client: &reqwest::Client, api_key: &str, query: &str) -> Option<RemoteMetadata> {
+async fn fetch_stashdb_metadata(
+    client: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+) -> Option<RemoteMetadata> {
     let body = serde_json::json!({
         "query": "query($title:String!){ queryScenes(input:{title:$title, per_page:1, page:1, direction:DESC, sort:DATE}) { scenes { title details release_date images { url width height } tags { name } urls { url } } } }",
         "variables": {
@@ -606,22 +673,43 @@ async fn fetch_stashdb_metadata(client: &reqwest::Client, api_key: &str, query: 
     })
 }
 
-fn merge_remote_metadata(primary: Option<RemoteMetadata>, secondary: Option<RemoteMetadata>) -> Option<RemoteMetadata> {
+fn merge_remote_metadata(
+    primary: Option<RemoteMetadata>,
+    secondary: Option<RemoteMetadata>,
+) -> Option<RemoteMetadata> {
     let mut merged = primary.or(secondary.clone())?;
     if let Some(extra) = secondary {
-        if merged.title.is_none() { merged.title = extra.title; }
-        if merged.overview.is_none() { merged.overview = extra.overview; }
-        if merged.poster_path.is_none() { merged.poster_path = extra.poster_path; }
-        if merged.year.is_none() { merged.year = extra.year; }
-        if merged.rating.is_none() { merged.rating = extra.rating; }
-        if merged.genre.is_none() { merged.genre = extra.genre; }
-        if merged.tmdb_id.is_none() { merged.tmdb_id = extra.tmdb_id; }
-        if merged.imdb_id.is_none() { merged.imdb_id = extra.imdb_id; }
+        if merged.title.is_none() {
+            merged.title = extra.title;
+        }
+        if merged.overview.is_none() {
+            merged.overview = extra.overview;
+        }
+        if merged.poster_path.is_none() {
+            merged.poster_path = extra.poster_path;
+        }
+        if merged.year.is_none() {
+            merged.year = extra.year;
+        }
+        if merged.rating.is_none() {
+            merged.rating = extra.rating;
+        }
+        if merged.genre.is_none() {
+            merged.genre = extra.genre;
+        }
+        if merged.tmdb_id.is_none() {
+            merged.tmdb_id = extra.tmdb_id;
+        }
+        if merged.imdb_id.is_none() {
+            merged.imdb_id = extra.imdb_id;
+        }
     }
     Some(merged)
 }
 
-async fn gather_adult_metadata_assets(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn gather_adult_metadata_assets(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     if ADULT_GATHER_RUNNING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -638,10 +726,14 @@ async fn gather_adult_metadata_assets(state: State<'_, AppState>) -> Result<serd
     result
 }
 
-async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn gather_adult_metadata_assets_inner(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let configured_adult_providers: Vec<String> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db.conn.prepare("SELECT provider FROM api_keys")
+        let mut stmt = db
+            .conn
+            .prepare("SELECT provider FROM api_keys")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
@@ -650,7 +742,10 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
 
         for provider in rows.filter_map(|r| r.ok()) {
             let normalized = normalize_adult_provider_key(&provider);
-            if matches!(normalized.as_str(), "tpdb" | "stashdb" | "phoenixadult" | "iafd") {
+            if matches!(
+                normalized.as_str(),
+                "tpdb" | "stashdb" | "phoenixadult" | "iafd"
+            ) {
                 providers.insert(normalized);
             }
         }
@@ -665,7 +760,9 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             .prepare("SELECT provider, api_key FROM api_keys")
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|e| e.to_string())?;
 
         let mut keys = HashMap::new();
@@ -697,8 +794,10 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         Option<String>,
     )> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db.conn.prepare(
-            "SELECT mi.id,
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT mi.id,
                     mi.title,
                     mi.file_path,
                     mi.poster_path,
@@ -714,8 +813,9 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
              FROM media_items mi
              LEFT JOIN media_sources ms ON ms.id = mi.source_id
              WHERE mi.media_type IN ('adult', 'movie', 'video')
-             ORDER BY mi.date_added DESC"
-        ).map_err(|e| e.to_string())?;
+             ORDER BY mi.date_added DESC",
+            )
+            .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| {
                 Ok((
@@ -736,15 +836,31 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             })
             .map_err(|e| e.to_string())?;
         rows.filter_map(|r| r.ok())
-            .filter(|(_, title, file_path, _, _, _, _, _, _, _, media_type, source_name, source_path)| {
-                is_adult_library_item(
-                    media_type,
+            .filter(
+                |(
+                    _,
                     title,
                     file_path,
-                    source_name.as_deref(),
-                    source_path.as_deref(),
-                )
-            })
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    media_type,
+                    source_name,
+                    source_path,
+                )| {
+                    is_adult_library_item(
+                        media_type,
+                        title,
+                        file_path,
+                        source_name.as_deref(),
+                        source_path.as_deref(),
+                    )
+                },
+            )
             .collect()
     };
 
@@ -768,10 +884,32 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         "Preparing adult metadata gather",
     );
 
-    for (index, (id, title, file_path, poster_path, overview, year, rating, genre, tmdb_id, imdb_id, media_type, source_name, source_path)) in media_items.iter().enumerate() {
+    for (
+        index,
+        (
+            id,
+            title,
+            file_path,
+            poster_path,
+            overview,
+            year,
+            rating,
+            genre,
+            tmdb_id,
+            imdb_id,
+            media_type,
+            source_name,
+            source_path,
+        ),
+    ) in media_items.iter().enumerate()
+    {
         progress.update(
             index + 1,
-            format!("Gathering metadata and poster artwork for {} of {}", index + 1, media_items.len()),
+            format!(
+                "Gathering metadata and poster artwork for {} of {}",
+                index + 1,
+                media_items.len()
+            ),
         );
         let media_path = std::path::Path::new(file_path);
         if !media_path.exists() {
@@ -791,10 +929,12 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
 
         if media_type != "adult" {
             let db = state.db.lock().map_err(|e| e.to_string())?;
-            db.conn.execute(
-                "UPDATE media_items SET media_type = 'adult' WHERE id = ?1",
-                params![id],
-            ).map_err(|e| e.to_string())?;
+            db.conn
+                .execute(
+                    "UPDATE media_items SET media_type = 'adult' WHERE id = ?1",
+                    params![id],
+                )
+                .map_err(|e| e.to_string())?;
             items_reclassified_as_adult += 1;
         }
 
@@ -811,10 +951,12 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             if let Some(embedded_title) = extract_embedded_title(file_path) {
                 if !embedded_title.eq_ignore_ascii_case(&final_title) {
                     let db = state.db.lock().map_err(|e| e.to_string())?;
-                    db.conn.execute(
-                        "UPDATE media_items SET title = ?1 WHERE id = ?2",
-                        params![embedded_title, id],
-                    ).map_err(|e| e.to_string())?;
+                    db.conn
+                        .execute(
+                            "UPDATE media_items SET title = ?1 WHERE id = ?2",
+                            params![embedded_title, id],
+                        )
+                        .map_err(|e| e.to_string())?;
                     final_title = embedded_title;
                     titles_refreshed_from_embedded += 1;
                 }
@@ -837,10 +979,12 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         if !has_poster {
             if let Some(local_poster) = detect_local_poster(file_path) {
                 let db = state.db.lock().map_err(|e| e.to_string())?;
-                db.conn.execute(
-                    "UPDATE media_items SET poster_path = ?1 WHERE id = ?2",
-                    params![local_poster, id],
-                ).map_err(|e| e.to_string())?;
+                db.conn
+                    .execute(
+                        "UPDATE media_items SET poster_path = ?1 WHERE id = ?2",
+                        params![local_poster, id],
+                    )
+                    .map_err(|e| e.to_string())?;
                 posters_updated += 1;
                 final_poster = Some(local_poster);
             }
@@ -856,10 +1000,18 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
             || final_year.is_none()
             || final_rating.is_none()
             || missing_genre
-            || final_tmdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true)
-            || final_imdb_id.as_deref().map(|v| v.trim().is_empty()).unwrap_or(true);
+            || final_tmdb_id
+                .as_deref()
+                .map(|v| v.trim().is_empty())
+                .unwrap_or(true)
+            || final_imdb_id
+                .as_deref()
+                .map(|v| v.trim().is_empty())
+                .unwrap_or(true);
 
-        if needs_remote_metadata && (stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some()) {
+        if needs_remote_metadata
+            && (stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some())
+        {
             let query_title = extract_embedded_title(file_path)
                 .filter(|embedded| !embedded.trim().is_empty())
                 .unwrap_or_else(|| final_title.clone());
@@ -893,7 +1045,11 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                         }
                     }
                 }
-                if final_overview.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
+                if final_overview
+                    .as_ref()
+                    .map(|v| v.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     if let Some(new_overview) = meta.overview.filter(|v| !v.trim().is_empty()) {
                         final_overview = Some(new_overview);
                         changed_fields += 1;
@@ -919,19 +1075,31 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                         changed_fields += 1;
                     }
                 }
-                if final_genre.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
+                if final_genre
+                    .as_ref()
+                    .map(|v| v.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     if let Some(new_genre) = meta.genre.filter(|v| !v.trim().is_empty()) {
                         final_genre = Some(new_genre);
                         changed_fields += 1;
                     }
                 }
-                if final_tmdb_id.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
+                if final_tmdb_id
+                    .as_ref()
+                    .map(|v| v.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     if let Some(new_tmdb_id) = meta.tmdb_id.filter(|v| !v.trim().is_empty()) {
                         final_tmdb_id = Some(new_tmdb_id);
                         changed_fields += 1;
                     }
                 }
-                if final_imdb_id.as_ref().map(|v| v.trim().is_empty()).unwrap_or(true) {
+                if final_imdb_id
+                    .as_ref()
+                    .map(|v| v.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     if let Some(new_imdb_id) = meta.imdb_id.filter(|v| !v.trim().is_empty()) {
                         final_imdb_id = Some(new_imdb_id);
                         changed_fields += 1;
@@ -940,8 +1108,9 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
 
                 if changed_fields > 0 {
                     let db = state.db.lock().map_err(|e| e.to_string())?;
-                    db.conn.execute(
-                        "UPDATE media_items
+                    db.conn
+                        .execute(
+                            "UPDATE media_items
                          SET title = ?1,
                              overview = ?2,
                              poster_path = ?3,
@@ -951,18 +1120,19 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
                              tmdb_id = ?7,
                              imdb_id = ?8
                          WHERE id = ?9",
-                        params![
-                            final_title,
-                            final_overview,
-                            final_poster,
-                            final_year,
-                            final_rating,
-                            final_genre,
-                            final_tmdb_id,
-                            final_imdb_id,
-                            id
-                        ],
-                    ).map_err(|e| e.to_string())?;
+                            params![
+                                final_title,
+                                final_overview,
+                                final_poster,
+                                final_year,
+                                final_rating,
+                                final_genre,
+                                final_tmdb_id,
+                                final_imdb_id,
+                                id
+                            ],
+                        )
+                        .map_err(|e| e.to_string())?;
                     metadata_items_enriched += 1;
                     metadata_fields_updated += changed_fields;
                 }
@@ -972,7 +1142,14 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
         if let Some(chapter_dir) = chapter_dir_for(file_path) {
             let existing = count_existing_chapter_images(&chapter_dir);
             if existing == 0 {
-                match crate::chapters::generate_chapter_thumbs(file_path.clone(), None, Some(300), None).await {
+                match crate::chapters::generate_chapter_thumbs(
+                    file_path.clone(),
+                    None,
+                    Some(300),
+                    None,
+                )
+                .await
+                {
                     Ok(thumbs) if !thumbs.is_empty() => {
                         chapters_generated_for_items += 1;
                         chapter_images_generated += thumbs.len();
@@ -1030,14 +1207,9 @@ async fn gather_adult_metadata_assets_inner(state: State<'_, AppState>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_ai_query_prompt,
-        is_adult_gather_candidate,
-        is_adult_library_item,
-        metadata_sidecar_path,
-        normalize_adult_provider_key,
-        normalize_provider_key,
-        AiQueryRoute,
-        should_prefer_remote_poster,
+        classify_ai_query_prompt, is_adult_gather_candidate, is_adult_library_item,
+        metadata_sidecar_path, normalize_adult_provider_key, normalize_provider_key,
+        should_prefer_remote_poster, AiQueryRoute,
     };
 
     #[test]
@@ -1060,10 +1232,7 @@ mod tests {
             "photo",
             r"E:\Videos\scene_chapters\chapter_0001.jpg"
         ));
-        assert!(!is_adult_gather_candidate(
-            "photo",
-            r"E:\Videos\poster.jpg"
-        ));
+        assert!(!is_adult_gather_candidate("photo", r"E:\Videos\poster.jpg"));
     }
 
     #[test]
@@ -1110,16 +1279,21 @@ mod tests {
     #[test]
     fn remote_poster_preferred_for_local_placeholder_files_only() {
         assert!(should_prefer_remote_poster(None));
-        assert!(should_prefer_remote_poster(Some(r"E:\Library\video-poster.jpg")));
+        assert!(should_prefer_remote_poster(Some(
+            r"E:\Library\video-poster.jpg"
+        )));
         assert!(should_prefer_remote_poster(Some(r"E:\Library\poster.jpg")));
-        assert!(!should_prefer_remote_poster(Some("https://example.com/poster.jpg")));
+        assert!(!should_prefer_remote_poster(Some(
+            "https://example.com/poster.jpg"
+        )));
     }
 }
 
 #[tauri::command]
 pub fn set_hf_token(state: State<AppState>, token: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data("hf_token", &token).map_err(|e| e.to_string())
+    db.set_setting_data("hf_token", &token)
+        .map_err(|e| e.to_string())
 }
 
 /// Checks if a HuggingFace token is available (DB or env var) and auto-seeds it into DB.
@@ -1163,17 +1337,23 @@ pub fn ensure_hf_token(state: State<AppState>) -> Result<serde_json::Value, Stri
 #[tauri::command]
 pub fn get_ai_config(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let model = db.get_setting_data("ai_model").map_err(|e| e.to_string())?
+    let model = db
+        .get_setting_data("ai_model")
+        .map_err(|e| e.to_string())?
         .filter(|m| !m.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
     // Check DB token first, then env vars
-    let db_token_present = db.get_setting_data("hf_token").map_err(|e| e.to_string())?
+    let db_token_present = db
+        .get_setting_data("hf_token")
+        .map_err(|e| e.to_string())?
         .map(|t| !t.trim().is_empty())
         .unwrap_or(false);
     let env_token_present = std::env::var("CINAVAULT_HF_TOKEN")
-        .map(|t| !t.trim().is_empty()).unwrap_or(false)
+        .map(|t| !t.trim().is_empty())
+        .unwrap_or(false)
         || std::env::var("HF_TOKEN")
-        .map(|t| !t.trim().is_empty()).unwrap_or(false);
+            .map(|t| !t.trim().is_empty())
+            .unwrap_or(false);
     let has_token = db_token_present || env_token_present;
     Ok(serde_json::json!({
         "model": model,
@@ -1192,43 +1372,60 @@ async fn ai_library_manage(
     state: State<'_, AppState>,
     tasks: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
-    let requested = tasks.unwrap_or_else(|| vec![
-        "scan".to_string(),
-        "enrich".to_string(),
-        "posters".to_string(),
-        "nfo".to_string(),
-        "duplicates".to_string(),
-        "normalize".to_string(),
-        "tags".to_string(),
-    ]);
+    let requested = tasks.unwrap_or_else(|| {
+        vec![
+            "scan".to_string(),
+            "enrich".to_string(),
+            "posters".to_string(),
+            "nfo".to_string(),
+            "duplicates".to_string(),
+            "normalize".to_string(),
+            "tags".to_string(),
+        ]
+    });
     let mut results = serde_json::Map::new();
     let mut total_updated = 0u64;
     let mut errors: Vec<String> = Vec::new();
 
     // --- Enrich metadata + poster sync + NFO write-back ---
-    if requested.iter().any(|t| t == "enrich" || t == "posters" || t == "nfo") {
+    if requested
+        .iter()
+        .any(|t| t == "enrich" || t == "posters" || t == "nfo")
+    {
         match crate::enrichment::run_library_enrichment(state.clone(), false).await {
             Ok(report) => {
                 total_updated += report.metadata_updated as u64;
-                results.insert("enrichment".to_string(), serde_json::json!({
-                    "status": "ok",
-                    "items_scanned": report.items_scanned,
-                    "metadata_updated": report.metadata_updated,
-                    "metadata_items_enriched": report.metadata_items_enriched,
-                    "posters_downloaded": report.posters_downloaded,
-                    "sidecars_written": report.sidecars_written,
-                }));
+                results.insert(
+                    "enrichment".to_string(),
+                    serde_json::json!({
+                        "status": "ok",
+                        "items_scanned": report.items_scanned,
+                        "metadata_updated": report.metadata_updated,
+                        "metadata_items_enriched": report.metadata_items_enriched,
+                        "posters_downloaded": report.posters_downloaded,
+                        "sidecars_written": report.sidecars_written,
+                    }),
+                );
             }
             Err(e) => {
                 errors.push(format!("enrichment: {}", e));
-                results.insert("enrichment".to_string(), serde_json::json!({ "status": "error", "error": e }));
+                results.insert(
+                    "enrichment".to_string(),
+                    serde_json::json!({ "status": "error", "error": e }),
+                );
             }
         }
     }
 
     // --- Duplicate detection ---
     if requested.iter().any(|t| t == "duplicates") {
-        match crate::duplicates::find_duplicates(state.clone(), Some("name_size".to_string()), Some(0.0)).await {
+        match crate::duplicates::find_duplicates(
+            state.clone(),
+            Some("name_size".to_string()),
+            Some(0.0),
+        )
+        .await
+        {
             Ok(report) => {
                 results.insert("duplicates".to_string(), serde_json::json!({
                     "status": "ok",
@@ -1237,7 +1434,10 @@ async fn ai_library_manage(
             }
             Err(e) => {
                 errors.push(format!("duplicates: {}", e));
-                results.insert("duplicates".to_string(), serde_json::json!({ "status": "error", "error": e }));
+                results.insert(
+                    "duplicates".to_string(),
+                    serde_json::json!({ "status": "error", "error": e }),
+                );
             }
         }
     }
@@ -1245,10 +1445,15 @@ async fn ai_library_manage(
     // --- Source health check ---
     if requested.iter().any(|t| t == "scan") {
         match check_sources(state.clone()).await {
-            Ok(report) => { results.insert("sources".to_string(), report); }
+            Ok(report) => {
+                results.insert("sources".to_string(), report);
+            }
             Err(e) => {
                 errors.push(format!("sources: {}", e));
-                results.insert("sources".to_string(), serde_json::json!({ "status": "error", "error": e }));
+                results.insert(
+                    "sources".to_string(),
+                    serde_json::json!({ "status": "error", "error": e }),
+                );
             }
         }
     }
@@ -1266,5 +1471,6 @@ async fn ai_library_manage(
 #[tauri::command]
 pub fn set_ai_model(state: State<AppState>, model: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_setting_data("ai_model", &model).map_err(|e| e.to_string())
+    db.set_setting_data("ai_model", &model)
+        .map_err(|e| e.to_string())
 }

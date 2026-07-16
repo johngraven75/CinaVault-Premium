@@ -6,7 +6,8 @@ export const PGMA_PLUGIN_ID = "px-pgma-modernized";
 const PGMA_CATALOG_ENTRY: PluginEntry = {
   id: PGMA_PLUGIN_ID,
   name: "PGMA Modernized",
-  description: "Preinstalled PGMA integration with Plex bundle deployment plus a native CinaVault metadata bridge that reads local sidecar/artwork data and writes matching fields into the library.",
+  description:
+    "Preinstalled PGMA integration with Plex bundle deployment plus a native CinaVault metadata bridge that reads local sidecar/artwork data and writes matching fields into the library.",
   version: "master",
   author: "CodyBerenson / CinaVault",
   platforms: ["plex", "cinavault"],
@@ -21,21 +22,37 @@ const PGMA_CATALOG_ENTRY: PluginEntry = {
 };
 
 type MetadataProviderLike = Partial<MetadataProvider> | null | undefined;
-type PluginSearchCandidate = Partial<Pick<PluginEntry, "name" | "description" | "tags">>;
-type PluginRuntimeState = { id?: unknown; enabled?: unknown } | null | undefined;
-type PluginStatusCandidate = Pick<PluginEntry, "id" | "status"> & Partial<Pick<PluginEntry, "cinavaultNative">>;
+type PluginSearchCandidate = Partial<
+  Pick<PluginEntry, "name" | "description" | "tags">
+>;
+type PluginRuntimeState =
+  { id?: unknown; enabled?: unknown } | null | undefined;
+type PluginStatusCandidate = Pick<PluginEntry, "id" | "status"> &
+  Partial<Pick<PluginEntry, "cinavaultNative">>;
 
-export function matchesPluginSearch(plugin: PluginSearchCandidate, rawSearch: string): boolean {
+export function matchesPluginSearch(
+  plugin: PluginSearchCandidate,
+  rawSearch: string,
+): boolean {
   const search = rawSearch.trim().toLowerCase();
   if (!search) return true;
 
   const name = typeof plugin.name === "string" ? plugin.name.toLowerCase() : "";
-  const description = typeof plugin.description === "string" ? plugin.description.toLowerCase() : "";
+  const description =
+    typeof plugin.description === "string"
+      ? plugin.description.toLowerCase()
+      : "";
   const tags = Array.isArray(plugin.tags)
-    ? plugin.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.toLowerCase())
+    ? plugin.tags
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => tag.toLowerCase())
     : [];
 
-  return name.includes(search) || description.includes(search) || tags.some((tag) => tag.includes(search));
+  return (
+    name.includes(search) ||
+    description.includes(search) ||
+    tags.some((tag) => tag.includes(search))
+  );
 }
 
 export function getMetadataProviderInitials(name?: string | null): string {
@@ -56,17 +73,23 @@ export function sanitizeMetadataProviders(
   }
 
   for (const candidate of persisted as MetadataProviderLike[]) {
-    if (!candidate || typeof candidate !== "object" || typeof candidate.id !== "string") {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      typeof candidate.id !== "string"
+    ) {
       continue;
     }
 
     const fallback = merged.get(candidate.id);
-    const name = typeof candidate.name === "string" && candidate.name.trim()
-      ? candidate.name.trim()
-      : fallback?.name;
-    const category = typeof candidate.category === "string" && candidate.category.trim()
-      ? candidate.category.trim()
-      : fallback?.category;
+    const name =
+      typeof candidate.name === "string" && candidate.name.trim()
+        ? candidate.name.trim()
+        : fallback?.name;
+    const category =
+      typeof candidate.category === "string" && candidate.category.trim()
+        ? candidate.category.trim()
+        : fallback?.category;
 
     if (!name || !category) {
       continue;
@@ -76,7 +99,10 @@ export function sanitizeMetadataProviders(
       id: candidate.id,
       name,
       category,
-      enabled: typeof candidate.enabled === "boolean" ? candidate.enabled : fallback?.enabled ?? false,
+      enabled:
+        typeof candidate.enabled === "boolean"
+          ? candidate.enabled
+          : (fallback?.enabled ?? false),
     });
   }
 
@@ -96,25 +122,35 @@ export function applyPluginRuntimeState<T extends PluginStatusCandidate>(
     });
   }
 
-  const registryWithPreinstalled = registry.some((plugin) => plugin.id === PGMA_PLUGIN_ID)
+  const registryWithPreinstalled = registry.some(
+    (plugin) => plugin.id === PGMA_PLUGIN_ID,
+  )
     ? registry
     : [...registry, PGMA_CATALOG_ENTRY as unknown as T];
 
-  return registryWithPreinstalled.filter((plugin) => plugin.id !== 'px-pgma-modernized')
+  return registryWithPreinstalled
+    .filter((plugin) => plugin.id !== "px-pgma-modernized")
     .map((plugin) => {
-    const runtime = installedById.get(plugin.id);
-    if (!runtime) return { ...plugin };
+      const runtime = installedById.get(plugin.id);
+      if (!runtime) return { ...plugin };
 
-    return {
-      ...plugin,
-      status: runtime.enabled
-        ? (plugin.cinavaultNative ? "active" : "installed")
-        : "disabled",
-    };
-  });
+      return {
+        ...plugin,
+        status: runtime.enabled
+          ? plugin.cinavaultNative
+            ? "active"
+            : "installed"
+          : "disabled",
+      };
+    });
 }
 
-export function getUnreadStatusMessages(messages: string[], lastReadIndex: number): string[] {
-  const safeIndex = Number.isFinite(lastReadIndex) ? Math.max(0, Math.floor(lastReadIndex)) : 0;
+export function getUnreadStatusMessages(
+  messages: string[],
+  lastReadIndex: number,
+): string[] {
+  const safeIndex = Number.isFinite(lastReadIndex)
+    ? Math.max(0, Math.floor(lastReadIndex))
+    : 0;
   return messages.slice(Math.min(safeIndex + 1, messages.length));
 }

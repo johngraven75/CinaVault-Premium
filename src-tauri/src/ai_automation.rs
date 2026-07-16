@@ -92,12 +92,8 @@ pub async fn ai_library_manage(
     }
 
     if requested.iter().any(|task| task == "duplicates") {
-        match duplicates::find_duplicates(
-            state.clone(),
-            Some("name_size".to_string()),
-            Some(0.0),
-        )
-        .await
+        match duplicates::find_duplicates(state.clone(), Some("name_size".to_string()), Some(0.0))
+            .await
         {
             Ok(report) => {
                 results.insert("duplicates".to_string(), report);
@@ -114,7 +110,10 @@ pub async fn ai_library_manage(
 
     let status = if errors.is_empty() {
         "success"
-    } else if results.values().any(|value| value.get("status") != Some(&serde_json::json!("error"))) {
+    } else if results
+        .values()
+        .any(|value| value.get("status") != Some(&serde_json::json!("error")))
+    {
         "partial"
     } else {
         "failed"
@@ -148,7 +147,15 @@ mod tests {
     #[test]
     fn defaults_cover_real_media_automation() {
         let tasks = normalized_tasks(None);
-        for required in ["scan", "enrich", "posters", "nfo", "duplicates", "normalize", "tags"] {
+        for required in [
+            "scan",
+            "enrich",
+            "posters",
+            "nfo",
+            "duplicates",
+            "normalize",
+            "tags",
+        ] {
             assert!(tasks.iter().any(|task| task == required));
         }
     }

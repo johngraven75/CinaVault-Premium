@@ -46,7 +46,10 @@ test("filterItemsByTitleInitial keeps only titles that start with the selected l
 });
 
 test("filterItemsByTitleInitial supports all and numeric symbol buckets", () => {
-  assert.equal(filterItemsByTitleInitial(sampleItems, "all").length, sampleItems.length);
+  assert.equal(
+    filterItemsByTitleInitial(sampleItems, "all").length,
+    sampleItems.length,
+  );
   assert.deepEqual(
     filterItemsByTitleInitial(sampleItems, "#").map((item) => item.title),
     ["2001: A Space Odyssey", ""],

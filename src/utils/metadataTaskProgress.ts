@@ -27,7 +27,8 @@ export function formatMetadataTaskProgress(
   const current = Math.max(0, Math.floor(progress?.current ?? 0));
   const total = Math.max(0, Math.floor(progress?.total ?? 0));
   const label = progress?.label?.trim() || fallbackLabel;
-  const message = progress?.message?.trim() || (active ? "Working..." : "Complete");
+  const message =
+    progress?.message?.trim() || (active ? "Working..." : "Complete");
 
   return {
     active,
@@ -40,9 +41,13 @@ export function formatMetadataTaskProgress(
   };
 }
 
-export function metadataTaskPopupVisible(progress: MetadataTaskProgress | null | undefined): boolean {
+export function metadataTaskPopupVisible(
+  progress: MetadataTaskProgress | null | undefined,
+): boolean {
   if (!progress) return false;
-  return Boolean(progress.active) || clampPercent(progress.percent ?? 0) === 100;
+  return (
+    Boolean(progress.active) || clampPercent(progress.percent ?? 0) === 100
+  );
 }
 
 function clampPercent(value: number): number {

@@ -21,9 +21,23 @@ const excludedDirectories = new Set([
   "coverage",
 ]);
 const textExtensions = new Set([
-  ".cjs", ".css", ".html", ".json", ".json5", ".js", ".jsx",
-  ".md", ".mjs", ".ps1", ".rs", ".toml", ".ts", ".tsx", ".txt",
-  ".yml", ".yaml",
+  ".cjs",
+  ".css",
+  ".html",
+  ".json",
+  ".json5",
+  ".js",
+  ".jsx",
+  ".md",
+  ".mjs",
+  ".ps1",
+  ".rs",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".yml",
+  ".yaml",
 ]);
 
 function readProjectFile(path) {
@@ -47,7 +61,11 @@ function isArchiveFile(rel) {
 
 function isExcludedDirectory(path) {
   const normalized = path.split(sep).join("/");
-  return excludedDirectories.has(normalized) || normalized.startsWith("releases/") || normalized.startsWith("src-tauri/target/");
+  return (
+    excludedDirectories.has(normalized) ||
+    normalized.startsWith("releases/") ||
+    normalized.startsWith("src-tauri/target/")
+  );
 }
 
 function walk(directory, files = []) {
@@ -61,7 +79,8 @@ function walk(directory, files = []) {
       continue;
     }
 
-    if (stats.isFile() && textExtensions.has(extname(entry))) files.push(absolute);
+    if (stats.isFile() && textExtensions.has(extname(entry)))
+      files.push(absolute);
   }
 
   return files;
@@ -98,7 +117,11 @@ test("active repository files do not contain stale build-number drift", () => {
     }
   }
 
-  assert.deepEqual(offenders, [], `Stale build-number references found in active files while current build is ${currentBuild}.`);
+  assert.deepEqual(
+    offenders,
+    [],
+    `Stale build-number references found in active files while current build is ${currentBuild}.`,
+  );
 });
 
 test("version manifests carry forward together for the current build", () => {
@@ -107,19 +130,56 @@ test("version manifests carry forward together for the current build", () => {
   const tauriConfig = readJson("src-tauri/tauri.conf.json");
   const cargoToml = readProjectFile("src-tauri/Cargo.toml");
 
-  assert.equal(packageJson.version, currentVersion, "package.json version must match the current build version");
-  assert.equal(packageLock.version, currentVersion, "package-lock.json root version must match the current build version");
-  assert.equal(packageLock.packages[""].version, currentVersion, "package-lock.json package entry version must match the current build version");
-  assert.equal(tauriConfig.version, currentVersion, "Tauri config version must match the current build version");
-  assert.equal(cargoVersion(cargoToml), currentVersion, "Cargo.toml package version must match the current build version");
+  assert.equal(
+    packageJson.version,
+    currentVersion,
+    "package.json version must match the current build version",
+  );
+  assert.equal(
+    packageLock.version,
+    currentVersion,
+    "package-lock.json root version must match the current build version",
+  );
+  assert.equal(
+    packageLock.packages[""].version,
+    currentVersion,
+    "package-lock.json package entry version must match the current build version",
+  );
+  assert.equal(
+    tauriConfig.version,
+    currentVersion,
+    "Tauri config version must match the current build version",
+  );
+  assert.equal(
+    cargoVersion(cargoToml),
+    currentVersion,
+    "Cargo.toml package version must match the current build version",
+  );
 });
 
 test("installer workflow carries forward the current build number", () => {
   const workflow = readProjectFile(".github/workflows/windows-installer.yml");
 
-  assert.match(workflow, new RegExp(`BUILD_NUMBER:\\s*['\"]${currentBuild}['\"]`));
-  assert.match(workflow, new RegExp(`BUILD_OUTPUT_DIR:\\s*releases/build-${currentBuild}`));
-  assert.match(workflow, new RegExp(`CinaVault-Premium-Windows-Installer-Build${currentBuild}`));
-  assert.equal(workflow.includes("releases/build-139"), false, "installer workflow must not publish to the old Build 139 release folder");
-  assert.equal(workflow.includes("Build139"), false, "installer workflow must not publish the old Build 139 artifact name");
+  assert.match(
+    workflow,
+    new RegExp(`BUILD_NUMBER:\\s*['\"]${currentBuild}['\"]`),
+  );
+  assert.match(
+    workflow,
+    new RegExp(`BUILD_OUTPUT_DIR:\\s*releases/build-${currentBuild}`),
+  );
+  assert.match(
+    workflow,
+    new RegExp(`CinaVault-Premium-Windows-Installer-Build${currentBuild}`),
+  );
+  assert.equal(
+    workflow.includes("releases/build-139"),
+    false,
+    "installer workflow must not publish to the old Build 139 release folder",
+  );
+  assert.equal(
+    workflow.includes("Build139"),
+    false,
+    "installer workflow must not publish the old Build 139 artifact name",
+  );
 });

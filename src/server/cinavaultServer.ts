@@ -41,8 +41,8 @@ export const CINAVAULT_SERVER_SETTINGS: CinaVaultServerSettings = {
     "downloads",
     "duplicate-management",
     "filename-normalization",
-    "ai-media-agent"
-  ]
+    "ai-media-agent",
+  ],
 };
 
 export function getCinaVaultServerSettings() {

@@ -3,8 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 test("Build 148 permanently installs and starts media helper plugins", () => {
-  const plugins = fs.readFileSync("src/plugins/permanentMediaPlugins.ts", "utf8");
-  const startup = fs.readFileSync("src/services/startupMediaPluginService.ts", "utf8");
+  const plugins = fs.readFileSync(
+    "src/plugins/permanentMediaPlugins.ts",
+    "utf8",
+  );
+  const startup = fs.readFileSync(
+    "src/services/startupMediaPluginService.ts",
+    "utf8",
+  );
 
   for (const id of ["ffmpeg", "yt-dlp", "mediainfo"]) {
     assert.match(plugins, new RegExp(`id:\\s*"${id}"`));

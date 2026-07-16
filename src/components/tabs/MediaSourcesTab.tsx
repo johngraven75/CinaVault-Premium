@@ -2,7 +2,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
-import { useAppStore, type LibraryEnrichmentResult } from "../../store/appStore";
+import {
+  useAppStore,
+  type LibraryEnrichmentResult,
+} from "../../store/appStore";
 import {
   FolderOpen,
   HardDrive,
@@ -35,9 +38,32 @@ type SourceLike = {
 const DEFAULT_METADATA_AFTER_SCAN = true;
 
 const DEMO_SOURCES: SourceLike[] = [
-  { id: 1, path: "C:\\Movies", source_type: "folder", name: "Movies Library", enabled: true, last_scanned: "2026-04-25", item_count: 342 },
-  { id: 2, path: "D:\\TV Shows", source_type: "folder", name: "TV Shows", enabled: true, last_scanned: "2026-04-20", item_count: 1280 },
-  { id: 3, path: "E:\\Music", source_type: "drive", name: "Music Drive", item_count: 0, enabled: true },
+  {
+    id: 1,
+    path: "C:\\Movies",
+    source_type: "folder",
+    name: "Movies Library",
+    enabled: true,
+    last_scanned: "2026-04-25",
+    item_count: 342,
+  },
+  {
+    id: 2,
+    path: "D:\\TV Shows",
+    source_type: "folder",
+    name: "TV Shows",
+    enabled: true,
+    last_scanned: "2026-04-20",
+    item_count: 1280,
+  },
+  {
+    id: 3,
+    path: "E:\\Music",
+    source_type: "drive",
+    name: "Music Drive",
+    item_count: 0,
+    enabled: true,
+  },
 ];
 
 function safeNumber(value: unknown): number {
@@ -50,9 +76,12 @@ function safeNumber(value: unknown): number {
 }
 
 function formatMetadataSummary(result: LibraryEnrichmentResult): string {
-  const enriched = result.metadata_items_enriched || result.metadata_updated || 0;
+  const enriched =
+    result.metadata_items_enriched || result.metadata_updated || 0;
   const fields = result.metadata_fields_updated || 0;
-  const skipped = (result.low_confidence_metadata_only || 0) + (result.skipped_missing_files || 0);
+  const skipped =
+    (result.low_confidence_metadata_only || 0) +
+    (result.skipped_missing_files || 0);
   const warnings = result.provider_errors?.length || 0;
   return [
     `Metadata pull complete: ${enriched} items enriched`,
@@ -63,8 +92,10 @@ function formatMetadataSummary(result: LibraryEnrichmentResult): string {
 }
 
 function sourceIcon(sourceType: string) {
-  if (sourceType === "drive") return <HardDrive size={18} className="text-cv-accent" />;
-  if (sourceType === "file") return <File size={18} className="text-cv-accent" />;
+  if (sourceType === "drive")
+    return <HardDrive size={18} className="text-cv-accent" />;
+  if (sourceType === "file")
+    return <File size={18} className="text-cv-accent" />;
   return <FolderOpen size={18} className="text-cv-accent" />;
 }
 
@@ -135,16 +166,24 @@ export default function MediaSourcesTab() {
   const shouldPullMetadataAfterScan = (scanResult: ScanResult) => {
     const found = safeNumber(scanResult.total_found);
     if (found <= 0) return false;
-    return isEnabled("library_auto_scan", DEFAULT_METADATA_AFTER_SCAN) || scheduledTasks.metadata_check === "on_scan";
+    return (
+      isEnabled("library_auto_scan", DEFAULT_METADATA_AFTER_SCAN) ||
+      scheduledTasks.metadata_check === "on_scan"
+    );
   };
 
   const pullMetadataAfterScan = async (scanResult: ScanResult) => {
     if (!shouldPullMetadataAfterScan(scanResult)) {
-      addStatusMessage("Metadata pull skipped: automatic metadata after scan is disabled");
+      addStatusMessage(
+        "Metadata pull skipped: automatic metadata after scan is disabled",
+      );
       return;
     }
     addStatusMessage("Pulling metadata for scanned media...");
-    const enrichment = await invoke<LibraryEnrichmentResult>("run_library_enrichment", { renameFiles: false });
+    const enrichment = await invoke<LibraryEnrichmentResult>(
+      "run_library_enrichment",
+      { renameFiles: false },
+    );
     addStatusMessage(formatMetadataSummary(enrichment));
   };
 
@@ -156,7 +195,9 @@ export default function MediaSourcesTab() {
       const result = await invoke<ScanResult>("scan_sources");
       const added = safeNumber(result.total_added);
       const scanned = safeNumber(result.sources_scanned);
-      addStatusMessage(`Scan complete: ${added} new items from ${scanned} sources`);
+      addStatusMessage(
+        `Scan complete: ${added} new items from ${scanned} sources`,
+      );
       await loadSources();
       try {
         await pullMetadataAfterScan(result);
@@ -172,7 +213,9 @@ export default function MediaSourcesTab() {
   };
 
   const aiDiscover = () => {
-    addStatusMessage("AI Source Discovery: analyzing system drives for media folders...");
+    addStatusMessage(
+      "AI Source Discovery: analyzing system drives for media folders...",
+    );
   };
 
   const saveLibraryOption = async (key: string, enabled: boolean) => {
@@ -183,8 +226,14 @@ export default function MediaSourcesTab() {
       await invoke("set_setting", { key, value });
       if (key === "prefer_embedded_titles" && enabled) {
         addStatusMessage("Applying embedded titles to existing library...");
-        const result = await invoke<{ checked: number; updated: number; missing_files: number }>("apply_embedded_titles");
-        addStatusMessage(`Embedded titles applied: ${result.updated}/${result.checked} updated`);
+        const result = await invoke<{
+          checked: number;
+          updated: number;
+          missing_files: number;
+        }>("apply_embedded_titles");
+        addStatusMessage(
+          `Embedded titles applied: ${result.updated}/${result.checked} updated`,
+        );
       }
       addStatusMessage(`Library option updated: ${key} = ${value}`);
     } catch (error) {
@@ -223,7 +272,11 @@ export default function MediaSourcesTab() {
           </div>
           <div>
             <label className="section-label">Type</label>
-            <select value={newSourceType} onChange={(event) => setNewSourceType(event.target.value)} className="cv-select w-full">
+            <select
+              value={newSourceType}
+              onChange={(event) => setNewSourceType(event.target.value)}
+              className="cv-select w-full"
+            >
               <option value="folder">Folder</option>
               <option value="drive">Drive</option>
               <option value="file">File</option>
@@ -237,7 +290,11 @@ export default function MediaSourcesTab() {
           <button onClick={aiDiscover} className="cv-btn cv-btn-gold">
             <Sparkles size={14} /> AI Discover Sources
           </button>
-          <button onClick={scanAll} disabled={scanning} className="cv-btn cv-btn-secondary">
+          <button
+            onClick={scanAll}
+            disabled={scanning}
+            className="cv-btn cv-btn-secondary"
+          >
             <Scan size={14} className={scanning ? "animate-spin" : ""} />
             {scanning ? "Scanning + Pulling Metadata..." : "Scan All Sources"}
           </button>
@@ -246,26 +303,51 @@ export default function MediaSourcesTab() {
 
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Sparkles size={16} className="text-cv-accent" /> Library Options (Unified)
+          <Sparkles size={16} className="text-cv-accent" /> Library Options
+          (Unified)
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {[
-            ["prefer_embedded_titles", "Prefer embedded titles over filenames", "Use media container tags when scanning, then fall back to filenames.", false],
-            ["library_auto_scan", "Pull metadata automatically after scans", "After indexing source files, run native enrichment for titles, posters, years, ratings, genres, and IDs.", true],
-            ["library_partial_scan_on_changes", "Run partial scan when changes are detected", "Only rescan changed folders/files for faster updates.", false],
-            ["library_empty_trash_after_scan", "Empty trash automatically after every scan", "Remove stale media records for files no longer on disk.", false],
+            [
+              "prefer_embedded_titles",
+              "Prefer embedded titles over filenames",
+              "Use media container tags when scanning, then fall back to filenames.",
+              false,
+            ],
+            [
+              "library_auto_scan",
+              "Pull metadata automatically after scans",
+              "After indexing source files, run native enrichment for titles, posters, years, ratings, genres, and IDs.",
+              true,
+            ],
+            [
+              "library_partial_scan_on_changes",
+              "Run partial scan when changes are detected",
+              "Only rescan changed folders/files for faster updates.",
+              false,
+            ],
+            [
+              "library_empty_trash_after_scan",
+              "Empty trash automatically after every scan",
+              "Remove stale media records for files no longer on disk.",
+              false,
+            ],
           ].map(([key, label, desc, defaultOn]) => (
             <div key={String(key)} className="glass-panel-2 p-3 rounded-lg">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold">{String(label)}</div>
-                  <div className="text-[10px] text-cv-subtext mt-1">{String(desc)}</div>
+                  <div className="text-[10px] text-cv-subtext mt-1">
+                    {String(desc)}
+                  </div>
                 </div>
                 <input
                   type="checkbox"
                   checked={isEnabled(String(key), Boolean(defaultOn))}
                   disabled={savingOption === key}
-                  onChange={(event) => saveLibraryOption(String(key), event.target.checked)}
+                  onChange={(event) =>
+                    saveLibraryOption(String(key), event.target.checked)
+                  }
                 />
               </div>
             </div>
@@ -275,7 +357,8 @@ export default function MediaSourcesTab() {
 
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
-          <Link size={16} className="text-cv-accent" /> Web / Playlist Download Link
+          <Link size={16} className="text-cv-accent" /> Web / Playlist Download
+          Link
         </h3>
         <div className="flex gap-3">
           <input
@@ -293,8 +376,13 @@ export default function MediaSourcesTab() {
 
       <div className="glass-panel rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
-          <h3 className="text-sm font-bold">Configured Sources ({sources.length})</h3>
-          <button onClick={loadSources} className="cv-btn cv-btn-secondary text-xs py-1">
+          <h3 className="text-sm font-bold">
+            Configured Sources ({sources.length})
+          </h3>
+          <button
+            onClick={loadSources}
+            className="cv-btn cv-btn-secondary text-xs py-1"
+          >
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
@@ -302,7 +390,9 @@ export default function MediaSourcesTab() {
         {sources.length === 0 ? (
           <div className="p-8 text-center">
             <FolderOpen size={40} className="mx-auto text-cv-subtext/20 mb-3" />
-            <p className="text-sm text-cv-subtext">No sources configured. Add folders or drives above.</p>
+            <p className="text-sm text-cv-subtext">
+              No sources configured. Add folders or drives above.
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-white/5">
@@ -318,17 +408,30 @@ export default function MediaSourcesTab() {
                   {sourceIcon(source.source_type)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{source.name}</div>
-                  <div className="text-xs text-cv-subtext truncate">{source.path}</div>
+                  <div className="text-sm font-semibold truncate">
+                    {source.name}
+                  </div>
+                  <div className="text-xs text-cv-subtext truncate">
+                    {source.path}
+                  </div>
                 </div>
                 <div className="text-xs text-cv-subtext text-right shrink-0">
                   <div>{source.item_count} items</div>
-                  <div>{source.last_scanned ? new Date(source.last_scanned).toLocaleDateString() : "Never scanned"}</div>
+                  <div>
+                    {source.last_scanned
+                      ? new Date(source.last_scanned).toLocaleDateString()
+                      : "Never scanned"}
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className={`status-dot ${source.enabled ? "online" : "offline"}`} />
+                  <span
+                    className={`status-dot ${source.enabled ? "online" : "offline"}`}
+                  />
                 </div>
-                <button onClick={() => source.id && removeSource(source.id)} className="cv-btn cv-btn-danger text-xs py-1 px-2">
+                <button
+                  onClick={() => source.id && removeSource(source.id)}
+                  className="cv-btn cv-btn-danger text-xs py-1 px-2"
+                >
                   <Trash2 size={12} />
                 </button>
               </motion.div>
@@ -338,16 +441,31 @@ export default function MediaSourcesTab() {
       </div>
 
       {scanning && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-4"
+        >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold">Scanning and pulling metadata...</span>
-            <span className="text-xs text-cv-subtext">{scanProgress.current} / {scanProgress.total}</span>
+            <span className="text-sm font-semibold">
+              Scanning and pulling metadata...
+            </span>
+            <span className="text-xs text-cv-subtext">
+              {scanProgress.current} / {scanProgress.total}
+            </span>
           </div>
           <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
             <motion.div
               className="h-full rounded-full"
-              style={{ background: "linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))" }}
-              animate={{ width: scanProgress.total ? `${(scanProgress.current / scanProgress.total) * 100}%` : "0%" }}
+              style={{
+                background:
+                  "linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))",
+              }}
+              animate={{
+                width: scanProgress.total
+                  ? `${(scanProgress.current / scanProgress.total) * 100}%`
+                  : "0%",
+              }}
             />
           </div>
         </motion.div>

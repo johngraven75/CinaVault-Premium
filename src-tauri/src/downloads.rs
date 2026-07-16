@@ -1,12 +1,12 @@
 // CinaVault Premium — Downloads Module (yt-dlp + ffmpeg)
+use crate::AppState;
+use regex::Regex;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::State;
-use crate::AppState;
-use regex::Regex;
-use rusqlite::params;
 
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static CANCEL_DL: AtomicBool = AtomicBool::new(false);
@@ -45,13 +45,32 @@ fn media_kind(url: &str) -> String {
         "hls".into()
     } else if lower.ends_with(".mpd") || lower.contains(".mpd?") {
         "dash".into()
-    } else if [".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".wmv", ".flv", ".ts", ".mts", ".m2ts", ".3gp", ".ogv"].iter().any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext))) {
+    } else if [
+        ".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".wmv", ".flv", ".ts", ".mts", ".m2ts",
+        ".3gp", ".ogv",
+    ]
+    .iter()
+    .any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext)))
+    {
         "video".into()
-    } else if [".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".opus", ".wma", ".aiff", ".alac"].iter().any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext))) {
+    } else if [
+        ".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".opus", ".wma", ".aiff", ".alac",
+    ]
+    .iter()
+    .any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext)))
+    {
         "audio".into()
-    } else if [".srt", ".vtt", ".ass", ".ssa", ".ttml", ".dfxp"].iter().any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext))) {
+    } else if [".srt", ".vtt", ".ass", ".ssa", ".ttml", ".dfxp"]
+        .iter()
+        .any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext)))
+    {
         "subtitle".into()
-    } else if [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif", ".heic"].iter().any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext))) {
+    } else if [
+        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif", ".heic",
+    ]
+    .iter()
+    .any(|ext| lower.ends_with(ext) || lower.contains(&format!("{}?", ext)))
+    {
         "image".into()
     } else {
         "page".into()
@@ -70,21 +89,33 @@ fn looks_like_captcha_or_challenge(text: &str) -> bool {
         || lower.contains("access denied")
 }
 
-fn build_yt_dlp_args(url: &str, out_dir: &str, fmt: &str, include_playlist: bool, cookies_file: Option<&str>) -> Vec<String> {
+fn build_yt_dlp_args(
+    url: &str,
+    out_dir: &str,
+    fmt: &str,
+    include_playlist: bool,
+    cookies_file: Option<&str>,
+) -> Vec<String> {
     let kind = media_kind(url);
     let mut args = vec![
-        "-f".into(), fmt.into(),
-        "--merge-output-format".into(), "mp4".into(),
-        "--remux-video".into(), "mp4/mkv".into(),
+        "-f".into(),
+        fmt.into(),
+        "--merge-output-format".into(),
+        "mp4".into(),
+        "--remux-video".into(),
+        "mp4/mkv".into(),
         "--embed-metadata".into(),
         "--embed-thumbnail".into(),
         "--write-thumbnail".into(),
         "--write-sub".into(),
         "--write-auto-sub".into(),
-        "--sub-langs".into(), "all,-live_chat".into(),
-        "--convert-subs".into(), "srt".into(),
+        "--sub-langs".into(),
+        "all,-live_chat".into(),
+        "--convert-subs".into(),
+        "srt".into(),
         "--newline".into(),
-        "-o".into(), format!("{}/%(title)s.%(ext)s", out_dir),
+        "-o".into(),
+        format!("{}/%(title)s.%(ext)s", out_dir),
     ];
 
     if include_playlist {
@@ -146,7 +177,13 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
         let mut results = Vec::new();
 
         let ytdlp = Command::new("winget")
-            .args(&["install", "--id", "yt-dlp.yt-dlp", "--accept-package-agreements", "--accept-source-agreements"])
+            .args(&[
+                "install",
+                "--id",
+                "yt-dlp.yt-dlp",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
             .output();
         results.push(serde_json::json!({
             "tool": "yt-dlp",
@@ -155,7 +192,13 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
         }));
 
         let ffmpeg = Command::new("winget")
-            .args(&["install", "--id", "Gyan.FFmpeg", "--accept-package-agreements", "--accept-source-agreements"])
+            .args(&[
+                "install",
+                "--id",
+                "Gyan.FFmpeg",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ])
             .output();
         results.push(serde_json::json!({
             "tool": "ffmpeg",
@@ -176,10 +219,18 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn crawl_media_links(url: String, max_links: Option<usize>) -> Result<serde_json::Value, String> {
-    let response = reqwest::get(&url).await.map_err(|e| format!("Failed to fetch page: {}", e))?;
+pub async fn crawl_media_links(
+    url: String,
+    max_links: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Failed to fetch page: {}", e))?;
     let final_url = response.url().to_string();
-    let body = response.text().await.map_err(|e| format!("Failed to read page: {}", e))?;
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read page: {}", e))?;
 
     if looks_like_captcha_or_challenge(&body) {
         return Ok(serde_json::json!({
@@ -191,14 +242,22 @@ pub async fn crawl_media_links(url: String, max_links: Option<usize>) -> Result<
     }
 
     let limit = max_links.unwrap_or(250).min(1000);
-    let re = Regex::new(r#"(?i)(?:href|src|data-src|source)\s*=\s*[\"']([^\"']+)[\"']|https?://[^\s\"'<>]+"#).map_err(|e| e.to_string())?;
+    let re = Regex::new(
+        r#"(?i)(?:href|src|data-src|source)\s*=\s*[\"']([^\"']+)[\"']|https?://[^\s\"'<>]+"#,
+    )
+    .map_err(|e| e.to_string())?;
     let mut seen = HashSet::new();
     let mut links: Vec<CrawlLink> = Vec::new();
 
     for cap in re.captures_iter(&body) {
-        let raw = cap.get(1).map(|m| m.as_str()).or_else(|| cap.get(0).map(|m| m.as_str())).unwrap_or("");
+        let raw = cap
+            .get(1)
+            .map(|m| m.as_str())
+            .or_else(|| cap.get(0).map(|m| m.as_str()))
+            .unwrap_or("");
         let cleaned = raw.trim().trim_matches(['\"', '\'', ',', ';']);
-        if cleaned.is_empty() || cleaned.starts_with("data:") || cleaned.starts_with("javascript:") {
+        if cleaned.is_empty() || cleaned.starts_with("data:") || cleaned.starts_with("javascript:")
+        {
             continue;
         }
 
@@ -215,8 +274,16 @@ pub async fn crawl_media_links(url: String, max_links: Option<usize>) -> Result<
 
         if seen.insert(absolute.clone()) {
             let kind = media_kind(&absolute);
-            if kind != "page" || absolute.contains("youtube.com") || absolute.contains("youtu.be") || absolute.contains("vimeo.com") {
-                links.push(CrawlLink { url: absolute, kind, source: final_url.clone() });
+            if kind != "page"
+                || absolute.contains("youtube.com")
+                || absolute.contains("youtu.be")
+                || absolute.contains("vimeo.com")
+            {
+                links.push(CrawlLink {
+                    url: absolute,
+                    kind,
+                    source: final_url.clone(),
+                });
             }
         }
 
@@ -285,14 +352,17 @@ pub async fn start_media_download(
         db.conn.last_insert_rowid()
     };
 
-    let args = build_yt_dlp_args(&url, &out_dir, &fmt, include_playlist.unwrap_or(false), cookies_file.as_deref());
-    let output = Command::new("yt-dlp")
-        .args(&args)
-        .output()
-        .map_err(|e| {
-            DOWNLOADING.store(false, Ordering::Relaxed);
-            format!("yt-dlp failed: {}", e)
-        })?;
+    let args = build_yt_dlp_args(
+        &url,
+        &out_dir,
+        &fmt,
+        include_playlist.unwrap_or(false),
+        cookies_file.as_deref(),
+    );
+    let output = Command::new("yt-dlp").args(&args).output().map_err(|e| {
+        DOWNLOADING.store(false, Ordering::Relaxed);
+        format!("yt-dlp failed: {}", e)
+    })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -300,9 +370,16 @@ pub async fn start_media_download(
     let success = output.status.success();
     let needs_manual_challenge = !success && looks_like_captcha_or_challenge(&combined);
 
-    let title = stdout.lines()
-        .find(|l| l.contains("[download] Destination:") || l.contains("[Merger] Merging formats into"))
-        .map(|l| l.split_once(':').map(|(_, right)| right.trim().to_string()).unwrap_or_else(|| l.to_string()));
+    let title = stdout
+        .lines()
+        .find(|l| {
+            l.contains("[download] Destination:") || l.contains("[Merger] Merging formats into")
+        })
+        .map(|l| {
+            l.split_once(':')
+                .map(|(_, right)| right.trim().to_string())
+                .unwrap_or_else(|| l.to_string())
+        });
 
     let completed_at = chrono::Utc::now().to_rfc3339();
     {
@@ -342,7 +419,15 @@ pub async fn start_playlist_download(
     url: String,
     output_dir: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    start_media_download(state, url, output_dir, Some("bestvideo*+bestaudio/best/bestvideo+bestaudio".into()), None, Some(true)).await
+    start_media_download(
+        state,
+        url,
+        output_dir,
+        Some("bestvideo*+bestaudio/best/bestvideo+bestaudio".into()),
+        None,
+        Some(true),
+    )
+    .await
 }
 
 #[tauri::command]

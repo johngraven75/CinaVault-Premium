@@ -17,7 +17,10 @@ import {
   mergeLibraryPage,
   shouldAutoLoadNextLibraryPage,
 } from "../../utils/libraryLoadPolicy";
-import { canPlayMediaItem, isLibraryDisplayableMediaItem } from "../../utils/mediaPlaybackSafety";
+import {
+  canPlayMediaItem,
+  isLibraryDisplayableMediaItem,
+} from "../../utils/mediaPlaybackSafety";
 import MeteorShower from "../effects/MeteorShower";
 import {
   Activity,
@@ -72,7 +75,10 @@ function formatRuntime(minutes?: number): string {
 }
 
 function calculateWatchtimeHours(items: MediaItem[]): number {
-  const minutes = items.reduce((total, item) => total + (item.duration || 0), 0);
+  const minutes = items.reduce(
+    (total, item) => total + (item.duration || 0),
+    0,
+  );
   return Math.max(0, Math.round(minutes / 60));
 }
 
@@ -104,30 +110,39 @@ export default function HomeTab(): JSX.Element {
   const [autoLoadingLibrary, setAutoLoadingLibrary] = useState(false);
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryHasMore, setLibraryHasMore] = useState(false);
-  const [titleInitialFilter, setTitleInitialFilter] = useState<TitleInitialFilter>("all");
+  const [titleInitialFilter, setTitleInitialFilter] =
+    useState<TitleInitialFilter>("all");
   const [metadataCheckId, setMetadataCheckId] = useState<number | null>(null);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const libraryLoadGenerationRef = useRef(0);
 
-  const requestMediaPage = useCallback((offset: number) => {
-    return invoke<MediaItem[]>(
-      "get_media_items",
-      buildLibraryPageRequest({ mediaType: typeFilter, offset }),
-    );
-  }, [typeFilter]);
+  const requestMediaPage = useCallback(
+    (offset: number) => {
+      return invoke<MediaItem[]>(
+        "get_media_items",
+        buildLibraryPageRequest({ mediaType: typeFilter, offset }),
+      );
+    },
+    [typeFilter],
+  );
 
-  const applyUpdatedMediaItem = useCallback((updated: Partial<MediaItem> & { id?: number }) => {
-    const updatedId = updated.id;
-    if (!updatedId) return;
+  const applyUpdatedMediaItem = useCallback(
+    (updated: Partial<MediaItem> & { id?: number }) => {
+      const updatedId = updated.id;
+      if (!updatedId) return;
 
-    setMediaItems((current) =>
-      current.map((item) => (item.id === updatedId ? { ...item, ...updated } : item)),
-    );
+      setMediaItems((current) =>
+        current.map((item) =>
+          item.id === updatedId ? { ...item, ...updated } : item,
+        ),
+      );
 
-    if (selectedMedia?.id === updatedId) {
-      setSelectedMedia({ ...selectedMedia, ...updated });
-    }
-  }, [selectedMedia, setMediaItems, setSelectedMedia]);
+      if (selectedMedia?.id === updatedId) {
+        setSelectedMedia({ ...selectedMedia, ...updated });
+      }
+    },
+    [selectedMedia, setMediaItems, setSelectedMedia],
+  );
 
   const loadMedia = useCallback(async () => {
     const generation = libraryLoadGenerationRef.current + 1;
@@ -166,48 +181,58 @@ export default function HomeTab(): JSX.Element {
     }
   }, [addStatusMessage, requestMediaPage, setMediaItems, setSelectedMedia]);
 
-  const loadMoreMedia = useCallback(async (automatic = false) => {
-    if (loading || loadingMore || !libraryHasMore) return;
-    const generation = libraryLoadGenerationRef.current;
-    setLoadingMore(true);
+  const loadMoreMedia = useCallback(
+    async (automatic = false) => {
+      if (loading || loadingMore || !libraryHasMore) return;
+      const generation = libraryLoadGenerationRef.current;
+      setLoadingMore(true);
 
-    try {
-      const items = await requestMediaPage(libraryOffset);
-      if (generation !== libraryLoadGenerationRef.current) return;
-      const mergedItems = mergeLibraryPage(mediaItems, items);
-      const hasMore = hasMoreLibraryPages(items);
-      setMediaItems(mergedItems);
-      setLibraryOffset(libraryOffset + items.length);
-      setLibraryHasMore(hasMore);
-      setAutoLoadingLibrary(automatic && shouldAutoLoadNextLibraryPage(items));
-      if (!hasMore) {
-        addStatusMessage(`HUD library compile complete: ${mergedItems.length} vault records online`);
-      } else if (!automatic) {
-        addStatusMessage(`Compiled ${items.length} more records (${mergedItems.length} online)`);
+      try {
+        const items = await requestMediaPage(libraryOffset);
+        if (generation !== libraryLoadGenerationRef.current) return;
+        const mergedItems = mergeLibraryPage(mediaItems, items);
+        const hasMore = hasMoreLibraryPages(items);
+        setMediaItems(mergedItems);
+        setLibraryOffset(libraryOffset + items.length);
+        setLibraryHasMore(hasMore);
+        setAutoLoadingLibrary(
+          automatic && shouldAutoLoadNextLibraryPage(items),
+        );
+        if (!hasMore) {
+          addStatusMessage(
+            `HUD library compile complete: ${mergedItems.length} vault records online`,
+          );
+        } else if (!automatic) {
+          addStatusMessage(
+            `Compiled ${items.length} more records (${mergedItems.length} online)`,
+          );
+        }
+      } catch (error) {
+        setAutoLoadingLibrary(false);
+        addStatusMessage(`HUD compile failed: ${error}`);
+      } finally {
+        setLoadingMore(false);
       }
-    } catch (error) {
-      setAutoLoadingLibrary(false);
-      addStatusMessage(`HUD compile failed: ${error}`);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [
-    addStatusMessage,
-    libraryHasMore,
-    libraryOffset,
-    loading,
-    loadingMore,
-    mediaItems,
-    requestMediaPage,
-    setMediaItems,
-  ]);
+    },
+    [
+      addStatusMessage,
+      libraryHasMore,
+      libraryOffset,
+      loading,
+      loadingMore,
+      mediaItems,
+      requestMediaPage,
+      setMediaItems,
+    ],
+  );
 
   useEffect(() => {
     void loadMedia();
   }, [loadMedia]);
 
   useEffect(() => {
-    if (!autoLoadingLibrary || loading || loadingMore || !libraryHasMore) return;
+    if (!autoLoadingLibrary || loading || loadingMore || !libraryHasMore)
+      return;
     const timer = window.setTimeout(() => void loadMoreMedia(true), 0);
     return () => window.clearTimeout(timer);
   }, [autoLoadingLibrary, libraryHasMore, loading, loadingMore, loadMoreMedia]);
@@ -221,14 +246,16 @@ export default function HomeTab(): JSX.Element {
     let items = displayableMediaItems;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      items = items.filter((item) => (
-        item.title.toLowerCase().includes(q)
-        || item.genre?.toLowerCase().includes(q)
-        || item.resolution?.toLowerCase().includes(q)
-        || item.codec?.toLowerCase().includes(q)
-      ));
+      items = items.filter(
+        (item) =>
+          item.title.toLowerCase().includes(q) ||
+          item.genre?.toLowerCase().includes(q) ||
+          item.resolution?.toLowerCase().includes(q) ||
+          item.codec?.toLowerCase().includes(q),
+      );
     }
-    if (typeFilter !== "all") items = items.filter((item) => item.media_type === typeFilter);
+    if (typeFilter !== "all")
+      items = items.filter((item) => item.media_type === typeFilter);
     switch (activeShelf) {
       case "verified":
         items = items.filter((item) => item.verified);
@@ -244,17 +271,29 @@ export default function HomeTab(): JSX.Element {
         break;
     }
     return filterItemsByTitleInitial(items, titleInitialFilter);
-  }, [activeShelf, displayableMediaItems, searchQuery, titleInitialFilter, typeFilter]);
+  }, [
+    activeShelf,
+    displayableMediaItems,
+    searchQuery,
+    titleInitialFilter,
+    typeFilter,
+  ]);
 
   const heroItem = selectedMedia || filteredItems[0] || null;
-  const heroImageSrc = heroItem ? resolveMediaImageSrc(heroItem.backdrop_path || heroItem.poster_path) : undefined;
+  const heroImageSrc = heroItem
+    ? resolveMediaImageSrc(heroItem.backdrop_path || heroItem.poster_path)
+    : undefined;
   const watchtimeHours = calculateWatchtimeHours(displayableMediaItems);
   const verifiedCount = filteredItems.filter((item) => item.verified).length;
-  const movieCount = filteredItems.filter((item) => item.media_type === "movie").length;
+  const movieCount = filteredItems.filter(
+    (item) => item.media_type === "movie",
+  ).length;
 
   const handlePlay = async (item: MediaItem): Promise<void> => {
     if (!canPlayMediaItem(item)) {
-      addStatusMessage(`Quick Play skipped: ${item.title} is not a playable video or audio record`);
+      addStatusMessage(
+        `Quick Play skipped: ${item.title} is not a playable video or audio record`,
+      );
       return;
     }
 
@@ -268,7 +307,9 @@ export default function HomeTab(): JSX.Element {
 
   const handleVerify = async (item: MediaItem): Promise<void> => {
     if (!item.id) {
-      addStatusMessage(`Verification skipped: ${item.title} has no vault id yet`);
+      addStatusMessage(
+        `Verification skipped: ${item.title} has no vault id yet`,
+      );
       return;
     }
 
@@ -283,17 +324,23 @@ export default function HomeTab(): JSX.Element {
 
   const handleCheckMetadata = async (item: MediaItem): Promise<void> => {
     if (!item.id) {
-      addStatusMessage(`Metadata scan skipped: ${item.title} has no vault id yet`);
+      addStatusMessage(
+        `Metadata scan skipped: ${item.title} has no vault id yet`,
+      );
       return;
     }
 
     setMetadataCheckId(item.id);
     try {
-      const result = await invoke<any>("check_media_item_metadata", { id: item.id });
+      const result = await invoke<any>("check_media_item_metadata", {
+        id: item.id,
+      });
       if (result?.updated_item) {
         applyUpdatedMediaItem(result.updated_item);
       }
-      addStatusMessage(result?.message || `Metadata scan complete: ${item.title}`);
+      addStatusMessage(
+        result?.message || `Metadata scan complete: ${item.title}`,
+      );
     } catch (error) {
       addStatusMessage(`Metadata scan failed for ${item.title}: ${error}`);
     } finally {
@@ -325,18 +372,39 @@ export default function HomeTab(): JSX.Element {
         <div className="relative z-10 grid min-h-[310px] gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex min-w-0 flex-col justify-end">
             <div className="cyber-eyebrow mb-2 flex items-center gap-2">
-              <Zap size={14} /> {heroItem ? "Trending Now / Holographic Carousel" : libraryLoadError ? "Library Bridge Offline" : "Vault Empty / Awaiting Scan"}
+              <Zap size={14} />{" "}
+              {heroItem
+                ? "Trending Now / Holographic Carousel"
+                : libraryLoadError
+                  ? "Library Bridge Offline"
+                  : "Vault Empty / Awaiting Scan"}
             </div>
             {heroItem ? (
               <>
-                <h2 className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">{heroItem.title}</h2>
+                <h2 className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">
+                  {heroItem.title}
+                </h2>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {heroItem.year && <span className="cyber-chip">{heroItem.year}</span>}
-                  <span className="cyber-chip">{heroItem.media_type || "media"}</span>
-                  {heroItem.resolution && <span className="cyber-chip">{heroItem.resolution}</span>}
-                  {heroItem.rating && <span className="cyber-chip is-hot"><Star size={12} /> {heroItem.rating}</span>}
+                  {heroItem.year && (
+                    <span className="cyber-chip">{heroItem.year}</span>
+                  )}
+                  <span className="cyber-chip">
+                    {heroItem.media_type || "media"}
+                  </span>
+                  {heroItem.resolution && (
+                    <span className="cyber-chip">{heroItem.resolution}</span>
+                  )}
+                  {heroItem.rating && (
+                    <span className="cyber-chip is-hot">
+                      <Star size={12} /> {heroItem.rating}
+                    </span>
+                  )}
                 </div>
-                {heroItem.overview && <p className="mt-4 max-w-3xl text-sm leading-7 text-cv-subtext">{heroItem.overview}</p>}
+                {heroItem.overview && (
+                  <p className="mt-4 max-w-3xl text-sm leading-7 text-cv-subtext">
+                    {heroItem.overview}
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -354,39 +422,100 @@ export default function HomeTab(): JSX.Element {
             <div className="mt-5 flex flex-wrap gap-2">
               {heroItem ? (
                 <>
-                  <button type="button" onClick={() => void handlePlay(heroItem)} className="cyber-button">
+                  <button
+                    type="button"
+                    onClick={() => void handlePlay(heroItem)}
+                    className="cyber-button"
+                  >
                     <Play size={15} /> Quick Play
                   </button>
-                  <button type="button" onClick={() => setSelectedMedia(heroItem)} className="cyber-button">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMedia(heroItem)}
+                    className="cyber-button"
+                  >
                     <Sparkles size={15} /> Open Terminal Panel
                   </button>
-                  <button type="button" onClick={() => void handleCheckMetadata(heroItem)} className="cyber-button is-amber">
+                  <button
+                    type="button"
+                    onClick={() => void handleCheckMetadata(heroItem)}
+                    className="cyber-button is-amber"
+                  >
                     <Search size={15} /> Check Metadata
                   </button>
                 </>
               ) : (
-                <button type="button" onClick={() => void loadMedia()} className="cyber-button">
-                  <RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Refresh Library
+                <button
+                  type="button"
+                  onClick={() => void loadMedia()}
+                  className="cyber-button"
+                >
+                  <RefreshCw
+                    size={15}
+                    className={loading ? "animate-spin" : ""}
+                  />{" "}
+                  Refresh Library
                 </button>
               )}
             </div>
           </div>
 
           <div className="cyber-terminal-panel hidden bg-black/35 p-4 lg:block">
-            <div className="cyber-eyebrow mb-3 flex items-center gap-2"><Activity size={13} /> User Terminal Quick-Stats</div>
+            <div className="cyber-eyebrow mb-3 flex items-center gap-2">
+              <Activity size={13} /> User Terminal Quick-Stats
+            </div>
             <TerminalLine label="Watchtime" value={`${watchtimeHours}h`} />
-            <TerminalLine label="Vault Inventory" value={displayableMediaItems.length.toLocaleString()} />
-            <TerminalLine label="Visible Records" value={filteredItems.length.toLocaleString()} />
-            <TerminalLine label="Verified Signal" value={`${verifiedCount} locked`} />
-            <TerminalLine label="System Status" value={libraryLoadError ? "Offline" : autoLoadingLibrary ? "Compiling" : "Nominal"} />
+            <TerminalLine
+              label="Vault Inventory"
+              value={displayableMediaItems.length.toLocaleString()}
+            />
+            <TerminalLine
+              label="Visible Records"
+              value={filteredItems.length.toLocaleString()}
+            />
+            <TerminalLine
+              label="Verified Signal"
+              value={`${verifiedCount} locked`}
+            />
+            <TerminalLine
+              label="System Status"
+              value={
+                libraryLoadError
+                  ? "Offline"
+                  : autoLoadingLibrary
+                    ? "Compiling"
+                    : "Nominal"
+              }
+            />
           </div>
         </div>
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">
-        <StatCard icon={Clock} label="Watchtime" value={`${watchtimeHours}h`} detail="Library runtime index" />
-        <StatCard icon={Database} label="Vault Inventory" value={displayableMediaItems.length.toLocaleString()} detail={`${filteredItems.length} visible records`} />
-        <StatCard icon={Activity} label="System Status" value={libraryLoadError ? "Offline" : autoLoadingLibrary ? "Compiling" : "Nominal"} detail={`${verifiedCount} verified / ${movieCount} movies`} />
+        <StatCard
+          icon={Clock}
+          label="Watchtime"
+          value={`${watchtimeHours}h`}
+          detail="Library runtime index"
+        />
+        <StatCard
+          icon={Database}
+          label="Vault Inventory"
+          value={displayableMediaItems.length.toLocaleString()}
+          detail={`${filteredItems.length} visible records`}
+        />
+        <StatCard
+          icon={Activity}
+          label="System Status"
+          value={
+            libraryLoadError
+              ? "Offline"
+              : autoLoadingLibrary
+                ? "Compiling"
+                : "Nominal"
+          }
+          detail={`${verifiedCount} verified / ${movieCount} movies`}
+        />
       </section>
 
       <section className="cyber-control-core">
@@ -409,7 +538,11 @@ export default function HomeTab(): JSX.Element {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="cyber-select">
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+              className="cyber-select"
+            >
               <option value="all">All Types</option>
               <option value="movie">Movies</option>
               <option value="tvshow">TV Shows</option>
@@ -418,38 +551,64 @@ export default function HomeTab(): JSX.Element {
             </select>
 
             <div className="flex overflow-hidden border border-cyan-300/20 bg-black/40">
-              <button type="button" onClick={() => setLibraryView("card")} className={`cyber-button h-10 w-10 px-0 ${libraryView === "card" ? "is-amber" : ""}`} title="Card view">
+              <button
+                type="button"
+                onClick={() => setLibraryView("card")}
+                className={`cyber-button h-10 w-10 px-0 ${libraryView === "card" ? "is-amber" : ""}`}
+                title="Card view"
+              >
                 <Grid3X3 size={14} />
               </button>
-              <button type="button" onClick={() => setLibraryView("list")} className={`cyber-button h-10 w-10 px-0 ${libraryView === "list" ? "is-amber" : ""}`} title="List view">
+              <button
+                type="button"
+                onClick={() => setLibraryView("list")}
+                className={`cyber-button h-10 w-10 px-0 ${libraryView === "list" ? "is-amber" : ""}`}
+                title="List view"
+              >
                 <List size={14} />
               </button>
             </div>
 
-            <button type="button" onClick={() => void loadMedia()} className="cyber-button text-xs">
-              <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
+            <button
+              type="button"
+              onClick={() => void loadMedia()}
+              className="cyber-button text-xs"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />{" "}
+              Refresh
             </button>
           </div>
         </div>
 
-        <div className="relative z-10 mt-4 alphabet-filter" role="tablist" aria-label="Filter library by title initial" tabIndex={0}>
-          {(["all", ...TITLE_LETTERS, "#"] as TitleInitialFilter[]).map((letter) => (
-            <button
-              key={letter}
-              type="button"
-              role="tab"
-              aria-selected={titleInitialFilter === letter}
-              onClick={() => setTitleInitialFilter(letter)}
-              className={`alphabet-filter-button ${titleInitialFilter === letter ? "active" : ""}`}
-              title={letter === "all" ? "Show all titles" : `Show ${letter} titles`}
-            >
-              {letter === "all" ? "All" : letter}
-            </button>
-          ))}
+        <div
+          className="relative z-10 mt-4 alphabet-filter"
+          role="tablist"
+          aria-label="Filter library by title initial"
+          tabIndex={0}
+        >
+          {(["all", ...TITLE_LETTERS, "#"] as TitleInitialFilter[]).map(
+            (letter) => (
+              <button
+                key={letter}
+                type="button"
+                role="tab"
+                aria-selected={titleInitialFilter === letter}
+                onClick={() => setTitleInitialFilter(letter)}
+                className={`alphabet-filter-button ${titleInitialFilter === letter ? "active" : ""}`}
+                title={
+                  letter === "all" ? "Show all titles" : `Show ${letter} titles`
+                }
+              >
+                {letter === "all" ? "All" : letter}
+              </button>
+            ),
+          )}
         </div>
       </section>
 
-      <section className={`grid gap-4 ${selectedMedia ? "xl:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
+      <section
+        className={`grid gap-4 ${selectedMedia ? "xl:grid-cols-[minmax(0,1fr)_360px]" : ""}`}
+      >
         <div>
           {loading ? (
             <div className="cyber-grid">
@@ -485,7 +644,12 @@ export default function HomeTab(): JSX.Element {
           ) : (
             <div className="cyber-table">
               <div className="cyber-table-row with-metadata-action cyber-stat-label bg-cyan-300/[0.06]">
-                <span>Title</span><span>Type</span><span>Year</span><span>Rating</span><span>Status</span><span>Metadata</span>
+                <span>Title</span>
+                <span>Type</span>
+                <span>Year</span>
+                <span>Rating</span>
+                <span>Status</span>
+                <span>Metadata</span>
               </div>
               {filteredItems.map((item, index) => {
                 const checking = metadataCheckId === item.id;
@@ -504,12 +668,32 @@ export default function HomeTab(): JSX.Element {
                     className="cyber-table-row with-metadata-action w-full text-left text-sm"
                   >
                     <span className="truncate font-semibold">{item.title}</span>
-                    <span className="text-xs capitalize text-cv-subtext">{item.media_type}</span>
-                    <span className="text-xs text-cv-subtext">{item.year || "—"}</span>
-                    <span className="flex items-center gap-1 text-xs">
-                      {item.rating ? <><Star size={11} className="text-[var(--cyber-amber)]" />{item.rating}</> : "—"}
+                    <span className="text-xs capitalize text-cv-subtext">
+                      {item.media_type}
                     </span>
-                    <span>{item.verified ? <CheckCircle size={15} className="text-cyan-200" /> : <Clock size={15} className="text-cv-subtext/50" />}</span>
+                    <span className="text-xs text-cv-subtext">
+                      {item.year || "—"}
+                    </span>
+                    <span className="flex items-center gap-1 text-xs">
+                      {item.rating ? (
+                        <>
+                          <Star
+                            size={11}
+                            className="text-[var(--cyber-amber)]"
+                          />
+                          {item.rating}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </span>
+                    <span>
+                      {item.verified ? (
+                        <CheckCircle size={15} className="text-cyan-200" />
+                      ) : (
+                        <Clock size={15} className="text-cv-subtext/50" />
+                      )}
+                    </span>
                     <button
                       type="button"
                       onClick={(event) => {
@@ -520,7 +704,11 @@ export default function HomeTab(): JSX.Element {
                       className="cyber-button library-row-metadata-action disabled:opacity-60"
                       title={`Check metadata for ${item.title}`}
                     >
-                      {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
+                      {checking ? (
+                        <RefreshCw size={12} className="animate-spin" />
+                      ) : (
+                        <Search size={12} />
+                      )}
                       {checking ? "Checking..." : "Check Metadata"}
                     </button>
                   </div>
@@ -541,17 +729,30 @@ export default function HomeTab(): JSX.Element {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <div className="cyber-eyebrow flex items-center gap-2"><Sparkles size={13} /> Terminal Panel</div>
-                <h3 className="mt-1 text-xl font-black leading-tight text-cv-text">{selectedMedia.title}</h3>
+                <div className="cyber-eyebrow flex items-center gap-2">
+                  <Sparkles size={13} /> Terminal Panel
+                </div>
+                <h3 className="mt-1 text-xl font-black leading-tight text-cv-text">
+                  {selectedMedia.title}
+                </h3>
               </div>
-              <button type="button" onClick={() => setSelectedMedia(null)} className="cyber-button h-10 w-10 px-0" title="Close terminal panel">
+              <button
+                type="button"
+                onClick={() => setSelectedMedia(null)}
+                className="cyber-button h-10 w-10 px-0"
+                title="Close terminal panel"
+              >
                 <X size={15} />
               </button>
             </div>
 
-            {resolveMediaImageSrc(selectedMedia.poster_path || selectedMedia.backdrop_path) ? (
+            {resolveMediaImageSrc(
+              selectedMedia.poster_path || selectedMedia.backdrop_path,
+            ) ? (
               <img
-                src={resolveMediaImageSrc(selectedMedia.poster_path || selectedMedia.backdrop_path)}
+                src={resolveMediaImageSrc(
+                  selectedMedia.poster_path || selectedMedia.backdrop_path,
+                )}
                 alt={selectedMedia.title}
                 className="mb-4 max-h-72 w-full rounded border border-cyan-300/25 object-cover opacity-90"
               />
@@ -562,27 +763,64 @@ export default function HomeTab(): JSX.Element {
             )}
 
             <div className="space-y-1">
-              <TerminalLine label="Type" value={selectedMedia.media_type || "Unknown"} />
-              <TerminalLine label="Year" value={selectedMedia.year ? `${selectedMedia.year}` : "N/A"} />
-              <TerminalLine label="Genre" value={selectedMedia.genre || "Unclassified"} />
-              <TerminalLine label="Runtime" value={formatRuntime(selectedMedia.duration)} />
-              <TerminalLine label="Verified" value={selectedMedia.verified ? "Locked" : "Pending"} />
-              <TerminalLine label="Favorite" value={selectedMedia.favorite ? "Vaulted" : "Not Set"} />
+              <TerminalLine
+                label="Type"
+                value={selectedMedia.media_type || "Unknown"}
+              />
+              <TerminalLine
+                label="Year"
+                value={selectedMedia.year ? `${selectedMedia.year}` : "N/A"}
+              />
+              <TerminalLine
+                label="Genre"
+                value={selectedMedia.genre || "Unclassified"}
+              />
+              <TerminalLine
+                label="Runtime"
+                value={formatRuntime(selectedMedia.duration)}
+              />
+              <TerminalLine
+                label="Verified"
+                value={selectedMedia.verified ? "Locked" : "Pending"}
+              />
+              <TerminalLine
+                label="Favorite"
+                value={selectedMedia.favorite ? "Vaulted" : "Not Set"}
+              />
             </div>
 
             {selectedMedia.overview && (
-              <p className="mt-4 rounded border border-cyan-300/10 bg-black/30 p-3 text-xs leading-6 text-cv-subtext">{selectedMedia.overview}</p>
+              <p className="mt-4 rounded border border-cyan-300/10 bg-black/30 p-3 text-xs leading-6 text-cv-subtext">
+                {selectedMedia.overview}
+              </p>
             )}
 
             <div className="mt-4 grid gap-2">
-              <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button">
+              <button
+                type="button"
+                onClick={() => void handlePlay(selectedMedia)}
+                className="cyber-button"
+              >
                 <Play size={14} /> Quick Play
               </button>
-              <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button">
+              <button
+                type="button"
+                onClick={() => void handleVerify(selectedMedia)}
+                className="cyber-button"
+              >
                 <CheckCircle size={14} /> Verify Signal
               </button>
-              <button type="button" onClick={() => void handleCheckMetadata(selectedMedia)} disabled={metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60">
-                {metadataCheckId === selectedMedia.id ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              <button
+                type="button"
+                onClick={() => void handleCheckMetadata(selectedMedia)}
+                disabled={metadataCheckId === selectedMedia.id}
+                className="cyber-button is-amber disabled:opacity-60"
+              >
+                {metadataCheckId === selectedMedia.id ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : (
+                  <Sparkles size={14} />
+                )}
                 Check Metadata
               </button>
             </div>
@@ -593,15 +831,25 @@ export default function HomeTab(): JSX.Element {
       {autoLoadingLibrary && !loading && (
         <div className="flex justify-center">
           <div className="cyber-button pointer-events-none">
-            <RefreshCw size={14} className="animate-spin" /> Compiling full library ({displayableMediaItems.length} online)
+            <RefreshCw size={14} className="animate-spin" /> Compiling full
+            library ({displayableMediaItems.length} online)
           </div>
         </div>
       )}
 
       {libraryHasMore && !loading && !autoLoadingLibrary && (
         <div className="flex justify-center">
-          <button type="button" onClick={() => void loadMoreMedia()} disabled={loadingMore} className="cyber-button">
-            {loadingMore ? <RefreshCw size={14} className="animate-spin" /> : <ChevronDown size={14} />}
+          <button
+            type="button"
+            onClick={() => void loadMoreMedia()}
+            disabled={loadingMore}
+            className="cyber-button"
+          >
+            {loadingMore ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : (
+              <ChevronDown size={14} />
+            )}
             {loadingMore ? "Compiling" : `Load Next ${LIBRARY_PAGE_SIZE}`}
           </button>
         </div>
@@ -610,7 +858,17 @@ export default function HomeTab(): JSX.Element {
   );
 }
 
-function StatCard({ icon: Icon, label, value, detail }: { icon: LucideIcon; label: string; value: string; detail: string }): JSX.Element {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  detail: string;
+}): JSX.Element {
   return (
     <div className="cyber-stat">
       <div className="relative z-10 flex items-start justify-between gap-3">
@@ -627,7 +885,13 @@ function StatCard({ icon: Icon, label, value, detail }: { icon: LucideIcon; labe
   );
 }
 
-function TerminalLine({ label, value }: { label: string; value: string }): JSX.Element {
+function TerminalLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): JSX.Element {
   return (
     <div className="terminal-line">
       <span>{label}</span>
@@ -659,13 +923,21 @@ function MediaCard({
     >
       <CardVisual item={item} />
       <div className="relative z-10 p-3">
-        <h4 className="truncate text-sm font-black text-cv-text">{item.title}</h4>
+        <h4 className="truncate text-sm font-black text-cv-text">
+          {item.title}
+        </h4>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.08em] text-cv-subtext">
           {item.year && <span>{item.year}</span>}
           <span>{item.media_type}</span>
-          {item.resolution && <span className="text-cyan-200">{item.resolution}</span>}
+          {item.resolution && (
+            <span className="text-cyan-200">{item.resolution}</span>
+          )}
         </div>
-        {item.genre && <div className="mt-2 truncate text-[11px] text-cv-subtext/80">{item.genre}</div>}
+        {item.genre && (
+          <div className="mt-2 truncate text-[11px] text-cv-subtext/80">
+            {item.genre}
+          </div>
+        )}
       </div>
       <div className="cyber-card-actions">
         <button
@@ -687,8 +959,14 @@ function MediaCard({
           disabled={checking}
           className="cyber-button flex-1 text-[10px] disabled:opacity-60"
         >
-          {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
-          <span className="metadata-action-label">{checking ? "Checking..." : "Check Metadata"}</span>
+          {checking ? (
+            <RefreshCw size={12} className="animate-spin" />
+          ) : (
+            <Search size={12} />
+          )}
+          <span className="metadata-action-label">
+            {checking ? "Checking..." : "Check Metadata"}
+          </span>
         </button>
       </div>
     </motion.div>
@@ -702,14 +980,28 @@ function CardVisual({ item }: { item: MediaItem }): JSX.Element {
       {imageSrc ? (
         <img src={imageSrc} alt={item.title} />
       ) : (
-        <div className="flex h-full w-full items-center justify-center"><Film size={32} className="text-cv-subtext/30" /></div>
+        <div className="flex h-full w-full items-center justify-center">
+          <Film size={32} className="text-cv-subtext/30" />
+        </div>
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
       <div className="absolute right-2 top-2 flex flex-col gap-1">
-        {item.verified && <span className="grid h-6 w-6 place-items-center border border-cyan-200/40 bg-cyan-300/20 text-cyan-100"><CheckCircle size={12} /></span>}
-        {item.favorite && <span className="grid h-6 w-6 place-items-center border border-[var(--cyber-amber)]/50 bg-[var(--cyber-amber)]/20 text-[var(--cyber-amber)]"><Heart size={12} /></span>}
+        {item.verified && (
+          <span className="grid h-6 w-6 place-items-center border border-cyan-200/40 bg-cyan-300/20 text-cyan-100">
+            <CheckCircle size={12} />
+          </span>
+        )}
+        {item.favorite && (
+          <span className="grid h-6 w-6 place-items-center border border-[var(--cyber-amber)]/50 bg-[var(--cyber-amber)]/20 text-[var(--cyber-amber)]">
+            <Heart size={12} />
+          </span>
+        )}
       </div>
-      {item.resolution && <span className="cyber-chip absolute bottom-2 left-2 py-1 text-[9px]">{item.resolution}</span>}
+      {item.resolution && (
+        <span className="cyber-chip absolute bottom-2 left-2 py-1 text-[9px]">
+          {item.resolution}
+        </span>
+      )}
     </div>
   );
 }

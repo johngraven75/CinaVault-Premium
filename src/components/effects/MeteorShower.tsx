@@ -39,16 +39,26 @@ function makeStars(count: number): Star[] {
 
 function resetComet(comet: Comet, width: number, height: number) {
   const foreground = Math.random() > 0.82;
-  const speed = foreground ? Math.random() * 5.5 + 10.5 : Math.random() * 5.8 + 6.8;
+  const speed = foreground
+    ? Math.random() * 5.5 + 10.5
+    : Math.random() * 5.8 + 6.8;
   const angle = (Math.random() * 15 + 24) * (Math.PI / 180);
   const startsFromTop = Math.random() > 0.28;
 
-  comet.x = startsFromTop ? Math.random() * width * 1.25 - width * 0.15 : -width * 0.18;
-  comet.y = startsFromTop ? -height * (Math.random() * 0.55 + 0.08) : Math.random() * height * 0.36;
+  comet.x = startsFromTop
+    ? Math.random() * width * 1.25 - width * 0.15
+    : -width * 0.18;
+  comet.y = startsFromTop
+    ? -height * (Math.random() * 0.55 + 0.08)
+    : Math.random() * height * 0.36;
   comet.vx = Math.cos(angle) * speed;
   comet.vy = Math.sin(angle) * speed;
-  comet.length = foreground ? Math.random() * 260 + 300 : Math.random() * 160 + 150;
-  comet.radius = foreground ? Math.random() * 1.8 + 2.5 : Math.random() * 1.4 + 1.1;
+  comet.length = foreground
+    ? Math.random() * 260 + 300
+    : Math.random() * 160 + 150;
+  comet.radius = foreground
+    ? Math.random() * 1.8 + 2.5
+    : Math.random() * 1.4 + 1.1;
   comet.hue = Math.random() * 42 + 188;
   comet.warm = Math.random() * 32 + 22;
   comet.age = 0;
@@ -82,7 +92,10 @@ function makeComets(count: number, width: number, height: number): Comet[] {
   });
 }
 
-export default function MeteorShower({ className = "", meteorCount = 18 }: Props) {
+export default function MeteorShower({
+  className = "",
+  meteorCount = 18,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -123,7 +136,12 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
       ctx.fillStyle = night;
       ctx.fillRect(0, 0, width, height);
 
-      const milkyWay = ctx.createLinearGradient(-width * 0.15, height, width, -height * 0.08);
+      const milkyWay = ctx.createLinearGradient(
+        -width * 0.15,
+        height,
+        width,
+        -height * 0.08,
+      );
       milkyWay.addColorStop(0, "rgba(16, 41, 76, 0)");
       milkyWay.addColorStop(0.38, "rgba(74, 113, 146, 0.16)");
       milkyWay.addColorStop(0.52, "rgba(197, 151, 111, 0.11)");
@@ -134,7 +152,14 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
 
       ctx.save();
       ctx.filter = "blur(22px)";
-      const warmHaze = ctx.createRadialGradient(width * 0.82, height * 0.78, 0, width * 0.82, height * 0.78, width * 0.72);
+      const warmHaze = ctx.createRadialGradient(
+        width * 0.82,
+        height * 0.78,
+        0,
+        width * 0.82,
+        height * 0.78,
+        width * 0.72,
+      );
       warmHaze.addColorStop(0, "rgba(246, 142, 73, 0.26)");
       warmHaze.addColorStop(0.42, "rgba(55, 108, 154, 0.12)");
       warmHaze.addColorStop(1, "rgba(5, 7, 14, 0)");
@@ -144,7 +169,8 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
 
       ctx.globalCompositeOperation = "screen";
       for (const star of stars) {
-        const twinkle = star.alpha + Math.sin(frame * 0.025 + star.shimmer) * 0.18;
+        const twinkle =
+          star.alpha + Math.sin(frame * 0.025 + star.shimmer) * 0.18;
         ctx.beginPath();
         ctx.fillStyle = `rgba(235, 248, 255, ${Math.max(0.08, twinkle)})`;
         ctx.arc(star.x * width, star.y * height, star.r, 0, Math.PI * 2);
@@ -152,7 +178,13 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
         if (star.r > 1.25 && twinkle > 0.7) {
           ctx.beginPath();
           ctx.fillStyle = `rgba(183, 219, 255, ${0.11 * twinkle})`;
-          ctx.arc(star.x * width, star.y * height, star.r * 4.2, 0, Math.PI * 2);
+          ctx.arc(
+            star.x * width,
+            star.y * height,
+            star.r * 4.2,
+            0,
+            Math.PI * 2,
+          );
           ctx.fill();
         }
       }
@@ -169,7 +201,11 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
       comet.y += comet.vy;
       comet.age += 1;
 
-      if (comet.age > comet.life || comet.x > width + comet.length || comet.y > height + comet.length) {
+      if (
+        comet.age > comet.life ||
+        comet.x > width + comet.length ||
+        comet.y > height + comet.length
+      ) {
         resetComet(comet, width, height);
         return;
       }
@@ -186,8 +222,14 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
 
       const smoke = ctx.createLinearGradient(comet.x, comet.y, tailX, tailY);
       smoke.addColorStop(0, `hsla(${comet.warm}, 100%, 78%, ${0.32 * alpha})`);
-      smoke.addColorStop(0.18, `hsla(${comet.hue}, 100%, 72%, ${0.24 * alpha})`);
-      smoke.addColorStop(0.72, `hsla(${comet.hue + 38}, 100%, 62%, ${0.07 * alpha})`);
+      smoke.addColorStop(
+        0.18,
+        `hsla(${comet.hue}, 100%, 72%, ${0.24 * alpha})`,
+      );
+      smoke.addColorStop(
+        0.72,
+        `hsla(${comet.hue + 38}, 100%, 62%, ${0.07 * alpha})`,
+      );
       smoke.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.strokeStyle = smoke;
       ctx.lineWidth = comet.radius * 5.2;
@@ -208,9 +250,19 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
       ctx.lineTo(tailX, tailY);
       ctx.stroke();
 
-      const head = ctx.createRadialGradient(comet.x, comet.y, 0, comet.x, comet.y, comet.radius * 8.5);
+      const head = ctx.createRadialGradient(
+        comet.x,
+        comet.y,
+        0,
+        comet.x,
+        comet.y,
+        comet.radius * 8.5,
+      );
       head.addColorStop(0, `rgba(255, 255, 255, ${0.9 * alpha})`);
-      head.addColorStop(0.22, `hsla(${comet.warm}, 100%, 72%, ${0.68 * alpha})`);
+      head.addColorStop(
+        0.22,
+        `hsla(${comet.warm}, 100%, 72%, ${0.68 * alpha})`,
+      );
       head.addColorStop(0.55, `hsla(${comet.hue}, 100%, 62%, ${0.18 * alpha})`);
       head.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.fillStyle = head;
@@ -218,7 +270,14 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
       ctx.arc(comet.x, comet.y, comet.radius * 8.5, 0, Math.PI * 2);
       ctx.fill();
 
-      const core = ctx.createRadialGradient(comet.x, comet.y, 0, comet.x, comet.y, comet.radius * 2.2);
+      const core = ctx.createRadialGradient(
+        comet.x,
+        comet.y,
+        0,
+        comet.x,
+        comet.y,
+        comet.radius * 2.2,
+      );
       core.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
       core.addColorStop(0.42, `rgba(255, 208, 158, ${0.72 * alpha})`);
       core.addColorStop(1, "rgba(255, 208, 158, 0)");
@@ -230,11 +289,19 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
       for (let i = 0; i < 4; i += 1) {
         const drift = (i + 1) * comet.radius * 5.5;
         const side = i % 2 === 0 ? 1 : -1;
-        const fragmentX = comet.x - ux * drift + -uy * side * comet.radius * (2.2 + i);
-        const fragmentY = comet.y - uy * drift + ux * side * comet.radius * (2.2 + i);
+        const fragmentX =
+          comet.x - ux * drift + -uy * side * comet.radius * (2.2 + i);
+        const fragmentY =
+          comet.y - uy * drift + ux * side * comet.radius * (2.2 + i);
         ctx.fillStyle = `rgba(255, 224, 188, ${0.2 * alpha})`;
         ctx.beginPath();
-        ctx.arc(fragmentX, fragmentY, Math.max(0.9, comet.radius * (0.58 - i * 0.08)), 0, Math.PI * 2);
+        ctx.arc(
+          fragmentX,
+          fragmentY,
+          Math.max(0.9, comet.radius * (0.58 - i * 0.08)),
+          0,
+          Math.PI * 2,
+        );
         ctx.fill();
       }
 
@@ -263,8 +330,22 @@ export default function MeteorShower({ className = "", meteorCount = 18 }: Props
       ctx.beginPath();
       ctx.moveTo(0, height);
       ctx.lineTo(0, height * 0.84);
-      ctx.bezierCurveTo(width * 0.18, height * 0.78, width * 0.28, height * 0.86, width * 0.42, height * 0.8);
-      ctx.bezierCurveTo(width * 0.56, height * 0.73, width * 0.73, height * 0.88, width, height * 0.78);
+      ctx.bezierCurveTo(
+        width * 0.18,
+        height * 0.78,
+        width * 0.28,
+        height * 0.86,
+        width * 0.42,
+        height * 0.8,
+      );
+      ctx.bezierCurveTo(
+        width * 0.56,
+        height * 0.73,
+        width * 0.73,
+        height * 0.88,
+        width,
+        height * 0.78,
+      );
       ctx.lineTo(width, height);
       ctx.closePath();
       ctx.fill();

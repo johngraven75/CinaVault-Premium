@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use tauri::State;
 use crate::scanner;
 use crate::AppState;
+use std::path::PathBuf;
+use tauri::State;
 
 #[tauri::command]
 pub fn find_local_candidates(library_path: String) -> Result<Vec<String>, String> {
@@ -25,7 +25,8 @@ pub fn find_local_candidates(library_path: String) -> Result<Vec<String>, String
 #[tauri::command]
 pub async fn refresh_pgma_library(state: State<'_, AppState>) -> Result<(), String> {
     // Triggers a full library scan to refresh metadata and posters
-    scanner::scan_sources(state).await
+    scanner::scan_sources(state)
+        .await
         .map(|_| ())
         .map_err(|e| e.to_string())
 }

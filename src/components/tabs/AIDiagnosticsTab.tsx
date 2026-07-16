@@ -2,15 +2,38 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
-import { LibraryEnrichmentResult, MediaItem, useAppStore } from "../../store/appStore";
-import { buildLibraryPageRequest, hasMoreLibraryPages, LIBRARY_PAGE_SIZE } from "../../utils/libraryLoadPolicy";
+import {
+  LibraryEnrichmentResult,
+  MediaItem,
+  useAppStore,
+} from "../../store/appStore";
+import {
+  buildLibraryPageRequest,
+  hasMoreLibraryPages,
+  LIBRARY_PAGE_SIZE,
+} from "../../utils/libraryLoadPolicy";
 import AIVisualizer from "../effects/AIVisualizer";
 import {
   formatMetadataTaskProgress,
   metadataTaskPopupVisible,
   MetadataTaskProgress,
 } from "../../utils/metadataTaskProgress";
-import { Brain, Send, Settings, Key, Cpu, Network, FolderSearch, Database, Loader, Sparkles, ExternalLink, Tag, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Brain,
+  Send,
+  Settings,
+  Key,
+  Cpu,
+  Network,
+  FolderSearch,
+  Database,
+  Loader,
+  Sparkles,
+  ExternalLink,
+  Tag,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
@@ -81,26 +104,34 @@ type BulkMetadataPostResult = {
   stopped_reason?: string;
 };
 
-function isLibraryEnrichmentResult(result: any): result is LibraryEnrichmentResult {
+function isLibraryEnrichmentResult(
+  result: any,
+): result is LibraryEnrichmentResult {
   return result?.type === "library_enrichment";
 }
 
-function isAdultMetadataGatherResult(result: any): result is AdultMetadataGatherResult {
+function isAdultMetadataGatherResult(
+  result: any,
+): result is AdultMetadataGatherResult {
   return result?.type === "adult_metadata_gather";
 }
 
-function isBulkMetadataPostResult(result: any): result is BulkMetadataPostResult {
+function isBulkMetadataPostResult(
+  result: any,
+): result is BulkMetadataPostResult {
   return result?.type === "bulk_metadata_post";
 }
 
 function itemNeedsMetadata(item: MediaItem): boolean {
-  return !item.overview?.trim()
-    || !item.poster_path?.trim()
-    || item.year == null
-    || item.rating == null
-    || !item.genre?.trim()
-    || !item.tmdb_id?.trim()
-    || !item.imdb_id?.trim();
+  return (
+    !item.overview?.trim() ||
+    !item.poster_path?.trim() ||
+    item.year == null ||
+    item.rating == null ||
+    !item.genre?.trim() ||
+    !item.tmdb_id?.trim() ||
+    !item.imdb_id?.trim()
+  );
 }
 
 function trimProviderErrors(errors: string[]): string[] {
@@ -111,15 +142,24 @@ function trimProviderErrors(errors: string[]): string[] {
   ];
 }
 
-function formatLibraryEnrichmentMessage(label: string, result: LibraryEnrichmentResult): string {
+function formatLibraryEnrichmentMessage(
+  label: string,
+  result: LibraryEnrichmentResult,
+): string {
   return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, renamed ${result.files_renamed || 0}`;
 }
 
-function formatAdultMetadataGatherMessage(label: string, result: AdultMetadataGatherResult): string {
+function formatAdultMetadataGatherMessage(
+  label: string,
+  result: AdultMetadataGatherResult,
+): string {
   return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, posters ${result.posters_updated || 0}, sidecars ${result.sidecars_written || 0}`;
 }
 
-function formatBulkMetadataPostMessage(label: string, result: BulkMetadataPostResult): string {
+function formatBulkMetadataPostMessage(
+  label: string,
+  result: BulkMetadataPostResult,
+): string {
   const stop = result.stopped_reason ? ` (${result.stopped_reason})` : "";
   return `${label}: scanned ${result.items_scanned}, enriched ${result.metadata_items_enriched}, updated ${result.metadata_fields_updated} fields, posters attached ${result.posters_attached}${stop}`;
 }
@@ -183,23 +223,38 @@ function formatResultSummary(result: any) {
 }
 
 export default function AIDiagnosticsTab() {
-  const { aiProcessing, setAiProcessing, aiResult, setAiResult, addStatusMessage, setMediaItems } = useAppStore();
+  const {
+    aiProcessing,
+    setAiProcessing,
+    aiResult,
+    setAiResult,
+    addStatusMessage,
+    setMediaItems,
+  } = useAppStore();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [hfToken, setHfToken] = useState("");
   const [hasHfToken, setHasHfToken] = useState(false);
   const [model, setModel] = useState(DEFAULT_HF_MODEL);
-  const [inferenceUrl, setInferenceUrl] = useState("https://router.huggingface.co/v1/chat/completions");
+  const [inferenceUrl, setInferenceUrl] = useState(
+    "https://router.huggingface.co/v1/chat/completions",
+  );
   const [showConfig, setShowConfig] = useState(false);
-  const [history, setHistory] = useState<{ query: string; result: any; time: string }[]>([]);
-  const [metadataProgress, setMetadataProgress] = useState<MetadataTaskProgress | null>(null);
+  const [history, setHistory] = useState<
+    { query: string; result: any; time: string }[]
+  >([]);
+  const [metadataProgress, setMetadataProgress] =
+    useState<MetadataTaskProgress | null>(null);
 
   const loadAiConfig = useCallback(async () => {
     try {
       const config = await invoke<AiConfig>("get_ai_config");
       setModel(config.model || config.default_model || DEFAULT_HF_MODEL);
       setHasHfToken(Boolean(config.has_token));
-      setInferenceUrl(config.inference_url || "https://router.huggingface.co/v1/chat/completions");
+      setInferenceUrl(
+        config.inference_url ||
+          "https://router.huggingface.co/v1/chat/completions",
+      );
     } catch (error) {
       addStatusMessage(`AI config load failed: ${error}`);
     }
@@ -214,7 +269,10 @@ export default function AIDiagnosticsTab() {
   }, [showConfig, loadAiConfig]);
 
   const refreshLoadedLibraryPage = useCallback(async () => {
-    const items = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({}));
+    const items = await invoke<MediaItem[]>(
+      "get_media_items",
+      buildLibraryPageRequest({}),
+    );
     setMediaItems(items);
   }, [setMediaItems]);
 
@@ -224,7 +282,10 @@ export default function AIDiagnosticsTab() {
     let guard = 0;
 
     while (guard < 1000) {
-      const page = await invoke<MediaItem[]>("get_media_items", buildLibraryPageRequest({ offset }));
+      const page = await invoke<MediaItem[]>(
+        "get_media_items",
+        buildLibraryPageRequest({ offset }),
+      );
       allItems.push(...page);
       if (!hasMoreLibraryPages(page)) break;
       offset += LIBRARY_PAGE_SIZE;
@@ -240,7 +301,9 @@ export default function AIDiagnosticsTab() {
     let cancelled = false;
     const pollProgress = async () => {
       try {
-        const progress = await invoke<MetadataTaskProgress>("get_metadata_task_progress");
+        const progress = await invoke<MetadataTaskProgress>(
+          "get_metadata_task_progress",
+        );
         if (!cancelled && metadataTaskPopupVisible(progress)) {
           setMetadataProgress(progress);
         }
@@ -261,7 +324,11 @@ export default function AIDiagnosticsTab() {
   );
   const showMetadataProgress = metadataTaskPopupVisible(metadataProgress);
 
-  const showStartingProgress = (label: string, task = "metadata_task", total = 1) => {
+  const showStartingProgress = (
+    label: string,
+    task = "metadata_task",
+    total = 1,
+  ) => {
     setMetadataProgress({
       active: true,
       task,
@@ -273,13 +340,31 @@ export default function AIDiagnosticsTab() {
     });
   };
 
-  const updateLocalProgress = (label: string, task: string, current: number, total: number, message: string) => {
-    const percent = total > 0 ? Math.min(99, Math.floor((current * 100) / total)) : 0;
-    setMetadataProgress({ active: true, task, label, current, total, percent, message });
+  const updateLocalProgress = (
+    label: string,
+    task: string,
+    current: number,
+    total: number,
+    message: string,
+  ) => {
+    const percent =
+      total > 0 ? Math.min(99, Math.floor((current * 100) / total)) : 0;
+    setMetadataProgress({
+      active: true,
+      task,
+      label,
+      current,
+      total,
+      percent,
+      message,
+    });
   };
 
-  const showFinishedProgress = (label: string, message = `${label} complete`) => {
-    setMetadataProgress(prev => ({
+  const showFinishedProgress = (
+    label: string,
+    message = `${label} complete`,
+  ) => {
+    setMetadataProgress((prev) => ({
       ...prev,
       active: false,
       task: prev?.task || "metadata_task",
@@ -290,83 +375,113 @@ export default function AIDiagnosticsTab() {
       message,
     }));
     window.setTimeout(() => {
-      setMetadataProgress(current => current?.active ? current : null);
+      setMetadataProgress((current) => (current?.active ? current : null));
     }, 3500);
   };
 
-  const runBulkMetadataPost = useCallback(async (): Promise<BulkMetadataPostResult> => {
-    const label = "Post Metadata & Posters";
-    const task = "bulk_metadata_post";
-    const items = await loadAllLibraryItems();
-    const eligible = items.filter(item => typeof item.id === "number");
-    const candidates = eligible.filter(itemNeedsMetadata).slice(0, BULK_METADATA_BATCH_LIMIT);
-    const skippedComplete = eligible.length - eligible.filter(itemNeedsMetadata).length;
-    const result: BulkMetadataPostResult = {
-      type: "bulk_metadata_post",
-      status: "success",
-      items_scanned: 0,
-      candidates_considered: eligible.length,
-      candidates_skipped_complete: skippedComplete,
-      batch_limit: BULK_METADATA_BATCH_LIMIT,
-      metadata_items_enriched: 0,
-      metadata_fields_updated: 0,
-      posters_attached: 0,
-      provider_errors: [],
-      no_match: 0,
-      no_changes: 0,
-      failed: 0,
-      stopped_reason: candidates.length === 0 ? "No incomplete metadata candidates found" : undefined,
-    };
+  const runBulkMetadataPost =
+    useCallback(async (): Promise<BulkMetadataPostResult> => {
+      const label = "Post Metadata & Posters";
+      const task = "bulk_metadata_post";
+      const items = await loadAllLibraryItems();
+      const eligible = items.filter((item) => typeof item.id === "number");
+      const candidates = eligible
+        .filter(itemNeedsMetadata)
+        .slice(0, BULK_METADATA_BATCH_LIMIT);
+      const skippedComplete =
+        eligible.length - eligible.filter(itemNeedsMetadata).length;
+      const result: BulkMetadataPostResult = {
+        type: "bulk_metadata_post",
+        status: "success",
+        items_scanned: 0,
+        candidates_considered: eligible.length,
+        candidates_skipped_complete: skippedComplete,
+        batch_limit: BULK_METADATA_BATCH_LIMIT,
+        metadata_items_enriched: 0,
+        metadata_fields_updated: 0,
+        posters_attached: 0,
+        provider_errors: [],
+        no_match: 0,
+        no_changes: 0,
+        failed: 0,
+        stopped_reason:
+          candidates.length === 0
+            ? "No incomplete metadata candidates found"
+            : undefined,
+      };
 
-    if (candidates.length === 0) {
-      return result;
-    }
+      if (candidates.length === 0) {
+        return result;
+      }
 
-    showStartingProgress(label, task, candidates.length);
-    for (let index = 0; index < candidates.length; index += 1) {
-      const item = candidates[index];
-      updateLocalProgress(label, task, index + 1, candidates.length, `Posting metadata for ${index + 1} of ${candidates.length}`);
+      showStartingProgress(label, task, candidates.length);
+      for (let index = 0; index < candidates.length; index += 1) {
+        const item = candidates[index];
+        updateLocalProgress(
+          label,
+          task,
+          index + 1,
+          candidates.length,
+          `Posting metadata for ${index + 1} of ${candidates.length}`,
+        );
 
-      try {
-        const check = await invoke<SingleItemMetadataCheckResult>("check_media_item_metadata", { id: item.id });
-        result.items_scanned += 1;
-        const changed = check.metadata_fields_updated || 0;
-        if (check.metadata_updated || changed > 0) {
-          result.metadata_items_enriched += 1;
-          result.metadata_fields_updated += changed;
-        }
-        if (!item.poster_path?.trim() && check.updated_item?.poster_path?.trim()) {
-          result.posters_attached += 1;
-        }
-        if (check.status === "no_match") {
-          result.no_match += 1;
-        } else if (check.status === "no_changes") {
-          result.no_changes += 1;
-        }
-        if (check.provider_errors?.length) {
-          result.provider_errors.push(...check.provider_errors);
+        try {
+          const check = await invoke<SingleItemMetadataCheckResult>(
+            "check_media_item_metadata",
+            { id: item.id },
+          );
+          result.items_scanned += 1;
+          const changed = check.metadata_fields_updated || 0;
+          if (check.metadata_updated || changed > 0) {
+            result.metadata_items_enriched += 1;
+            result.metadata_fields_updated += changed;
+          }
+          if (
+            !item.poster_path?.trim() &&
+            check.updated_item?.poster_path?.trim()
+          ) {
+            result.posters_attached += 1;
+          }
+          if (check.status === "no_match") {
+            result.no_match += 1;
+          } else if (check.status === "no_changes") {
+            result.no_changes += 1;
+          }
+          if (check.provider_errors?.length) {
+            result.provider_errors.push(...check.provider_errors);
+            result.provider_errors = trimProviderErrors(result.provider_errors);
+          }
+        } catch (error) {
+          result.items_scanned += 1;
+          result.failed += 1;
+          result.provider_errors.push(
+            `${item.title || item.file_path}: ${String(error)}`,
+          );
           result.provider_errors = trimProviderErrors(result.provider_errors);
         }
-      } catch (error) {
-        result.items_scanned += 1;
-        result.failed += 1;
-        result.provider_errors.push(`${item.title || item.file_path}: ${String(error)}`);
-        result.provider_errors = trimProviderErrors(result.provider_errors);
       }
-    }
 
-    if (eligible.filter(itemNeedsMetadata).length > BULK_METADATA_BATCH_LIMIT) {
-      result.stopped_reason = `Batch limit reached; run again to continue remaining items`;
-    }
-    if (result.failed > 0) {
-      result.status = "partial";
-    }
-    return result;
-  }, [loadAllLibraryItems]);
+      if (
+        eligible.filter(itemNeedsMetadata).length > BULK_METADATA_BATCH_LIMIT
+      ) {
+        result.stopped_reason = `Batch limit reached; run again to continue remaining items`;
+      }
+      if (result.failed > 0) {
+        result.status = "partial";
+      }
+      return result;
+    }, [loadAllLibraryItems]);
 
-  const handleTrackedResult = async (label: string, query: string, result: any) => {
+  const handleTrackedResult = async (
+    label: string,
+    query: string,
+    result: any,
+  ) => {
     setAiResult(result);
-    setHistory(prev => [{ query, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+    setHistory((prev) => [
+      { query, result, time: new Date().toLocaleTimeString() },
+      ...prev.slice(0, 19),
+    ]);
     let message = `${label} complete`;
     if (isBulkMetadataPostResult(result)) {
       message = formatBulkMetadataPostMessage(label, result);
@@ -378,7 +493,9 @@ export default function AIDiagnosticsTab() {
       message = formatAdultMetadataGatherMessage(label, result);
       await refreshLoadedLibraryPage();
     } else if (result?.type === "purge_photo_items") {
-      message = result.message || `Removed ${result.rows_removed ?? 0} photo/poster items from library`;
+      message =
+        result.message ||
+        `Removed ${result.rows_removed ?? 0} photo/poster items from library`;
       await refreshLoadedLibraryPage();
     }
     addStatusMessage(message);
@@ -389,8 +506,10 @@ export default function AIDiagnosticsTab() {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
 
-    const wantsBulkMetadata = /(gather metadata|enrich metadata|post metadata|attach posters|poster artwork|metadata posters)/i.test(cleanPrompt)
-      && !/adult metadata|adult providers|chapter images/i.test(cleanPrompt);
+    const wantsBulkMetadata =
+      /(gather metadata|enrich metadata|post metadata|attach posters|poster artwork|metadata posters)/i.test(
+        cleanPrompt,
+      ) && !/adult metadata|adult providers|chapter images/i.test(cleanPrompt);
 
     if (wantsBulkMetadata) {
       const label = "Post Metadata & Posters";
@@ -403,7 +522,14 @@ export default function AIDiagnosticsTab() {
       } catch (e) {
         const errResult = { status: "error", message: String(e) };
         setAiResult(errResult);
-        setHistory(prev => [{ query: cleanPrompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+        setHistory((prev) => [
+          {
+            query: cleanPrompt,
+            result: errResult,
+            time: new Date().toLocaleTimeString(),
+          },
+          ...prev.slice(0, 19),
+        ]);
         addStatusMessage(`${label} failed: ${e}`);
         showFinishedProgress(label, `${label} failed: ${e}`);
       } finally {
@@ -413,19 +539,29 @@ export default function AIDiagnosticsTab() {
       return;
     }
 
-    const tracksAdultGather = /adult metadata|chapter images|adult providers/i.test(cleanPrompt);
+    const tracksAdultGather =
+      /adult metadata|chapter images|adult providers/i.test(cleanPrompt);
     if (tracksAdultGather) {
       const label = "Adult Metadata Gather";
       showStartingProgress(label, "adult_metadata_gather");
       setAiProcessing(true);
       addStatusMessage(`Running: ${label}...`);
       try {
-        const result = await invoke<AdultMetadataGatherResult>("ai_query", { prompt: cleanPrompt });
+        const result = await invoke<AdultMetadataGatherResult>("ai_query", {
+          prompt: cleanPrompt,
+        });
         await handleTrackedResult(label, cleanPrompt, result);
       } catch (e) {
         const errResult = { status: "error", message: String(e) };
         setAiResult(errResult);
-        setHistory(prev => [{ query: cleanPrompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+        setHistory((prev) => [
+          {
+            query: cleanPrompt,
+            result: errResult,
+            time: new Date().toLocaleTimeString(),
+          },
+          ...prev.slice(0, 19),
+        ]);
         addStatusMessage(`${label} failed: ${e}`);
         showFinishedProgress(label, `${label} failed: ${e}`);
       } finally {
@@ -440,12 +576,22 @@ export default function AIDiagnosticsTab() {
     try {
       const result = await invoke<any>("ai_query", { prompt: cleanPrompt });
       setAiResult(result);
-      setHistory(prev => [{ query: cleanPrompt, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+      setHistory((prev) => [
+        { query: cleanPrompt, result, time: new Date().toLocaleTimeString() },
+        ...prev.slice(0, 19),
+      ]);
       addStatusMessage("AI query complete");
     } catch (e) {
       const errResult = { status: "error", message: String(e) };
       setAiResult(errResult);
-      setHistory(prev => [{ query: cleanPrompt, result: errResult, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+      setHistory((prev) => [
+        {
+          query: cleanPrompt,
+          result: errResult,
+          time: new Date().toLocaleTimeString(),
+        },
+        ...prev.slice(0, 19),
+      ]);
       addStatusMessage(`AI error: ${e}`);
     }
     setAiProcessing(false);
@@ -456,9 +602,20 @@ export default function AIDiagnosticsTab() {
     if (!prompt.trim()) return;
     setAiProcessing(true);
     try {
-      const result = await invoke<any>("ai_inference", { input: prompt, model, imageUrl: imageUrl.trim() || null });
+      const result = await invoke<any>("ai_inference", {
+        input: prompt,
+        model,
+        imageUrl: imageUrl.trim() || null,
+      });
       setAiResult(result);
-      setHistory(prev => [{ query: `[Inference] ${prompt}`, result, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 19)]);
+      setHistory((prev) => [
+        {
+          query: `[Inference] ${prompt}`,
+          result,
+          time: new Date().toLocaleTimeString(),
+        },
+        ...prev.slice(0, 19),
+      ]);
       addStatusMessage("AI inference complete");
       await loadAiConfig();
     } catch (e) {
@@ -472,7 +629,9 @@ export default function AIDiagnosticsTab() {
       await invoke("set_hf_token", { token: hfToken });
       setHasHfToken(Boolean(hfToken.trim()));
       setHfToken("");
-      addStatusMessage("Hugging Face token saved and retained for AI inference");
+      addStatusMessage(
+        "Hugging Face token saved and retained for AI inference",
+      );
       await loadAiConfig();
     } catch (e) {
       addStatusMessage(`Failed: ${e}`);
@@ -518,8 +677,16 @@ export default function AIDiagnosticsTab() {
   };
 
   const quickActions: QuickAction[] = [
-    { label: "Network Diagnostics", icon: Network, q: "Run network diagnostics" },
-    { label: "Check Sources", icon: FolderSearch, q: "Check all media sources" },
+    {
+      label: "Network Diagnostics",
+      icon: Network,
+      q: "Run network diagnostics",
+    },
+    {
+      label: "Check Sources",
+      icon: FolderSearch,
+      q: "Check all media sources",
+    },
     { label: "Check Providers", icon: Database, q: "Check metadata providers" },
     {
       label: "Post Metadata & Posters",
@@ -553,7 +720,11 @@ export default function AIDiagnosticsTab() {
       icon: Sparkles,
       q: "Run adult metadata gather for installed providers and generate posters and chapter images",
       progressTask: "adult_metadata_gather",
-      runNow: () => invoke("ai_query", { prompt: "Run adult metadata gather for installed providers and generate posters and chapter images" }),
+      runNow: () =>
+        invoke("ai_query", {
+          prompt:
+            "Run adult metadata gather for installed providers and generate posters and chapter images",
+        }),
     },
     {
       label: "Purge Photo Items",
@@ -574,15 +745,24 @@ export default function AIDiagnosticsTab() {
         >
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-sm font-bold text-cv-text truncate">{formattedProgress.label}</div>
-              <div className="text-[11px] text-cv-subtext mt-1 truncate">{formattedProgress.message}</div>
+              <div className="text-sm font-bold text-cv-text truncate">
+                {formattedProgress.label}
+              </div>
+              <div className="text-[11px] text-cv-subtext mt-1 truncate">
+                {formattedProgress.message}
+              </div>
             </div>
-            <div className="text-xl font-bold text-cv-accent tabular-nums">{formattedProgress.percent}%</div>
+            <div className="text-xl font-bold text-cv-accent tabular-nums">
+              {formattedProgress.percent}%
+            </div>
           </div>
           <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
             <motion.div
               className="h-full rounded-full"
-              style={{ background: "linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))" }}
+              style={{
+                background:
+                  "linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))",
+              }}
               animate={{ width: `${formattedProgress.percent}%` }}
               transition={{ duration: 0.25 }}
             />
@@ -595,7 +775,10 @@ export default function AIDiagnosticsTab() {
         </motion.div>
       )}
 
-      <div className="glass-panel p-5 relative overflow-hidden" style={{ minHeight: 280 }}>
+      <div
+        className="glass-panel p-5 relative overflow-hidden"
+        style={{ minHeight: 280 }}
+      >
         <div className="absolute inset-0 z-0">
           <AIVisualizer active={aiProcessing} />
         </div>
@@ -604,22 +787,34 @@ export default function AIDiagnosticsTab() {
             <h3 className="text-sm font-bold flex items-center gap-2">
               <Brain size={16} className="text-cv-accent" /> AI Agent
             </h3>
-            <button onClick={() => setShowConfig(!showConfig)} className="cv-btn cv-btn-secondary text-xs">
+            <button
+              onClick={() => setShowConfig(!showConfig)}
+              className="cv-btn cv-btn-secondary text-xs"
+            >
               <Settings size={12} /> Configure
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             <div className="glass-panel-2 p-3 rounded-xl">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-cv-subtext">HF Token</div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-cv-subtext">
+                HF Token
+              </div>
               <div className="mt-1 flex items-center gap-2 text-sm font-bold">
-                <ShieldCheck size={14} className={hasHfToken ? "text-emerald-300" : "text-amber-300"} />
+                <ShieldCheck
+                  size={14}
+                  className={hasHfToken ? "text-emerald-300" : "text-amber-300"}
+                />
                 {hasHfToken ? "Configured" : "Missing"}
               </div>
             </div>
             <div className="glass-panel-2 p-3 rounded-xl md:col-span-2">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-cv-subtext">Model</div>
-              <div className="mt-1 truncate text-sm font-bold text-cv-text">{model}</div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-cv-subtext">
+                Model
+              </div>
+              <div className="mt-1 truncate text-sm font-bold text-cv-text">
+                {model}
+              </div>
             </div>
           </div>
 
@@ -627,16 +822,33 @@ export default function AIDiagnosticsTab() {
             <input
               type="text"
               value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && runQuery()}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runQuery()}
               placeholder="Ask AI anything... or type: gather metadata / attach posters"
               className="cv-input flex-1 bg-black/40"
             />
-            <button onClick={runQuery} disabled={aiProcessing} className="cv-btn cv-btn-primary">
-              {aiProcessing ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
+            <button
+              onClick={runQuery}
+              disabled={aiProcessing}
+              className="cv-btn cv-btn-primary"
+            >
+              {aiProcessing ? (
+                <Loader size={14} className="animate-spin" />
+              ) : (
+                <Send size={14} />
+              )}
               Query
             </button>
-            <button onClick={runInference} disabled={aiProcessing || !hasHfToken} className="cv-btn cv-btn-gold disabled:opacity-45 disabled:cursor-not-allowed" title={!hasHfToken ? "Save a Hugging Face token before inference" : undefined}>
+            <button
+              onClick={runInference}
+              disabled={aiProcessing || !hasHfToken}
+              className="cv-btn cv-btn-gold disabled:opacity-45 disabled:cursor-not-allowed"
+              title={
+                !hasHfToken
+                  ? "Save a Hugging Face token before inference"
+                  : undefined
+              }
+            >
               <Sparkles size={14} /> Inference
             </button>
           </div>
@@ -644,14 +856,14 @@ export default function AIDiagnosticsTab() {
             <input
               type="text"
               value={imageUrl}
-              onChange={e => setImageUrl(e.target.value)}
+              onChange={(e) => setImageUrl(e.target.value)}
               placeholder="Optional image URL for multimodal query (jpg/png/webp)"
               className="cv-input w-full bg-black/30 text-xs"
             />
           </div>
 
           <div className="flex flex-wrap gap-2 mt-3">
-            {quickActions.map(action => (
+            {quickActions.map((action) => (
               <button
                 key={action.label}
                 disabled={aiProcessing}
@@ -666,7 +878,11 @@ export default function AIDiagnosticsTab() {
       </div>
 
       {showConfig && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-5">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel p-5"
+        >
           <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
             <Cpu size={16} className="text-cv-accent" /> AI Model Configuration
           </h3>
@@ -674,21 +890,54 @@ export default function AIDiagnosticsTab() {
             <div>
               <label className="section-label">Hugging Face Token</label>
               <div className="flex gap-2">
-                <input type="password" value={hfToken} onChange={e => setHfToken(e.target.value)} className="cv-input flex-1" placeholder={hasHfToken ? "Token already configured" : "hf_..."} />
-                <button onClick={saveToken} className="cv-btn cv-btn-primary text-xs"><Key size={12} /> Save</button>
-                <button onClick={() => openLink("https://huggingface.co/settings/tokens")} className="cv-btn cv-btn-secondary text-xs">
+                <input
+                  type="password"
+                  value={hfToken}
+                  onChange={(e) => setHfToken(e.target.value)}
+                  className="cv-input flex-1"
+                  placeholder={
+                    hasHfToken ? "Token already configured" : "hf_..."
+                  }
+                />
+                <button
+                  onClick={saveToken}
+                  className="cv-btn cv-btn-primary text-xs"
+                >
+                  <Key size={12} /> Save
+                </button>
+                <button
+                  onClick={() =>
+                    openLink("https://huggingface.co/settings/tokens")
+                  }
+                  className="cv-btn cv-btn-secondary text-xs"
+                >
                   <ExternalLink size={12} /> Get API Key
                 </button>
               </div>
-              <div className="text-[10px] text-cv-subtext mt-1">Status: {hasHfToken ? "configured and retained" : "missing"}. Existing tokens are never displayed.</div>
+              <div className="text-[10px] text-cv-subtext mt-1">
+                Status: {hasHfToken ? "configured and retained" : "missing"}.
+                Existing tokens are never displayed.
+              </div>
             </div>
             <div>
               <label className="section-label">AI Model</label>
               <div className="flex gap-2">
-                <input value={model} onChange={e => setModel(e.target.value)} className="cv-input flex-1" placeholder={DEFAULT_HF_MODEL} />
-                <button onClick={saveModel} className="cv-btn cv-btn-primary text-xs"><Cpu size={12} /> Set</button>
+                <input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="cv-input flex-1"
+                  placeholder={DEFAULT_HF_MODEL}
+                />
+                <button
+                  onClick={saveModel}
+                  className="cv-btn cv-btn-primary text-xs"
+                >
+                  <Cpu size={12} /> Set
+                </button>
               </div>
-              <div className="text-[10px] text-cv-subtext mt-1">Default: {DEFAULT_HF_MODEL}</div>
+              <div className="text-[10px] text-cv-subtext mt-1">
+                Default: {DEFAULT_HF_MODEL}
+              </div>
             </div>
           </div>
           <div className="mt-3 text-[10px] text-cv-subtext">
@@ -702,8 +951,14 @@ export default function AIDiagnosticsTab() {
           <h3 className="text-sm font-bold mb-3">AI Activity Log</h3>
 
           {aiResult && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-panel-2 p-4 rounded-lg mb-3">
-              <div className="text-xs font-semibold mb-2 text-cv-accent">Latest Result</div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="glass-panel-2 p-4 rounded-lg mb-3"
+            >
+              <div className="text-xs font-semibold mb-2 text-cv-accent">
+                Latest Result
+              </div>
               <pre className="text-xs text-cv-subtext whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
                 {formatResultSummary(aiResult)}
               </pre>
@@ -713,12 +968,16 @@ export default function AIDiagnosticsTab() {
           {history.length > 0 && (
             <div className="space-y-1 max-h-60 overflow-y-auto">
               {history.map((entry, i) => (
-                <div key={i} className="flex items-start gap-3 py-2 px-3 rounded hover:bg-white/[0.02] text-xs">
+                <div
+                  key={i}
+                  className="flex items-start gap-3 py-2 px-3 rounded hover:bg-white/[0.02] text-xs"
+                >
                   <span className="text-cv-subtext shrink-0">{entry.time}</span>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{entry.query}</div>
                     <div className="text-cv-subtext text-[10px] truncate">
-                      {entry.result?.status || "completed"} — {entry.result?.type || "inference"}
+                      {entry.result?.status || "completed"} —{" "}
+                      {entry.result?.type || "inference"}
                     </div>
                   </div>
                 </div>

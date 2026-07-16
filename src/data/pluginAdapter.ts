@@ -2,15 +2,21 @@
 // Provides runtime bridge to load, configure, and execute MS-C / MS-B / MS-A plugins
 
 import { invoke } from "@tauri-apps/api/core";
-import type { PluginEntry, PluginPlatform, PluginStatus } from "./pluginRegistry";
+import type {
+  PluginEntry,
+  PluginPlatform,
+  PluginStatus,
+} from "./pluginRegistry";
 
 export const PGMA_PLUGIN_ID = "px-pgma-modernized";
 
 export const PGMA_DEFAULT_CONFIG = {
   plexPluginPath: "",
-  sourceZipUrl: "https://github.com/CodyBerenson/PGMA-Modernized/archive/refs/heads/master.zip",
+  sourceZipUrl:
+    "https://github.com/CodyBerenson/PGMA-Modernized/archive/refs/heads/master.zip",
   defaultTarget: "cinavault-staging",
-  notes: "Leave plexPluginPath blank to deploy into CinaVault's local Plex plugin staging folder. Set it only when you want to deploy directly into a real Plex Plug-ins folder.",
+  notes:
+    "Leave plexPluginPath blank to deploy into CinaVault's local Plex plugin staging folder. Set it only when you want to deploy directly into a real Plex Plug-ins folder.",
   requiresPlexRestart: true,
   nativeToolchain: "native-rust-pgma-bridge",
   metadataSources: ["nfo", "localArtwork"],
@@ -24,8 +30,8 @@ export const PGMA_DEFAULT_CONFIG = {
 // ── Adapter configuration per-platform ──
 export interface AdapterConfig {
   platform: PluginPlatform;
-  basePath: string;      // local plugin install directory
-  apiBase?: string;       // for server-backed plugins
+  basePath: string; // local plugin install directory
+  apiBase?: string; // for server-backed plugins
   apiKey?: string;
 }
 
@@ -63,7 +69,10 @@ const JELLYFIN_DLL_MAP: Record<string, string> = {
 };
 
 function shouldLogInvokeFailure(): boolean {
-  return typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__);
+  return (
+    typeof window !== "undefined" &&
+    Boolean((window as any).__TAURI_INTERNALS__)
+  );
 }
 
 function defaultConfigForPlugin(pluginId: string): Record<string, any> {
@@ -71,7 +80,9 @@ function defaultConfigForPlugin(pluginId: string): Record<string, any> {
 }
 
 function normalizePlatform(platform: any): PluginPlatform {
-  return ["jellyfin", "emby", "plex", "cinavault"].includes(platform) ? platform : "cinavault";
+  return ["jellyfin", "emby", "plex", "cinavault"].includes(platform)
+    ? platform
+    : "cinavault";
 }
 
 function isPgmaDeployAction(action: string): boolean {
@@ -79,7 +90,13 @@ function isPgmaDeployAction(action: string): boolean {
 }
 
 function isPgmaRefreshAction(action: string): boolean {
-  return ["start", "run", "refresh", "refresh_library", "refreshLibrary"].includes(action);
+  return [
+    "start",
+    "run",
+    "refresh",
+    "refresh_library",
+    "refreshLibrary",
+  ].includes(action);
 }
 
 export class PluginAdapterEngine {
@@ -112,7 +129,10 @@ export class PluginAdapterEngine {
     if (this.installed.has(plugin.id)) {
       await this.setPluginEnabled(plugin.id, true);
       if (plugin.id === PGMA_PLUGIN_ID) {
-        await this.setPluginConfig(plugin.id, { ...defaultConfig, ...this.getPluginConfig(plugin.id) });
+        await this.setPluginConfig(plugin.id, {
+          ...defaultConfig,
+          ...this.getPluginConfig(plugin.id),
+        });
       }
       return true;
     }
@@ -142,9 +162,10 @@ export class PluginAdapterEngine {
         }
       }
 
-      const installPath = plugin.id === PGMA_PLUGIN_ID && deployResult?.targetPath
-        ? deployResult.targetPath
-        : this.resolveInstallPath(plugin);
+      const installPath =
+        plugin.id === PGMA_PLUGIN_ID && deployResult?.targetPath
+          ? deployResult.targetPath
+          : this.resolveInstallPath(plugin);
       const installed: InstalledPlugin = {
         id: plugin.id,
         name: plugin.name,
@@ -171,7 +192,10 @@ export class PluginAdapterEngine {
         name: plugin.name,
         platform: plugin.platforms[0],
         version: plugin.version,
-        installPath: plugin.id === PGMA_PLUGIN_ID ? "%APPDATA%/CinaVault/plugins/plex/Plug-ins" : `plugins/${plugin.platforms[0]}/${plugin.id}`,
+        installPath:
+          plugin.id === PGMA_PLUGIN_ID
+            ? "%APPDATA%/CinaVault/plugins/plex/Plug-ins"
+            : `plugins/${plugin.platforms[0]}/${plugin.id}`,
         configJson: JSON.stringify(defaultConfig),
         enabled: true,
       };
@@ -201,14 +225,21 @@ export class PluginAdapterEngine {
 
   // ── Run / activate a plugin ──
   async runPlugin(pluginId: string, action: string = "start"): Promise<any> {
-    const configObject = pluginId === PGMA_PLUGIN_ID ? { ...PGMA_DEFAULT_CONFIG, ...this.getPluginConfig(pluginId) } : undefined;
+    const configObject =
+      pluginId === PGMA_PLUGIN_ID
+        ? { ...PGMA_DEFAULT_CONFIG, ...this.getPluginConfig(pluginId) }
+        : undefined;
     const config = configObject ? JSON.stringify(configObject) : undefined;
     try {
       let result: any;
       if (pluginId === PGMA_PLUGIN_ID && isPgmaRefreshAction(action)) {
         result = await invoke("refresh_pgma_library", { config });
       } else if (pluginId === PGMA_PLUGIN_ID && isPgmaDeployAction(action)) {
-        result = await invoke("run_plugin", { pluginId, action: "deploy", config });
+        result = await invoke("run_plugin", {
+          pluginId,
+          action: "deploy",
+          config,
+        });
       } else {
         result = await invoke("run_plugin", { pluginId, action, config });
       }
@@ -220,15 +251,18 @@ export class PluginAdapterEngine {
           ...this.getPluginConfig(pluginId),
           lastDeployTarget: result.targetPath,
           deployedBundles: result.bundles,
-          lastRefreshStats: result.scanned !== undefined ? {
-            scanned: result.scanned,
-            matched: result.matched,
-            updated: result.updated,
-            artworkDownloaded: result.artworkDownloaded,
-            skipped: result.skipped,
-            errors: result.errors,
-            message: result.message,
-          } : undefined,
+          lastRefreshStats:
+            result.scanned !== undefined
+              ? {
+                  scanned: result.scanned,
+                  matched: result.matched,
+                  updated: result.updated,
+                  artworkDownloaded: result.artworkDownloaded,
+                  skipped: result.skipped,
+                  errors: result.errors,
+                  message: result.message,
+                }
+              : undefined,
           requiresPlexRestart: result.requiresPlexRestart ?? true,
         };
         if (current) {
@@ -254,11 +288,21 @@ export class PluginAdapterEngine {
   getPluginConfig(pluginId: string): Record<string, any> {
     const p = this.installed.get(pluginId);
     if (!p) return defaultConfigForPlugin(pluginId);
-    try { return { ...defaultConfigForPlugin(pluginId), ...JSON.parse(p.configJson) }; } catch { return defaultConfigForPlugin(pluginId); }
+    try {
+      return {
+        ...defaultConfigForPlugin(pluginId),
+        ...JSON.parse(p.configJson),
+      };
+    } catch {
+      return defaultConfigForPlugin(pluginId);
+    }
   }
 
   // ── Set plugin config ──
-  async setPluginConfig(pluginId: string, config: Record<string, any>): Promise<void> {
+  async setPluginConfig(
+    pluginId: string,
+    config: Record<string, any>,
+  ): Promise<void> {
     const nextConfig = { ...defaultConfigForPlugin(pluginId), ...config };
     const p = this.installed.get(pluginId);
     if (p) {
@@ -289,9 +333,15 @@ export class PluginAdapterEngine {
   }
 
   // ── Check compatibility ──
-  checkCompatibility(plugin: PluginEntry): { compatible: boolean; reason: string } {
+  checkCompatibility(plugin: PluginEntry): {
+    compatible: boolean;
+    reason: string;
+  } {
     if (plugin.id === PGMA_PLUGIN_ID) {
-      return { compatible: true, reason: "Native bundle deployer + CinaVault metadata bridge" };
+      return {
+        compatible: true,
+        reason: "Native bundle deployer + CinaVault metadata bridge",
+      };
     }
 
     // CinaVault native plugins are always compatible
@@ -362,7 +412,8 @@ export class PluginAdapterEngine {
           platform: normalizePlatform(p.platform),
           version: p.version || "1.0.0",
           installPath: p.installPath || "",
-          configJson: p.configJson || JSON.stringify(defaultConfigForPlugin(id)),
+          configJson:
+            p.configJson || JSON.stringify(defaultConfigForPlugin(id)),
           enabled: p.enabled !== false,
         });
       }

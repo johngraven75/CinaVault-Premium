@@ -1,8 +1,8 @@
 // CinaVault Premium — Jellyfin/Emby Server Management
-use serde::{Deserialize, Serialize};
-use tauri::State;
 use crate::AppState;
+use serde::{Deserialize, Serialize};
 use std::process::Command;
+use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(dead_code)]
@@ -23,16 +23,28 @@ pub async fn start_server(server_type: String) -> Result<serde_json::Value, Stri
 
     // Try common install paths
     let paths = vec![
-        format!("C:\\Program Files\\{}", if server_type == "jellyfin" { "Jellyfin\\Server" } else { "Emby-Server" }),
-        format!("C:\\Program Files (x86)\\{}", if server_type == "jellyfin" { "Jellyfin\\Server" } else { "Emby-Server" }),
+        format!(
+            "C:\\Program Files\\{}",
+            if server_type == "jellyfin" {
+                "Jellyfin\\Server"
+            } else {
+                "Emby-Server"
+            }
+        ),
+        format!(
+            "C:\\Program Files (x86)\\{}",
+            if server_type == "jellyfin" {
+                "Jellyfin\\Server"
+            } else {
+                "Emby-Server"
+            }
+        ),
     ];
 
     for path in &paths {
         let exe_path = format!("{}\\{}", path, exe_name);
         if std::path::Path::new(&exe_path).exists() {
-            Command::new(&exe_path)
-                .spawn()
-                .map_err(|e| e.to_string())?;
+            Command::new(&exe_path).spawn().map_err(|e| e.to_string())?;
             return Ok(serde_json::json!({
                 "status": "started",
                 "server": server_type,
@@ -41,7 +53,10 @@ pub async fn start_server(server_type: String) -> Result<serde_json::Value, Stri
         }
     }
 
-    Err(format!("{} server executable not found in standard paths", server_type))
+    Err(format!(
+        "{} server executable not found in standard paths",
+        server_type
+    ))
 }
 
 #[tauri::command]
@@ -76,13 +91,14 @@ pub async fn stop_server(server_type: String) -> Result<serde_json::Value, Strin
 }
 
 #[tauri::command]
-pub async fn get_server_status(server_type: String, base_url: Option<String>) -> Result<serde_json::Value, String> {
-    let url = base_url.unwrap_or_else(|| {
-        match server_type.as_str() {
-            "jellyfin" => "http://localhost:8096".to_string(),
-            "emby" => "http://localhost:8096".to_string(),
-            _ => "http://localhost:8096".to_string(),
-        }
+pub async fn get_server_status(
+    server_type: String,
+    base_url: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let url = base_url.unwrap_or_else(|| match server_type.as_str() {
+        "jellyfin" => "http://localhost:8096".to_string(),
+        "emby" => "http://localhost:8096".to_string(),
+        _ => "http://localhost:8096".to_string(),
     });
 
     let client = reqwest::Client::builder()
@@ -111,7 +127,10 @@ pub async fn get_server_status(server_type: String, base_url: Option<String>) ->
 }
 
 #[tauri::command]
-pub async fn get_server_info(base_url: String, api_key: Option<String>) -> Result<serde_json::Value, String> {
+pub async fn get_server_info(
+    base_url: String,
+    api_key: Option<String>,
+) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
     let mut req = client.get(format!("{}/System/Info", base_url));
     if let Some(key) = &api_key {
@@ -123,11 +142,18 @@ pub async fn get_server_info(base_url: String, api_key: Option<String>) -> Resul
 }
 
 #[tauri::command]
-pub async fn import_libraries(base_url: String, api_key: String, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn import_libraries(
+    base_url: String,
+    api_key: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
-    let resp = client.get(format!("{}/Library/VirtualFolders", base_url))
+    let resp = client
+        .get(format!("{}/Library/VirtualFolders", base_url))
         .header("X-Emby-Token", &api_key)
-        .send().await.map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let libraries: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -135,7 +161,10 @@ pub async fn import_libraries(base_url: String, api_key: String, state: State<'_
 
     for lib in &libraries {
         if let Some(locations) = lib.get("Locations").and_then(|v| v.as_array()) {
-            let lib_name = lib.get("Name").and_then(|v| v.as_str()).unwrap_or("Library");
+            let lib_name = lib
+                .get("Name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Library");
             for loc in locations {
                 if let Some(path) = loc.as_str() {
                     let _ = db.conn.execute(
@@ -158,13 +187,21 @@ pub async fn import_libraries(base_url: String, api_key: String, state: State<'_
 pub async fn check_emby_compat(base_url: String) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
-        .build().map_err(|e| e.to_string())?;
+        .build()
+        .map_err(|e| e.to_string())?;
 
-    match client.get(format!("{}/System/Info/Public", base_url)).send().await {
+    match client
+        .get(format!("{}/System/Info/Public", base_url))
+        .send()
+        .await
+    {
         Ok(resp) => {
             let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
             let version = data.get("Version").and_then(|v| v.as_str()).unwrap_or("");
-            let product = data.get("ProductName").and_then(|v| v.as_str()).unwrap_or("");
+            let product = data
+                .get("ProductName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             Ok(serde_json::json!({
                 "compatible": true,
                 "product": product,

@@ -3,8 +3,18 @@ import { create } from "zustand";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 
 export type TabId =
-  | "home" | "sources" | "downloads" | "livetv" | "server"
-  | "security" | "remote" | "advanced" | "cloud" | "plugins" | "ai" | "settings";
+  | "home"
+  | "sources"
+  | "downloads"
+  | "livetv"
+  | "server"
+  | "security"
+  | "remote"
+  | "advanced"
+  | "cloud"
+  | "plugins"
+  | "ai"
+  | "settings";
 
 const VALID_TAB_IDS: readonly TabId[] = [
   "home",
@@ -70,7 +80,8 @@ export interface MetadataProvider {
 }
 
 // ── Scheduled Task State ──
-export type TaskFrequency = "manual" | "on_scan" | "daily" | "weekly" | "on_import" | "never";
+export type TaskFrequency =
+  "manual" | "on_scan" | "daily" | "weekly" | "on_import" | "never";
 
 export interface ScheduledTaskConfig {
   thumbnails: TaskFrequency;
@@ -101,7 +112,8 @@ export interface LibraryEnrichmentResult {
 }
 
 // ── Cloud Service State ──
-export type CloudServiceStatus = "connected" | "disconnected" | "connecting" | "error";
+export type CloudServiceStatus =
+  "connected" | "disconnected" | "connecting" | "error";
 
 export interface CloudServiceState {
   id: string;
@@ -124,7 +136,9 @@ export interface AppState {
 
   // Library
   mediaItems: MediaItem[];
-  setMediaItems: (items: MediaItem[] | ((current: MediaItem[]) => MediaItem[])) => void;
+  setMediaItems: (
+    items: MediaItem[] | ((current: MediaItem[]) => MediaItem[]),
+  ) => void;
   selectedMedia: MediaItem | null;
   setSelectedMedia: (item: MediaItem | null) => void;
   libraryView: "list" | "card";
@@ -170,7 +184,9 @@ export interface AppState {
 
   // Feature Settings (Advanced tab) — Premium is now default
   featureSettings: Record<string, { enabled: boolean; config: any }>;
-  setFeatureSettings: (fs: Record<string, { enabled: boolean; config: any }>) => void;
+  setFeatureSettings: (
+    fs: Record<string, { enabled: boolean; config: any }>,
+  ) => void;
   toggleFeature: (key: string) => void;
 
   // Metadata Providers — selectable per-provider
@@ -183,7 +199,10 @@ export interface AppState {
   // Scheduled Tasks
   scheduledTasks: ScheduledTaskConfig;
   setScheduledTasks: (t: ScheduledTaskConfig) => void;
-  setTaskFrequency: (task: keyof ScheduledTaskConfig, freq: TaskFrequency) => void;
+  setTaskFrequency: (
+    task: keyof ScheduledTaskConfig,
+    freq: TaskFrequency,
+  ) => void;
 
   // Cloud Services
   cloudServices: Record<string, CloudServiceState>;
@@ -210,7 +229,12 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "tvdb", name: "TVDB", category: "Movies & TV", enabled: true },
   { id: "trakt", name: "Trakt", category: "Movies & TV", enabled: true },
   { id: "imdb", name: "IMDb", category: "Movies & TV", enabled: true },
-  { id: "rotten_tomatoes", name: "Rotten Tomatoes", category: "Movies & TV", enabled: true },
+  {
+    id: "rotten_tomatoes",
+    name: "Rotten Tomatoes",
+    category: "Movies & TV",
+    enabled: true,
+  },
   { id: "cinemeta", name: "CINEMETA", category: "Movies & TV", enabled: true },
   { id: "tvmaze", name: "TVMaze", category: "Movies & TV", enabled: true },
   // Music
@@ -225,16 +249,36 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "kitsu", name: "Kitsu", category: "Anime", enabled: true },
   // Artwork
   { id: "fanarttv", name: "Fanart.tv", category: "Artwork", enabled: true },
-  { id: "tmdb_images", name: "TheMovieDB Images", category: "Artwork", enabled: true },
+  {
+    id: "tmdb_images",
+    name: "TheMovieDB Images",
+    category: "Artwork",
+    enabled: true,
+  },
   // Adult
   { id: "pgma", name: "PGMA Modernized", category: "Adult", enabled: true },
-  { id: "porn_site_nuxt", name: "Porn Site Nuxt", category: "Adult", enabled: false },
+  {
+    id: "porn_site_nuxt",
+    name: "Porn Site Nuxt",
+    category: "Adult",
+    enabled: false,
+  },
   { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: false },
   { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
-  { id: "phoenixadult", name: "PhoenixAdult", category: "Adult", enabled: false },
+  {
+    id: "phoenixadult",
+    name: "PhoenixAdult",
+    category: "Adult",
+    enabled: false,
+  },
   { id: "iafd", name: "IAFD", category: "Adult", enabled: false },
   // Subtitles
-  { id: "opensubtitles", name: "OpenSubtitles", category: "Subtitles", enabled: true },
+  {
+    id: "opensubtitles",
+    name: "OpenSubtitles",
+    category: "Subtitles",
+    enabled: true,
+  },
   { id: "subscene", name: "Subscene", category: "Subtitles", enabled: true },
   // Other
   { id: "igdb", name: "IGDB", category: "Other", enabled: true },
@@ -243,8 +287,18 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
   { id: "epg_guide", name: "EPG Guide", category: "Other", enabled: true },
   // Agents
   { id: "plex_agents", name: "MS-A Agents", category: "Agents", enabled: true },
-  { id: "emby_providers", name: "MS-B Providers", category: "Agents", enabled: true },
-  { id: "jellyfin_providers", name: "MS-C Providers", category: "Agents", enabled: true },
+  {
+    id: "emby_providers",
+    name: "MS-B Providers",
+    category: "Agents",
+    enabled: true,
+  },
+  {
+    id: "jellyfin_providers",
+    name: "MS-C Providers",
+    category: "Agents",
+    enabled: true,
+  },
 ];
 
 const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
@@ -255,7 +309,10 @@ const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
 };
 
 // ── Premium feature defaults (all enabled) ──
-const DEFAULT_FEATURE_SETTINGS: Record<string, { enabled: boolean; config: any }> = {
+const DEFAULT_FEATURE_SETTINGS: Record<
+  string,
+  { enabled: boolean; config: any }
+> = {
   smart_collections: { enabled: true, config: {} },
   poster_sync: { enabled: true, config: {} },
   unified_library: { enabled: true, config: {} },
@@ -330,9 +387,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Library
   mediaItems: [],
-  setMediaItems: (items) => set((s) => ({
-    mediaItems: typeof items === "function" ? items(s.mediaItems) : items,
-  })),
+  setMediaItems: (items) =>
+    set((s) => ({
+      mediaItems: typeof items === "function" ? items(s.mediaItems) : items,
+    })),
   selectedMedia: null,
   setSelectedMedia: (item) => set({ selectedMedia: item }),
   libraryView: "card",
@@ -354,7 +412,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   serverRunning: false,
   serverType: "jellyfin",
   serverUrl: "http://localhost:8096",
-  setServerStatus: (running, type_, url) => set({ serverRunning: running, serverType: type_, serverUrl: url }),
+  setServerStatus: (running, type_, url) =>
+    set({ serverRunning: running, serverType: type_, serverUrl: url }),
 
   // Downloads
   downloading: false,
@@ -363,7 +422,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   // VPN
   vpnConnected: false,
   vpnLocation: "",
-  setVpnStatus: (connected, location) => set({ vpnConnected: connected, vpnLocation: location }),
+  setVpnStatus: (connected, location) =>
+    set({ vpnConnected: connected, vpnLocation: location }),
 
   // AI
   aiProcessing: false,
@@ -374,46 +434,52 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Settings — Premium defaults applied
   settings: { ...DEFAULT_SETTINGS },
   setSettings: (s) => set({ settings: { ...DEFAULT_SETTINGS, ...s } }),
-  setSetting: (key, value) => set((s) => ({ settings: { ...s.settings, [key]: value } })),
+  setSetting: (key, value) =>
+    set((s) => ({ settings: { ...s.settings, [key]: value } })),
 
   // Feature Settings — all Premium features ON by default
   featureSettings: { ...DEFAULT_FEATURE_SETTINGS },
   setFeatureSettings: (fs) => set({ featureSettings: fs }),
-  toggleFeature: (key) => set((s) => {
-    const current = s.featureSettings[key] || { enabled: false, config: {} };
-    return {
-      featureSettings: {
-        ...s.featureSettings,
-        [key]: { ...current, enabled: !current.enabled },
-      },
-    };
-  }),
+  toggleFeature: (key) =>
+    set((s) => {
+      const current = s.featureSettings[key] || { enabled: false, config: {} };
+      return {
+        featureSettings: {
+          ...s.featureSettings,
+          [key]: { ...current, enabled: !current.enabled },
+        },
+      };
+    }),
 
   // Metadata Providers
   metadataProviders: [...DEFAULT_PROVIDERS],
   setMetadataProviders: (p) => set({ metadataProviders: p }),
-  toggleMetadataProvider: (id) => set((s) => ({
-    metadataProviders: s.metadataProviders.map(p =>
-      p.id === id ? { ...p, enabled: !p.enabled } : p
-    ),
-  })),
-  enableAllProviders: (category) => set((s) => ({
-    metadataProviders: s.metadataProviders.map(p =>
-      !category || p.category === category ? { ...p, enabled: true } : p
-    ),
-  })),
-  disableAllProviders: (category) => set((s) => ({
-    metadataProviders: s.metadataProviders.map(p =>
-      !category || p.category === category ? { ...p, enabled: false } : p
-    ),
-  })),
+  toggleMetadataProvider: (id) =>
+    set((s) => ({
+      metadataProviders: s.metadataProviders.map((p) =>
+        p.id === id ? { ...p, enabled: !p.enabled } : p,
+      ),
+    })),
+  enableAllProviders: (category) =>
+    set((s) => ({
+      metadataProviders: s.metadataProviders.map((p) =>
+        !category || p.category === category ? { ...p, enabled: true } : p,
+      ),
+    })),
+  disableAllProviders: (category) =>
+    set((s) => ({
+      metadataProviders: s.metadataProviders.map((p) =>
+        !category || p.category === category ? { ...p, enabled: false } : p,
+      ),
+    })),
 
   // Scheduled Tasks
   scheduledTasks: { ...DEFAULT_SCHEDULED_TASKS },
   setScheduledTasks: (t) => set({ scheduledTasks: t }),
-  setTaskFrequency: (task, freq) => set((s) => ({
-    scheduledTasks: { ...s.scheduledTasks, [task]: freq },
-  })),
+  setTaskFrequency: (task, freq) =>
+    set((s) => ({
+      scheduledTasks: { ...s.scheduledTasks, [task]: freq },
+    })),
 
   // Cloud Services
   cloudServices: {
@@ -421,18 +487,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     gdrive: { id: "gdrive", status: "disconnected" },
     dropbox: { id: "dropbox", status: "disconnected" },
   },
-  setCloudService: (id, state) => set((s) => ({
-    cloudServices: {
-      ...s.cloudServices,
-      [id]: { ...s.cloudServices[id], ...state },
-    },
-  })),
+  setCloudService: (id, state) =>
+    set((s) => ({
+      cloudServices: {
+        ...s.cloudServices,
+        [id]: { ...s.cloudServices[id], ...state },
+      },
+    })),
 
   // Status
-  statusMessages: ["CinaVault Premium initialized", "All systems operational — Premium Edition"],
-  addStatusMessage: (msg) => set((s) => ({
-    statusMessages: [...s.statusMessages.slice(-19), msg],
-  })),
+  statusMessages: [
+    "CinaVault Premium initialized",
+    "All systems operational — Premium Edition",
+  ],
+  addStatusMessage: (msg) =>
+    set((s) => ({
+      statusMessages: [...s.statusMessages.slice(-19), msg],
+    })),
 
   // Loading
   loading: false,
@@ -476,13 +547,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else if (key === "_libraryView") {
         libraryView = value as "list" | "card";
       } else if (key === "_featureSettings") {
-        try { featureSettings = { ...DEFAULT_FEATURE_SETTINGS, ...JSON.parse(value) }; } catch {}
+        try {
+          featureSettings = {
+            ...DEFAULT_FEATURE_SETTINGS,
+            ...JSON.parse(value),
+          };
+        } catch {}
       } else if (key === "_metadataProviders") {
-        try { metadataProviders = sanitizeMetadataProviders(JSON.parse(value), DEFAULT_PROVIDERS); } catch {}
+        try {
+          metadataProviders = sanitizeMetadataProviders(
+            JSON.parse(value),
+            DEFAULT_PROVIDERS,
+          );
+        } catch {}
       } else if (key === "_scheduledTasks") {
-        try { scheduledTasks = { ...DEFAULT_SCHEDULED_TASKS, ...JSON.parse(value) }; } catch {}
+        try {
+          scheduledTasks = { ...DEFAULT_SCHEDULED_TASKS, ...JSON.parse(value) };
+        } catch {}
       } else if (key === "_cloudServices") {
-        try { cloudServices = { ...cloudServices, ...JSON.parse(value) }; } catch {}
+        try {
+          cloudServices = { ...cloudServices, ...JSON.parse(value) };
+        } catch {}
       } else {
         settings[key] = value;
       }

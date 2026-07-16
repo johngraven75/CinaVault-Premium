@@ -1,12 +1,12 @@
 // CinaVault Premium — Duplicate Finder Module
+use crate::AppState;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use tauri::State;
-use crate::AppState;
-use rusqlite::params;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DuplicateGroup {
@@ -36,19 +36,26 @@ pub async fn find_duplicates(
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
     // Clear previous results
-    db.conn.execute("DELETE FROM duplicate_items", []).map_err(|e| e.to_string())?;
-    db.conn.execute("DELETE FROM duplicate_groups", []).map_err(|e| e.to_string())?;
+    db.conn
+        .execute("DELETE FROM duplicate_items", [])
+        .map_err(|e| e.to_string())?;
+    db.conn
+        .execute("DELETE FROM duplicate_groups", [])
+        .map_err(|e| e.to_string())?;
 
     // Get all media items
-    let mut stmt = db.conn.prepare(
-        "SELECT id, title, file_path, file_size FROM media_items ORDER BY title"
-    ).map_err(|e| e.to_string())?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT id, title, file_path, file_size FROM media_items ORDER BY title")
+        .map_err(|e| e.to_string())?;
 
-    let items: Vec<(i64, String, String, Option<i64>)> = stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    let items: Vec<(i64, String, String, Option<i64>)> = stmt
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let mut groups: HashMap<String, Vec<(i64, String, Option<i64>)>> = HashMap::new();
 
@@ -77,7 +84,10 @@ pub async fn find_duplicates(
             }
         };
 
-        groups.entry(key).or_default().push((*id, path.clone(), *size));
+        groups
+            .entry(key)
+            .or_default()
+            .push((*id, path.clone(), *size));
     }
 
     // Filter to groups with 2+ items (actual duplicates)
@@ -86,7 +96,9 @@ pub async fn find_duplicates(
     let mut total_items = 0u64;
 
     for (key, group_items) in &groups {
-        if group_items.len() < 2 { continue; }
+        if group_items.len() < 2 {
+            continue;
+        }
 
         // Check size tolerance for name-based matches
         if match_rule == "name_size" || match_rule == "name" {
@@ -103,10 +115,12 @@ pub async fn find_duplicates(
         }
 
         let hash = format!("{:x}", Sha256::digest(key.as_bytes()));
-        db.conn.execute(
-            "INSERT INTO duplicate_groups (group_hash, created_at) VALUES (?1, ?2)",
-            params![hash, now],
-        ).map_err(|e| e.to_string())?;
+        db.conn
+            .execute(
+                "INSERT INTO duplicate_groups (group_hash, created_at) VALUES (?1, ?2)",
+                params![hash, now],
+            )
+            .map_err(|e| e.to_string())?;
         let group_id = db.conn.last_insert_rowid();
         total_groups += 1;
 
@@ -130,36 +144,42 @@ pub async fn find_duplicates(
 pub fn get_duplicate_groups(state: State<AppState>) -> Result<Vec<DuplicateGroup>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
-    let mut group_stmt = db.conn.prepare(
-        "SELECT id, group_hash FROM duplicate_groups ORDER BY id"
-    ).map_err(|e| e.to_string())?;
+    let mut group_stmt = db
+        .conn
+        .prepare("SELECT id, group_hash FROM duplicate_groups ORDER BY id")
+        .map_err(|e| e.to_string())?;
 
-    let groups: Vec<(i64, String)> = group_stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    let groups: Vec<(i64, String)> = group_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let mut result = Vec::new();
 
     for (gid, hash) in groups {
-        let mut item_stmt = db.conn.prepare(
-            "SELECT di.id, di.media_id, di.file_path, di.file_size, mi.title \
+        let mut item_stmt = db
+            .conn
+            .prepare(
+                "SELECT di.id, di.media_id, di.file_path, di.file_size, mi.title \
              FROM duplicate_items di LEFT JOIN media_items mi ON di.media_id = mi.id \
-             WHERE di.group_id = ?1"
-        ).map_err(|e| e.to_string())?;
+             WHERE di.group_id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
 
-        let items: Vec<DuplicateItem> = item_stmt.query_map(params![gid], |row| {
-            Ok(DuplicateItem {
-                id: row.get(0)?,
-                media_id: row.get(1)?,
-                file_path: row.get(2)?,
-                file_size: row.get(3)?,
-                title: row.get(4)?,
+        let items: Vec<DuplicateItem> = item_stmt
+            .query_map(params![gid], |row| {
+                Ok(DuplicateItem {
+                    id: row.get(0)?,
+                    media_id: row.get(1)?,
+                    file_path: row.get(2)?,
+                    file_size: row.get(3)?,
+                    title: row.get(4)?,
+                })
             })
-        }).map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
 
         result.push(DuplicateGroup {
             id: gid,
@@ -172,11 +192,17 @@ pub fn get_duplicate_groups(state: State<AppState>) -> Result<Vec<DuplicateGroup
 }
 
 #[tauri::command]
-pub fn remove_duplicate(state: State<AppState>, item_id: i64, delete_file: bool) -> Result<(), String> {
+pub fn remove_duplicate(
+    state: State<AppState>,
+    item_id: i64,
+    delete_file: bool,
+) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
     if delete_file {
-        let mut stmt = db.conn.prepare("SELECT file_path FROM duplicate_items WHERE id = ?1")
+        let mut stmt = db
+            .conn
+            .prepare("SELECT file_path FROM duplicate_items WHERE id = ?1")
             .map_err(|e| e.to_string())?;
         if let Ok(path) = stmt.query_row(params![item_id], |row| row.get::<_, String>(0)) {
             let _ = std::fs::remove_file(&path); // Best effort delete
@@ -184,13 +210,20 @@ pub fn remove_duplicate(state: State<AppState>, item_id: i64, delete_file: bool)
     }
 
     // Remove from DB
-    let mut stmt = db.conn.prepare("SELECT media_id FROM duplicate_items WHERE id = ?1")
+    let mut stmt = db
+        .conn
+        .prepare("SELECT media_id FROM duplicate_items WHERE id = ?1")
         .map_err(|e| e.to_string())?;
     if let Ok(media_id) = stmt.query_row(params![item_id], |row| row.get::<_, i64>(0)) {
-        db.conn.execute("DELETE FROM media_items WHERE id = ?1", params![media_id])
+        db.conn
+            .execute("DELETE FROM media_items WHERE id = ?1", params![media_id])
             .map_err(|e| e.to_string())?;
     }
-    db.conn.execute("DELETE FROM duplicate_items WHERE id = ?1", params![item_id])
+    db.conn
+        .execute(
+            "DELETE FROM duplicate_items WHERE id = ?1",
+            params![item_id],
+        )
         .map_err(|e| e.to_string())?;
 
     Ok(())

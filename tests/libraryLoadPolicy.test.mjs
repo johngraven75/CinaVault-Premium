@@ -19,10 +19,10 @@ test("buildLibraryPageRequest sends the selected media type without loading ever
     buildLibraryPageRequest({ mediaType: "movie", offset: 480 }),
     { mediaType: "movie", limit: 240, offset: 480 },
   );
-  assert.deepEqual(
-    buildLibraryPageRequest({ mediaType: "all" }),
-    { limit: 240, offset: 0 },
-  );
+  assert.deepEqual(buildLibraryPageRequest({ mediaType: "all" }), {
+    limit: 240,
+    offset: 0,
+  });
 });
 
 test("mergeLibraryPage appends unique media rows across pages", () => {
@@ -49,6 +49,12 @@ test("hasMoreLibraryPages only continues when a full page was returned", () => {
 });
 
 test("shouldAutoLoadNextLibraryPage keeps full-library loading moving after a full page", () => {
-  assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 240 })), true);
-  assert.equal(shouldAutoLoadNextLibraryPage(Array.from({ length: 120 })), false);
+  assert.equal(
+    shouldAutoLoadNextLibraryPage(Array.from({ length: 240 })),
+    true,
+  );
+  assert.equal(
+    shouldAutoLoadNextLibraryPage(Array.from({ length: 120 })),
+    false,
+  );
 });

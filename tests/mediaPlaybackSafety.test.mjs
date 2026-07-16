@@ -8,20 +8,23 @@ import {
 
 test("canPlayMediaItem accepts real video files", () => {
   assert.equal(
-    canPlayMediaItem({ media_type: "movie", file_path: "E:\\Library\\movie.mp4" }),
+    canPlayMediaItem({
+      media_type: "movie",
+      file_path: "E:\\Library\\movie.mp4",
+    }),
     true,
   );
 });
 
 test("canPlayMediaItem rejects generated chapter images and empty paths", () => {
   assert.equal(
-    canPlayMediaItem({ media_type: "photo", file_path: "E:\\Videos\\scene_chapters\\chapter_0001.jpg" }),
+    canPlayMediaItem({
+      media_type: "photo",
+      file_path: "E:\\Videos\\scene_chapters\\chapter_0001.jpg",
+    }),
     false,
   );
-  assert.equal(
-    canPlayMediaItem({ media_type: "movie", file_path: "" }),
-    false,
-  );
+  assert.equal(canPlayMediaItem({ media_type: "movie", file_path: "" }), false);
 });
 
 test("isLibraryDisplayableMediaItem hides generated chapter images from the library", () => {
@@ -50,7 +53,10 @@ test("isLibraryDisplayableMediaItem hides sidecar artwork photo rows from the li
     "E:\\Videos\\Movie\\scene-poster.webp",
   ]) {
     assert.equal(
-      isLibraryDisplayableMediaItem({ media_type: "photo", file_path: filePath }),
+      isLibraryDisplayableMediaItem({
+        media_type: "photo",
+        file_path: filePath,
+      }),
       false,
       filePath,
     );

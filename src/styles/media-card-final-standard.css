@@ -21,7 +21,10 @@
 [class*="libraryRow"],
 [class*="libraryGrid"] {
   display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(var(--cv-media-card-width), var(--cv-media-card-width))) !important;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(var(--cv-media-card-width), var(--cv-media-card-width))
+  ) !important;
   gap: var(--cv-media-grid-gap) !important;
   align-items: start !important;
   justify-content: start !important;

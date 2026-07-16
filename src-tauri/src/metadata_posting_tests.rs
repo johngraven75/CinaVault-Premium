@@ -59,7 +59,10 @@ mod tests {
             .expect("updated media item should exist");
 
         assert_eq!(item.title, "Inception");
-        assert_eq!(item.overview.as_deref(), Some("A thief enters dreams to extract and implant secrets."));
+        assert_eq!(
+            item.overview.as_deref(),
+            Some("A thief enters dreams to extract and implant secrets.")
+        );
         assert_eq!(
             item.poster_path.as_deref(),
             Some("https://image.tmdb.org/t/p/w500/inception-test-poster.jpg")

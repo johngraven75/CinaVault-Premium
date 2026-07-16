@@ -146,7 +146,10 @@ async fn fetch_porn_site_nuxt_results(
 #[tauri::command]
 pub fn get_metadata_providers() -> Vec<MetadataProvider> {
     let mut providers = crate::metadata::get_metadata_providers();
-    if !providers.iter().any(|provider| provider.key == PGMA_PROVIDER_KEY) {
+    if !providers
+        .iter()
+        .any(|provider| provider.key == PGMA_PROVIDER_KEY)
+    {
         providers.push(MetadataProvider {
             name: "PGMA Modernized".to_string(),
             key: PGMA_PROVIDER_KEY.to_string(),
@@ -155,7 +158,10 @@ pub fn get_metadata_providers() -> Vec<MetadataProvider> {
             category: "Adult".to_string(),
         });
     }
-    if !providers.iter().any(|provider| provider.key == "porn_site_nuxt") {
+    if !providers
+        .iter()
+        .any(|provider| provider.key == "porn_site_nuxt")
+    {
         providers.push(MetadataProvider {
             name: "Porn Site Nuxt".to_string(),
             key: "porn_site_nuxt".to_string(),
@@ -250,7 +256,10 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
         }
         _ => {
             let result = crate::metadata::test_api_key(provider.clone(), api_key).await?;
-            result.get("valid").and_then(|value| value.as_bool()).unwrap_or(false)
+            result
+                .get("valid")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
         }
     };
 
@@ -319,13 +328,23 @@ mod tests {
     fn provider_catalog_includes_pgma_and_nuxt() {
         let providers = get_metadata_providers();
         assert!(providers.iter().any(|provider| provider.key == "pgma"));
-        assert!(providers.iter().any(|provider| provider.key == "porn_site_nuxt"));
+        assert!(providers
+            .iter()
+            .any(|provider| provider.key == "porn_site_nuxt"));
     }
 
     #[test]
     fn pgma_returns_local_bridge_metadata() {
         let result = pgma_metadata_response("Example.Scene.1080p.mkv");
-        assert_eq!(result.get("provider").and_then(|value| value.as_str()), Some("pgma"));
-        assert_eq!(result.get("native_bridge").and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            result.get("provider").and_then(|value| value.as_str()),
+            Some("pgma")
+        );
+        assert_eq!(
+            result
+                .get("native_bridge")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
     }
 }

@@ -6,7 +6,9 @@ export type GoogleCastMedia = {
   posterUrl?: string;
 };
 
-export async function castToGoogleDevice(media: GoogleCastMedia): Promise<string> {
+export async function castToGoogleDevice(
+  media: GoogleCastMedia,
+): Promise<string> {
   const { Client, DefaultMediaReceiver } = await import("castv2-client");
 
   return new Promise((resolve, reject) => {
@@ -29,15 +31,15 @@ export async function castToGoogleDevice(media: GoogleCastMedia): Promise<string
               type: 0,
               metadataType: 0,
               title: media.title || "CinaVault Premium",
-              images: media.posterUrl ? [{ url: media.posterUrl }] : []
-            }
+              images: media.posterUrl ? [{ url: media.posterUrl }] : [],
+            },
           },
           { autoplay: true },
           (loadErr: Error | null) => {
             client.close();
             if (loadErr) reject(loadErr);
             else resolve("Casting started");
-          }
+          },
         );
       });
     });

@@ -36,11 +36,16 @@ impl MetadataTaskGuard {
             message: message.into(),
         };
         replace_progress(progress);
-        Self { task, finished: false }
+        Self {
+            task,
+            finished: false,
+        }
     }
 
     pub fn update(&mut self, current: usize, message: impl Into<String>) {
-        let mut progress = progress_state().lock().expect("metadata task progress lock");
+        let mut progress = progress_state()
+            .lock()
+            .expect("metadata task progress lock");
         if progress.task != self.task || !progress.active {
             return;
         }
@@ -50,7 +55,9 @@ impl MetadataTaskGuard {
     }
 
     pub fn finish(mut self, message: impl Into<String>) {
-        let mut progress = progress_state().lock().expect("metadata task progress lock");
+        let mut progress = progress_state()
+            .lock()
+            .expect("metadata task progress lock");
         if progress.task == self.task {
             progress.active = false;
             progress.current = progress.total;
@@ -59,7 +66,6 @@ impl MetadataTaskGuard {
         }
         self.finished = true;
     }
-
 }
 
 impl Drop for MetadataTaskGuard {
@@ -67,7 +73,9 @@ impl Drop for MetadataTaskGuard {
         if self.finished {
             return;
         }
-        let mut progress = progress_state().lock().expect("metadata task progress lock");
+        let mut progress = progress_state()
+            .lock()
+            .expect("metadata task progress lock");
         if progress.task == self.task && progress.active {
             progress.active = false;
             progress.percent = 100;
@@ -85,7 +93,9 @@ pub fn get_metadata_task_progress() -> MetadataTaskProgress {
 }
 
 fn replace_progress(progress: MetadataTaskProgress) {
-    *progress_state().lock().expect("metadata task progress lock") = progress;
+    *progress_state()
+        .lock()
+        .expect("metadata task progress lock") = progress;
 }
 
 fn progress_state() -> &'static Mutex<MetadataTaskProgress> {
@@ -125,7 +135,8 @@ mod tests {
     #[test]
     fn progress_percent_is_capped_while_active_and_reaches_100_when_finished() {
         reset_metadata_task_progress_for_test();
-        let mut guard = MetadataTaskGuard::start("adult_metadata", "Adult Metadata Gather", 4, "Starting");
+        let mut guard =
+            MetadataTaskGuard::start("adult_metadata", "Adult Metadata Gather", 4, "Starting");
 
         guard.update(2, "Scanning media");
         let snapshot = get_metadata_task_progress();

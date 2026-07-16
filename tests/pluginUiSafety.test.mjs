@@ -53,10 +53,12 @@ test("applyPluginRuntimeState does not mark the whole catalog installed", () => 
   ];
 
   assert.deepEqual(
-    applyPluginRuntimeState(registry, [{ id: "jf-trakt", enabled: true }]).map((plugin) => ({
-      id: plugin.id,
-      status: plugin.status,
-    })),
+    applyPluginRuntimeState(registry, [{ id: "jf-trakt", enabled: true }]).map(
+      (plugin) => ({
+        id: plugin.id,
+        status: plugin.status,
+      }),
+    ),
     [
       { id: "cv-core", status: "active" },
       { id: "jf-trakt", status: "active" },
@@ -71,14 +73,18 @@ test("applyPluginRuntimeState reflects disabled installed plugins", () => {
   ];
 
   assert.equal(
-    applyPluginRuntimeState(registry, [{ id: "jf-webhook", enabled: false }])[0].status,
+    applyPluginRuntimeState(registry, [{ id: "jf-webhook", enabled: false }])[0]
+      .status,
     "disabled",
   );
 });
 
 test("getUnreadStatusMessages returns newest unread messages after the last read index", () => {
   assert.deepEqual(
-    getUnreadStatusMessages(["Started", "Scan complete", "Plugin installed"], 0),
+    getUnreadStatusMessages(
+      ["Started", "Scan complete", "Plugin installed"],
+      0,
+    ),
     ["Scan complete", "Plugin installed"],
   );
   assert.deepEqual(getUnreadStatusMessages(["Started"], 99), []);

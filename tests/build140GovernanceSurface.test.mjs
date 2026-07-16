@@ -13,7 +13,10 @@ function source(path) {
 
 function requireAll(sourceText, requiredValues) {
   for (const required of requiredValues) {
-    assert.match(sourceText, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(
+      sourceText,
+      new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
 }
 
@@ -31,7 +34,7 @@ test("Build 140 app shell keeps startup, persistence, plugin, and wheel-scroll b
     "saveAllSettingsToBackend",
     "getWheelDeltaPixels",
     "getWheelScrolledTop",
-    "AnimatePresence mode=\"wait\"",
+    'AnimatePresence mode="wait"',
   ]);
 });
 
@@ -93,7 +96,7 @@ test("Kodi-inspired CinaVault skins are selectable in Settings", () => {
     "CinaVault Titan Bingie",
     "kodi_amber_home",
     "CinaVault Amber",
-    "origin: \"Kodi\"",
+    'origin: "Kodi"',
   ]);
 
   requireAll(settings, [
@@ -115,8 +118,14 @@ test("PGMA and Porn Site Nuxt remain exposed as metadata providers", () => {
     "porn_site_nuxt",
     "Porn Site Nuxt",
   ]) {
-    assert.match(store, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(backend, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(
+      store,
+      new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+    assert.match(
+      backend,
+      new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
 
   requireAll(main, [

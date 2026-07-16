@@ -18,7 +18,9 @@ const XTREAM_ENDPOINT_PATHS = new Set([
   "/xmltv.php",
 ]);
 
-export function buildAddXtreamProfileArgs(profile: XtreamProfileForm): AddXtreamProfileArgs {
+export function buildAddXtreamProfileArgs(
+  profile: XtreamProfileForm,
+): AddXtreamProfileArgs {
   const name = profile.name.trim();
   const username = profile.username.trim();
   const password = profile.password.trim();
@@ -53,11 +55,15 @@ export function normalizeXtreamServerUrl(input: string): string {
   try {
     url = new URL(urlText);
   } catch {
-    throw new Error("Enter a valid Xtream server URL, for example http://provider.com:8080.");
+    throw new Error(
+      "Enter a valid Xtream server URL, for example http://provider.com:8080.",
+    );
   }
 
   if (!url.hostname) {
-    throw new Error("Enter a valid Xtream server URL, for example http://provider.com:8080.");
+    throw new Error(
+      "Enter a valid Xtream server URL, for example http://provider.com:8080.",
+    );
   }
 
   url.username = "";

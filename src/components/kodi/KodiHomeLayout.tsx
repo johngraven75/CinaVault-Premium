@@ -178,7 +178,9 @@ interface CardProps {
 function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
   const imgSrc = resolveImg(item.poster_path);
   const hasNfo = Boolean(item.nfo_path);
-  const hasPoster = Boolean(item.poster_path && !item.poster_path.startsWith("http"));
+  const hasPoster = Boolean(
+    item.poster_path && !item.poster_path.startsWith("http"),
+  );
 
   return (
     <motion.div
@@ -192,7 +194,12 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
     >
       {/* Poster */}
       {imgSrc ? (
-        <img src={imgSrc} alt={item.title} className="kodi-poster" loading="lazy" />
+        <img
+          src={imgSrc}
+          alt={item.title}
+          className="kodi-poster"
+          loading="lazy"
+        />
       ) : (
         <div className="kodi-poster-placeholder">
           <Film size={28} />
@@ -219,7 +226,15 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
 
       {/* NFO / Poster sidecar badges */}
       {(hasNfo || hasPoster) && (
-        <div style={{ position: "absolute", bottom: 8, right: 8, display: "flex", gap: 4 }}>
+        <div
+          style={{
+            position: "absolute",
+            bottom: 8,
+            right: 8,
+            display: "flex",
+            gap: 4,
+          }}
+        >
           {hasNfo && <span className="kodi-nfo-badge">NFO</span>}
           {hasPoster && <span className="kodi-poster-badge">ART</span>}
         </div>
@@ -231,12 +246,12 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
         <div className="kodi-card-meta">
           {item.year && <span>{item.year}</span>}
           {item.rating && (
-            <span style={{ color: "var(--cv-gold)" }}>★ {item.rating.toFixed(1)}</span>
+            <span style={{ color: "var(--cv-gold)" }}>
+              ★ {item.rating.toFixed(1)}
+            </span>
           )}
         </div>
-        {item.genre && (
-          <div className="kodi-card-genre">{item.genre}</div>
-        )}
+        {item.genre && <div className="kodi-card-genre">{item.genre}</div>}
       </div>
 
       {/* Hover quick actions */}
@@ -334,7 +349,9 @@ function KodiDetailPanel({
 }: DetailPanelProps): JSX.Element {
   const imgSrc = resolveImg(item.poster_path);
   const hasNfo = Boolean(item.nfo_path);
-  const hasPoster = Boolean(item.poster_path && !item.poster_path.startsWith("http"));
+  const hasPoster = Boolean(
+    item.poster_path && !item.poster_path.startsWith("http"),
+  );
 
   return (
     <motion.aside
@@ -371,7 +388,10 @@ function KodiDetailPanel({
           <span className="kodi-detail-chip">{item.resolution}</span>
         )}
         {item.rating && (
-          <span className="kodi-detail-chip" style={{ color: "var(--cv-gold)" }}>
+          <span
+            className="kodi-detail-chip"
+            style={{ color: "var(--cv-gold)" }}
+          >
             ★ {item.rating.toFixed(1)}
           </span>
         )}
@@ -379,9 +399,7 @@ function KodiDetailPanel({
         {hasPoster && <span className="kodi-poster-badge">ART</span>}
       </div>
 
-      {item.overview && (
-        <p className="kodi-detail-overview">{item.overview}</p>
-      )}
+      {item.overview && <p className="kodi-detail-overview">{item.overview}</p>}
 
       <div>
         {item.genre && (
@@ -462,8 +480,13 @@ type ViewMode = "shelves" | "grid";
 type FilterType = "all" | "movie" | "episode" | "adult" | "video";
 
 export default function KodiHomeLayout(): JSX.Element {
-  const { mediaItems, setMediaItems, selectedMedia, setSelectedMedia, addStatusMessage } =
-    useAppStore();
+  const {
+    mediaItems,
+    setMediaItems,
+    selectedMedia,
+    setSelectedMedia,
+    addStatusMessage,
+  } = useAppStore();
 
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("shelves");
@@ -474,7 +497,11 @@ export default function KodiHomeLayout(): JSX.Element {
   // Load library
   useEffect(() => {
     setLoading(true);
-    invoke<MediaItem[]>("get_media_items", { mediaType: "all", limit: 500, offset: 0 })
+    invoke<MediaItem[]>("get_media_items", {
+      mediaType: "all",
+      limit: 500,
+      offset: 0,
+    })
       .then((items) => setMediaItems(items))
       .catch((err) => addStatusMessage(`Library load error: ${err}`))
       .finally(() => setLoading(false));
@@ -507,16 +534,20 @@ export default function KodiHomeLayout(): JSX.Element {
         setCheckingId(null);
       }
     },
-    [mediaItems, selectedMedia, setMediaItems, setSelectedMedia, addStatusMessage],
+    [
+      mediaItems,
+      selectedMedia,
+      setMediaItems,
+      setSelectedMedia,
+      addStatusMessage,
+    ],
   );
 
   // Filtered items
   const filteredItems = useMemo(() => {
     let items = mediaItems;
     if (typeFilter !== "all") {
-      items = items.filter((m) =>
-        m.media_type?.toLowerCase() === typeFilter,
-      );
+      items = items.filter((m) => m.media_type?.toLowerCase() === typeFilter);
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -530,9 +561,16 @@ export default function KodiHomeLayout(): JSX.Element {
     return items;
   }, [mediaItems, typeFilter, searchQuery]);
 
-  const recentItems = useMemo(() => sortRecent(filteredItems).slice(0, 20), [filteredItems]);
+  const recentItems = useMemo(
+    () => sortRecent(filteredItems).slice(0, 20),
+    [filteredItems],
+  );
   const topRatedItems = useMemo(
-    () => sortRating(filteredItems.filter((m) => (m.rating ?? 0) >= 7)).slice(0, 20),
+    () =>
+      sortRating(filteredItems.filter((m) => (m.rating ?? 0) >= 7)).slice(
+        0,
+        20,
+      ),
     [filteredItems],
   );
   const needsMetadata = useMemo(
@@ -556,7 +594,10 @@ export default function KodiHomeLayout(): JSX.Element {
   ];
 
   return (
-    <div className="kodi-home" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+    <div
+      className="kodi-home"
+      style={{ display: "flex", flexDirection: "column", gap: 24 }}
+    >
       {/* Hero */}
       {recentItems.length > 0 && (
         <KodiHero
@@ -611,7 +652,10 @@ export default function KodiHomeLayout(): JSX.Element {
 
       {/* Search */}
       <div className="kodi-search-bar">
-        <Search size={14} style={{ color: "var(--cv-subtext)", flexShrink: 0 }} />
+        <Search
+          size={14}
+          style={{ color: "var(--cv-subtext)", flexShrink: 0 }}
+        />
         <input
           className="kodi-search-input"
           placeholder="Search library…"
@@ -637,7 +681,13 @@ export default function KodiHomeLayout(): JSX.Element {
 
       {/* Loading state */}
       {loading && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            padding: "20px 0",
+          }}
+        >
           <RefreshCw
             size={20}
             className="animate-spin"

@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 test("Build 145 includes all requested market-leading media server features", () => {
-  const source = fs.readFileSync("src/features/cinavaultFeatureSuite.ts", "utf8");
+  const source = fs.readFileSync(
+    "src/features/cinavaultFeatureSuite.ts",
+    "utf8",
+  );
 
   for (const id of [
     "proprietary-cinavault-server",
@@ -24,7 +27,7 @@ test("Build 145 includes all requested market-leading media server features", ()
     "watchlist-importer",
     "smart-collections",
     "remote-access-wizard",
-    "advanced-user-dashboard"
+    "advanced-user-dashboard",
   ]) {
     assert.match(source, new RegExp(id));
   }

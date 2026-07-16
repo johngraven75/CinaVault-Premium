@@ -10,5 +10,8 @@ test("Build 143 AI Media Agent is permanently enabled and safe", () => {
   assert.match(source, /enrich-metadata/);
   assert.match(source, /normalize-filename/);
   assert.match(source, /quarantine-duplicates/);
-  assert.doesNotMatch(source, /unlinkSync|rmSync|deleteFile|permanently delete/i);
+  assert.doesNotMatch(
+    source,
+    /unlinkSync|rmSync|deleteFile|permanently delete/i,
+  );
 });

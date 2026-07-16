@@ -33,7 +33,10 @@ test("Build 158 routes user-facing metadata commands through metadata_ext at run
 
   assert.equal(commandBlock.includes("metadata::fetch_metadata"), false);
   assert.equal(commandBlock.includes("metadata::search_metadata"), false);
-  assert.equal(commandBlock.includes("metadata::get_metadata_providers"), false);
+  assert.equal(
+    commandBlock.includes("metadata::get_metadata_providers"),
+    false,
+  );
 });
 
 test("Build 158 metadata extension handlers are real Tauri commands", () => {
@@ -50,8 +53,15 @@ test("Build 158 metadata extension handlers are real Tauri commands", () => {
   ];
 
   for (const handler of commandHandlers) {
-    const pattern = new RegExp(`#\\[tauri::command\\]\\s+pub(?: async)? fn ${handler}\\b`, "m");
-    assert.match(metadataExt, pattern, `${handler} must be exported as a Tauri command`);
+    const pattern = new RegExp(
+      `#\\[tauri::command\\]\\s+pub(?: async)? fn ${handler}\\b`,
+      "m",
+    );
+    assert.match(
+      metadataExt,
+      pattern,
+      `${handler} must be exported as a Tauri command`,
+    );
   }
 });
 
@@ -74,7 +84,10 @@ test("Build 158 metadata provider responses do not echo raw upstream payloads ov
   const metadataExt = source("src-tauri/src/metadata_ext.rs");
   const responseBlock = metadataExt.slice(
     metadataExt.indexOf("async fn fetch_porn_site_nuxt_results"),
-    metadataExt.indexOf("#[tauri::command]", metadataExt.indexOf("async fn fetch_porn_site_nuxt_results")),
+    metadataExt.indexOf(
+      "#[tauri::command]",
+      metadataExt.indexOf("async fn fetch_porn_site_nuxt_results"),
+    ),
   );
 
   assert.equal(responseBlock.includes('"raw"'), false);

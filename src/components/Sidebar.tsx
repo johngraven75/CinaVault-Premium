@@ -33,24 +33,90 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "home", label: "Home", icon: Home, group: "Media", signal: "Featured" },
-  { id: "sources", label: "Sources", icon: FolderOpen, group: "Media", signal: "Library" },
-  { id: "downloads", label: "Downloads", icon: Download, group: "Media", signal: "Queue" },
-  { id: "livetv", label: "Live TV", icon: Tv, group: "Media", signal: "Channels" },
-  { id: "server", label: "Server", icon: Server, group: "System", signal: "Core" },
-  { id: "security", label: "Security", icon: Shield, group: "System", signal: "Guard" },
-  { id: "remote", label: "Remote", icon: Router, group: "System", signal: "Access" },
-  { id: "advanced", label: "Advanced", icon: Sliders, group: "Tools", signal: "Tune" },
-  { id: "cloud", label: "Cloud NAS", icon: Cloud, group: "Tools", signal: "Mesh" },
-  { id: "plugins", label: "Plugins", icon: Puzzle, group: "Tools", signal: "Add-ons" },
+  {
+    id: "sources",
+    label: "Sources",
+    icon: FolderOpen,
+    group: "Media",
+    signal: "Library",
+  },
+  {
+    id: "downloads",
+    label: "Downloads",
+    icon: Download,
+    group: "Media",
+    signal: "Queue",
+  },
+  {
+    id: "livetv",
+    label: "Live TV",
+    icon: Tv,
+    group: "Media",
+    signal: "Channels",
+  },
+  {
+    id: "server",
+    label: "Server",
+    icon: Server,
+    group: "System",
+    signal: "Core",
+  },
+  {
+    id: "security",
+    label: "Security",
+    icon: Shield,
+    group: "System",
+    signal: "Guard",
+  },
+  {
+    id: "remote",
+    label: "Remote",
+    icon: Router,
+    group: "System",
+    signal: "Access",
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    icon: Sliders,
+    group: "Tools",
+    signal: "Tune",
+  },
+  {
+    id: "cloud",
+    label: "Cloud NAS",
+    icon: Cloud,
+    group: "Tools",
+    signal: "Mesh",
+  },
+  {
+    id: "plugins",
+    label: "Plugins",
+    icon: Puzzle,
+    group: "Tools",
+    signal: "Add-ons",
+  },
   { id: "ai", label: "AI", icon: Brain, group: "Tools", signal: "Assist" },
-  { id: "settings", label: "Settings", icon: Settings, group: "System", signal: "Config" },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: Settings,
+    group: "System",
+    signal: "Config",
+  },
 ];
 
 function groupItems(group: NavItem["group"]): NavItem[] {
-  return NAV_ITEMS.filter(item => item.group === group);
+  return NAV_ITEMS.filter((item) => item.group === group);
 }
 
-function NavButton({ item, collapsed }: { item: NavItem; collapsed: boolean }): JSX.Element {
+function NavButton({
+  item,
+  collapsed,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+}): JSX.Element {
   const { activeTab, setActiveTab } = useAppStore();
   const isActive = activeTab === item.id;
   const Icon = item.icon;
@@ -96,8 +162,12 @@ function NavButton({ item, collapsed }: { item: NavItem; collapsed: boolean }): 
             transition={{ duration: 0.2 }}
             className="relative z-10 min-w-0 flex-1"
           >
-            <span className="block truncate text-[14px] font-bold tracking-tight">{item.label}</span>
-            <span className="block text-[9px] uppercase tracking-[0.24em] opacity-65">{item.signal}</span>
+            <span className="block truncate text-[14px] font-bold tracking-tight">
+              {item.label}
+            </span>
+            <span className="block text-[9px] uppercase tracking-[0.24em] opacity-65">
+              {item.signal}
+            </span>
           </motion.span>
         )}
       </AnimatePresence>
@@ -146,10 +216,16 @@ export default function Sidebar(): JSX.Element {
                 <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.34em] text-cyan-200">
                   <Film size={12} /> Media Center
                 </div>
-                <div className="truncate text-2xl font-black tracking-tight" style={{ color: "var(--cv-text)" }}>
+                <div
+                  className="truncate text-2xl font-black tracking-tight"
+                  style={{ color: "var(--cv-text)" }}
+                >
                   CinaVault
                 </div>
-                <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--cv-subtext)" }}>
+                <div
+                  className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em]"
+                  style={{ color: "var(--cv-subtext)" }}
+                >
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.8)]" />
                   Premium Online
                 </div>
@@ -159,7 +235,7 @@ export default function Sidebar(): JSX.Element {
         </div>
 
         <nav className="relative flex-1 overflow-y-auto px-2 py-3">
-          {groups.map(group => (
+          {groups.map((group) => (
             <div key={group} className="mb-4 last:mb-0">
               {!sidebarCollapsed && (
                 <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.24em] text-cv-subtext/70">
@@ -167,8 +243,12 @@ export default function Sidebar(): JSX.Element {
                 </div>
               )}
               <div className="space-y-1">
-                {groupItems(group).map(item => (
-                  <NavButton key={item.id} item={item} collapsed={sidebarCollapsed} />
+                {groupItems(group).map((item) => (
+                  <NavButton
+                    key={item.id}
+                    item={item}
+                    collapsed={sidebarCollapsed}
+                  />
                 ))}
               </div>
             </div>
@@ -181,7 +261,11 @@ export default function Sidebar(): JSX.Element {
           className="relative z-10 m-2 flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-cv-subtext shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:bg-white/[0.08] hover:text-cv-text focus-visible:ring-2 focus-visible:ring-cv-accent/70"
           title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
         >
-          {sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}
+          {sidebarCollapsed ? (
+            <ChevronRight size={17} />
+          ) : (
+            <ChevronLeft size={17} />
+          )}
         </button>
       </div>
     </motion.aside>

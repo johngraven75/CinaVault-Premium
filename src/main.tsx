@@ -13,11 +13,11 @@ const splashBar = document.getElementById("splash-bar") as HTMLDivElement;
 const splashStatus = document.getElementById("splash-status") as HTMLDivElement;
 
 const stages = [
-  { pct: 15,  text: "Loading media engine..." },
-  { pct: 35,  text: "Initializing Rust backend..." },
-  { pct: 55,  text: "Mounting CinaVault interface..." },
-  { pct: 75,  text: "Preparing media library systems..." },
-  { pct: 90,  text: "Activating AI features..." },
+  { pct: 15, text: "Loading media engine..." },
+  { pct: 35, text: "Initializing Rust backend..." },
+  { pct: 55, text: "Mounting CinaVault interface..." },
+  { pct: 75, text: "Preparing media library systems..." },
+  { pct: 90, text: "Activating AI features..." },
   { pct: 100, text: "Ready." },
 ];
 

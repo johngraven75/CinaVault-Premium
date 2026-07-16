@@ -1,5 +1,5 @@
-use crate::{task_progress, AppState};
 use crate::library_artifacts::sidecar_poster_path_for_video;
+use crate::{task_progress, AppState};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -398,7 +398,11 @@ pub async fn run_library_enrichment(
     };
     let mut progress = task_progress::MetadataTaskGuard::start(
         "library_enrichment",
-        if rename_files { "Normalize Filenames" } else { "Enrich Metadata" },
+        if rename_files {
+            "Normalize Filenames"
+        } else {
+            "Enrich Metadata"
+        },
         items.len(),
         "Preparing library metadata enrichment",
     );
@@ -439,10 +443,14 @@ pub async fn run_library_enrichment(
         let local_title_provider = local_embedded_title_match(embedded_title.as_deref())
             .or_else(|| local_display_title_match(&item));
         let local_artwork_provider = local_sidecar_artwork_match(&item);
-        let provider = [remote_provider, local_title_provider, local_artwork_provider]
-            .into_iter()
-            .flatten()
-            .reduce(merge_provider_matches);
+        let provider = [
+            remote_provider,
+            local_title_provider,
+            local_artwork_provider,
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(merge_provider_matches);
 
         let Some(provider) = provider else {
             report.low_confidence_metadata_only += 1;
@@ -460,7 +468,9 @@ pub async fn run_library_enrichment(
                         report.posters_downloaded += 1;
                     }
                     Err(err) => {
-                        report.provider_errors.push(format!("poster_download/{}: {}", item.file_path, err));
+                        report
+                            .provider_errors
+                            .push(format!("poster_download/{}: {}", item.file_path, err));
                     }
                 }
             }
@@ -488,7 +498,9 @@ pub async fn run_library_enrichment(
                 nfo_poster,
             ) {
                 Ok(()) => report.sidecars_written += 1,
-                Err(err) => report.provider_errors.push(format!("nfo_write/{}: {}", item.file_path, err)),
+                Err(err) => report
+                    .provider_errors
+                    .push(format!("nfo_write/{}: {}", item.file_path, err)),
             }
         }
 
@@ -569,8 +581,7 @@ pub async fn run_library_enrichment(
 
     progress.finish(format!(
         "Metadata enrichment complete: {} metadata updates, {} files renamed",
-        report.metadata_updated,
-        report.files_renamed
+        report.metadata_updated, report.files_renamed
     ));
 
     Ok(report)
@@ -1046,8 +1057,8 @@ async fn download_poster_to_sidecar(
         .await
         .map_err(|e| format!("poster read failed: {e}"))?;
 
-    let mut file = std::fs::File::create(&sidecar_path)
-        .map_err(|e| format!("poster create failed: {e}"))?;
+    let mut file =
+        std::fs::File::create(&sidecar_path).map_err(|e| format!("poster create failed: {e}"))?;
     file.write_all(&bytes)
         .map_err(|e| format!("poster write failed: {e}"))?;
 
@@ -1427,16 +1438,25 @@ pub async fn gather_adult_metadata(
                 })
             })
             .map_err(|err| err.to_string())?;
-        let items = rows.collect::<Result<Vec<_>, _>>().map_err(|err| err.to_string())?;
+        let items = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())?;
         let provider_keys = load_provider_keys(&db)?;
         (items, provider_keys)
     };
 
-    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb", "pgma", "porn_site_nuxt", "iafd", "phoenixadult"]
-        .iter()
-        .filter(|&&p| provider_keys.contains_key(p))
-        .map(|p| p.to_string())
-        .collect();
+    let configured_adult_providers: Vec<String> = [
+        "tpdb",
+        "stashdb",
+        "pgma",
+        "porn_site_nuxt",
+        "iafd",
+        "phoenixadult",
+    ]
+    .iter()
+    .filter(|&&p| provider_keys.contains_key(p))
+    .map(|p| p.to_string())
+    .collect();
 
     let mut report = AdultMetadataReport {
         result_type: "adult_metadata_gather",
@@ -1482,7 +1502,9 @@ pub async fn gather_adult_metadata(
             .flatten()
             .reduce(merge_provider_matches);
 
-        let Some(provider) = provider else { continue; };
+        let Some(provider) = provider else {
+            continue;
+        };
 
         let mut update = build_metadata_update(&item, &provider, &SourceKind::AdultVideo);
 
@@ -1494,7 +1516,9 @@ pub async fn gather_adult_metadata(
                         report.posters_updated += 1;
                     }
                     Err(err) => {
-                        report.provider_errors.push(format!("poster/{}: {}", item.file_path, err));
+                        report
+                            .provider_errors
+                            .push(format!("poster/{}: {}", item.file_path, err));
                     }
                 }
             }
@@ -1513,7 +1537,9 @@ pub async fn gather_adult_metadata(
                 update.imdb_id.as_deref().or(item.imdb_id.as_deref()),
                 update.poster_path.as_deref(),
             ) {
-                report.provider_errors.push(format!("nfo/{}: {}", item.file_path, err));
+                report
+                    .provider_errors
+                    .push(format!("nfo/{}: {}", item.file_path, err));
             } else {
                 report.sidecars_written += 1;
             }
@@ -1628,8 +1654,7 @@ mod tests {
 
     #[test]
     fn sidecar_artwork_fallback_populates_missing_posters() {
-        let dir =
-            std::env::temp_dir().join(format!("cinavault-sidecar-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("cinavault-sidecar-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("temp dir should be created");
         let video = dir.join("Actual Scene Title.mp4");
         let poster = dir.join("Actual Scene Title-poster.jpg");
