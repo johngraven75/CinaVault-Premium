@@ -46,8 +46,12 @@ jobs:
         run: npm ci
       - name: TypeScript validation
         run: npm run lint
-      - name: Run Build 164 governance tests
-        run: npm test
+      - name: Validate Build 164 runtime routing
+        run: node --test tests/build164RuntimeRouting.test.mjs
+      - name: Validate Build 164 version drift guards
+        run: node --test tests/buildNumberDriftGuard.test.mjs
+      - name: Validate feature carry-forward
+        run: node --test tests/carryForwardVerification.test.mjs
 
   build:
     name: Build Windows Installer
