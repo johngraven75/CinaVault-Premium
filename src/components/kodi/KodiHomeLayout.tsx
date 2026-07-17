@@ -41,6 +41,44 @@ function resolveImg(path?: string | null): string | undefined {
   }
 }
 
+
+function KodiPosterImage({
+  path,
+  alt,
+  imageClassName,
+  fallbackClassName,
+  fallbackSize,
+}: {
+  path?: string | null;
+  alt: string;
+  imageClassName: string;
+  fallbackClassName: string;
+  fallbackSize?: number;
+}): JSX.Element {
+  const src = resolveImg(path);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+
+  if (!src || failed) {
+    return (
+      <div className={fallbackClassName} data-poster-fallback="true">
+        {fallbackSize ? <Film size={fallbackSize} /> : null}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={imageClassName}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      data-poster-source={path?.startsWith("http") ? "remote" : "sidecar"}
+    />
+  );
+}
+
 function sortRecent(items: MediaItem[]): MediaItem[] {
   return [...items].sort((a, b) => {
     const at = Date.parse(a.date_added ?? "") || 0;
@@ -92,16 +130,13 @@ function KodiHero({ items, onPlay, onSelect }: HeroProps): JSX.Element {
 
   return (
     <div className="kodi-hero">
-      {backdropSrc ? (
-        <img
-          key={hero.id}
-          src={backdropSrc}
-          alt={hero.title}
-          className="kodi-hero-backdrop"
-        />
-      ) : (
-        <div className="kodi-hero-backdrop-fallback" />
-      )}
+      <KodiPosterImage
+        key={hero.id}
+        path={hero.backdrop_path ?? hero.poster_path}
+        alt={hero.title}
+        imageClassName="kodi-hero-backdrop"
+        fallbackClassName="kodi-hero-backdrop-fallback"
+      />
       <div className="kodi-hero-gradient" />
 
       <AnimatePresence mode="wait">
@@ -193,18 +228,13 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
       onKeyDown={(e) => e.key === "Enter" && onSelect(item)}
     >
       {/* Poster */}
-      {imgSrc ? (
-        <img
-          src={imgSrc}
-          alt={item.title}
-          className="kodi-poster"
-          loading="lazy"
-        />
-      ) : (
-        <div className="kodi-poster-placeholder">
-          <Film size={28} />
-        </div>
-      )}
+      <KodiPosterImage
+        path={item.poster_path ?? item.backdrop_path}
+        alt={item.title}
+        imageClassName="kodi-poster"
+        fallbackClassName="kodi-poster-placeholder"
+        fallbackSize={28}
+      />
       <div className="kodi-poster-overlay" />
 
       {/* Badges */}
@@ -361,21 +391,13 @@ function KodiDetailPanel({
       exit={{ opacity: 0, x: 32 }}
       transition={{ duration: 0.25 }}
     >
-      {imgSrc ? (
-        <img src={imgSrc} alt={item.title} className="kodi-detail-poster" />
-      ) : (
-        <div
-          className="kodi-detail-poster"
-          style={{
-            background: "var(--cv-panel-2)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Film size={40} style={{ color: "var(--cv-subtext)" }} />
-        </div>
-      )}
+      <KodiPosterImage
+        path={item.poster_path ?? item.backdrop_path}
+        alt={item.title}
+        imageClassName="kodi-detail-poster"
+        fallbackClassName="kodi-detail-poster kodi-poster-placeholder"
+        fallbackSize={40}
+      />
 
       <div className="kodi-detail-title">{item.title}</div>
 
