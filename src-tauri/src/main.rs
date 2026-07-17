@@ -100,6 +100,7 @@ fn main() {
             // Scanner
             scanner::scan_sources,
             scanner::scan_single_source,
+            scanner::discover_media_sources,
             scanner::get_scan_progress,
             scanner::cancel_scan,
             scanner::apply_embedded_titles,
