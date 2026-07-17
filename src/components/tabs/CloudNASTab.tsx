@@ -346,10 +346,14 @@ export default function CloudNASTab() {
   const disconnectSynology = async () => {
     try {
       await invoke("synology_disconnect");
-    } catch {}
-    setSynoConnected(false);
-    setSynoInfo(null);
-    addStatusMessage("Synology: Disconnected");
+      setSynoConnected(false);
+      setSynoInfo(null);
+      setSynoError(null);
+      addStatusMessage("Synology: Disconnected");
+    } catch (error) {
+      setSynoError(errorText(error));
+      addStatusMessage(`Synology: Disconnect failed — ${errorText(error)}`);
+    }
   };
 
   const addSynoLibrary = async (lib: NasLibrary) => {
@@ -401,10 +405,14 @@ export default function CloudNASTab() {
   const disconnectWdMyCloud = async () => {
     try {
       await invoke("wd_mycloud_disconnect");
-    } catch {}
-    setWdConnected(false);
-    setWdInfo(null);
-    addStatusMessage("WD My Cloud: Disconnected");
+      setWdConnected(false);
+      setWdInfo(null);
+      setWdError(null);
+      addStatusMessage("WD My Cloud: Disconnected");
+    } catch (error) {
+      setWdError(errorText(error));
+      addStatusMessage(`WD My Cloud: Disconnect failed — ${errorText(error)}`);
+    }
   };
 
   const addWdLibrary = async (lib: NasLibrary) => {
