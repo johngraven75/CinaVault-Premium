@@ -459,11 +459,19 @@ pub async fn run_library_enrichment(
 
         let mut update = build_metadata_update(&item, &provider, &source_kind);
 
-        // Download remote poster to a local sidecar file if the provider returned a URL
-        if let Some(ref remote_url) = update.poster_path.clone() {
-            if remote_url.starts_with("http") {
-                match download_poster_to_sidecar(&client, remote_url, &item.file_path).await {
+        // Acquire new provider posters and migrate previously stored remote URLs to local sidecars.
+        let poster_candidate = update.poster_path.clone().or_else(|| {
+            item.poster_path
+                .clone()
+                .filter(|path| path.starts_with("http://") || path.starts_with("https://"))
+        });
+        if let Some(remote_url) = poster_candidate {
+            if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
+                match download_poster_to_sidecar(&client, &remote_url, &item.file_path).await {
                     Ok(local_path) => {
+                        if update.poster_path.is_none() {
+                            update.changed_fields += 1;
+                        }
                         update.poster_path = Some(local_path);
                         report.posters_downloaded += 1;
                     }
@@ -1576,10 +1584,18 @@ pub async fn gather_adult_metadata(
 
         let mut update = build_metadata_update(&item, &provider, &SourceKind::AdultVideo);
 
-        if let Some(ref remote_url) = update.poster_path.clone() {
-            if remote_url.starts_with("http") {
-                match download_poster_to_sidecar(&client, remote_url, &item.file_path).await {
+        let poster_candidate = update.poster_path.clone().or_else(|| {
+            item.poster_path
+                .clone()
+                .filter(|path| path.starts_with("http://") || path.starts_with("https://"))
+        });
+        if let Some(remote_url) = poster_candidate {
+            if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
+                match download_poster_to_sidecar(&client, &remote_url, &item.file_path).await {
                     Ok(local_path) => {
+                        if update.poster_path.is_none() {
+                            update.changed_fields += 1;
+                        }
                         update.poster_path = Some(local_path);
                         report.posters_updated += 1;
                     }
