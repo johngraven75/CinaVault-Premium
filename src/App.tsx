@@ -235,6 +235,7 @@ export default function App(): JSX.Element {
 
     const initializeApplication = async (): Promise<void> => {
       try {
+        restorePersistedState(readLocalPersistedState());
         const localState = readLocalPersistedState();
         let persistedState = localState;
         try {
