@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 166)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 168)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -68,11 +68,10 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 166 initialized successfully");
+            log::info!("CinaVault Premium Build 168 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Database / Settings
             db::get_all_settings,
             db::get_setting,
             db::set_setting,
@@ -85,7 +84,6 @@ fn main() {
             db::set_remote_access_user_enabled,
             db::list_remote_access_users,
             db::get_remote_access_security_status,
-            // Media Library
             db::get_media_items,
             db::get_media_item,
             db::add_media_item,
@@ -96,22 +94,18 @@ fn main() {
             db::get_recent_media,
             db::get_unverified_media,
             db::verify_media_item,
-            // Sources
             db::get_sources,
             db::add_source,
             db::remove_source,
-            // Scanner
             scanner::scan_sources,
             scanner::scan_single_source,
             scanner::discover_media_sources,
             scanner::get_scan_progress,
             scanner::cancel_scan,
             scanner::apply_embedded_titles,
-            // Duplicates
             duplicates::find_duplicates,
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
-            // IPTV
             iptv::add_xtream_profile,
             iptv::get_xtream_profiles,
             iptv::remove_xtream_profile,
@@ -119,7 +113,6 @@ fn main() {
             iptv::sync_epg,
             iptv::get_live_channels,
             iptv::play_channel,
-            // MS-C / MS-B Server
             jellyfin::start_server,
             jellyfin::stop_server,
             jellyfin::get_server_status,
@@ -127,7 +120,6 @@ fn main() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
-            // Plugins
             plugins::get_plugin_repos,
             plugins::add_plugin_repo,
             plugins::remove_plugin_repo,
@@ -140,11 +132,9 @@ fn main() {
             plugin_configs::ensure_plugin_config_files,
             pgma_bridge::find_local_candidates,
             pgma_bridge::refresh_pgma_library,
-            // Player
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-            // Metadata commands route through metadata_ext; writeback uses the compatibility bridge.
             metadata_ext::fetch_metadata,
             metadata_ext::search_metadata,
             metadata_ext::check_media_item_metadata,
@@ -153,10 +143,8 @@ fn main() {
             metadata_ext::set_api_key,
             metadata_ext::get_api_keys,
             metadata_ext::get_metadata_providers,
-            // Chapters
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
-            // Downloads
             downloads::start_download,
             downloads::start_playlist_download,
             downloads::get_download_progress,
@@ -167,14 +155,12 @@ fn main() {
             media_tools::ensure_media_tools,
             media_tools::inspect_with_mediainfo,
             media_tools::inspect_with_mkvtoolnix,
-            // VPN / Security
             vpn::vpn_connect,
             vpn::vpn_disconnect,
             vpn::vpn_status,
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,
-            // AI
             ai::ai_query,
             ai::ai_inference,
             ai::set_hf_token,
@@ -182,18 +168,15 @@ fn main() {
             ai::get_ai_config,
             ai::set_ai_model,
             ai_automation::ai_library_manage,
-            // Library Enrichment
             enrichment::run_library_enrichment,
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
-            // Cloud Storage
             cloud_storage::cloud_auth_start,
             cloud_storage::cloud_disconnect,
             cloud_storage::cloud_sync,
             cloud_storage::cloud_browse,
             cloud_storage::cloud_list_files,
             cloud_storage::cloud_get_status,
-            // NAS Devices — Synology QuickConnect + WD My Cloud
             nas_devices::synology_connect,
             nas_devices::synology_disconnect,
             nas_devices::synology_get_status,
@@ -202,7 +185,6 @@ fn main() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
-            // Utility
             get_app_info,
             open_external_url,
             get_system_info,
@@ -213,14 +195,12 @@ fn main() {
         .expect("error while running CinaVault Premium");
 }
 
-// Cloud storage commands are implemented in cloud_storage.rs and return success only after real filesystem/database work.
-
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.6.5",
-        "build": "165",
+        "version": "1.6.8",
+        "build": "168",
         "edition": "Premium"
     })
 }
