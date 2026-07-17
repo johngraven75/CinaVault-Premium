@@ -103,3 +103,72 @@ test("permanent media tools automatically check and install at application start
   assert.match(downloads, /ensure_media_tools/);
   assert.doesNotMatch(catalog, /autoInstall: false/);
 });
+
+
+test("settings restore from the backend and all persistent slices autosave", () => {
+  const app = read("src/App.tsx");
+  assert.match(app, /invoke<Record<string, string>>\("get_all_settings"\)/);
+  assert.match(app, /hasRestoredSettings\.current/);
+  for (const slice of [
+    "settings",
+    "featureSettings",
+    "metadataProviders",
+    "scheduledTasks",
+    "cloudServices",
+    "libraryView",
+  ]) {
+    assert.match(app, new RegExp(`\\b${slice}\\b`));
+  }
+  assert.equal(
+    (app.match(/pluginEngine\.initialize\(\)/g) || []).length,
+    1,
+    "theme changes must not reinitialize the plugin engine",
+  );
+});
+
+test("cloud and plugin failures cannot be converted into local success", () => {
+  const cloudUi = read("src/components/tabs/CloudNASTab.tsx");
+  const adapter = read("src/data/pluginAdapter.ts");
+  const runtime = read("src-tauri/src/plugins.rs");
+  assert.match(cloudUi, /backendProvider/);
+  assert.match(cloudUi, /provider: backendProvider\(id\)/);
+  assert.match(cloudUi, /Sync failed/);
+  assert.match(cloudUi, /Browse failed/);
+  assert.doesNotMatch(cloudUi, /catch \{\}/);
+  assert.doesNotMatch(adapter, /action: "configure"[^]*?catch \{\}/);
+  assert.match(runtime, /no executable runtime registered; no work was performed/);
+  assert.match(runtime, /atomic_write/);
+  assert.match(runtime, /save_manifest/);
+  assert.match(runtime, /PGMA is a required adult metadata provider and cannot be removed/);
+});
+
+test("startup installs only permanent plugins and adult providers default enabled", () => {
+  const initialize = read("src/data/pluginAdapterInitialize.ts");
+  const store = read("src/store/appStore.ts");
+  assert.match(initialize, /getStartupMediaPlugins/);
+  assert.doesNotMatch(initialize, /PLUGIN_REGISTRY\.filter/);
+  for (const id of [
+    "pgma",
+    "porn_site_nuxt",
+    "theporndb",
+    "stashdb",
+    "phoenixadult",
+    "iafd",
+  ]) {
+    assert.match(
+      store,
+      new RegExp(`id: "${id}"[\\s\\S]{0,160}enabled: true`),
+      `${id} must be enabled at first startup`,
+    );
+  }
+});
+
+test("cast and IPTV controls invoke real work and clean up exact listeners", () => {
+  const cast = read("src/components/CastButton.tsx");
+  const iptv = read("src/components/IPTVPlayer.tsx");
+  assert.match(cast, /castToGoogleDevice/);
+  assert.match(cast, /await castToGoogleDevice/);
+  assert.match(iptv, /removeEventListener\("timeupdate", handleTimeUpdate\)/);
+  assert.match(iptv, /removeEventListener\("loadedmetadata", handleLoadedMetadata\)/);
+  assert.doesNotMatch(iptv, /removeEventListener\("[^"]+", \(\) =>/);
+});
