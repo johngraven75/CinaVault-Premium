@@ -1,0 +1,77 @@
+/**
+ * Build 165 real-work governance checks.
+ * These assertions reject status-only implementations by requiring the native
+ * side-effect calls and the UI-to-command routing that reaches them.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (path) => readFileSync(resolve(ROOT, path), "utf8");
+
+test("AI source discovery mutates the source database and the button invokes it", () => {
+  const scanner = read("src-tauri/src/scanner.rs");
+  const sourcesUi = read("src/components/tabs/MediaSourcesTab.tsx");
+  assert.match(scanner, /pub async fn discover_media_sources/);
+  assert.match(scanner, /discover_and_add_sources/);
+  assert.match(scanner, /db\.add_source_data/);
+  assert.match(scanner, /discovery_adds_real_database_sources_from_media_directories/);
+  assert.match(sourcesUi, /invoke[^]*"discover_media_sources"/);
+  assert.doesNotMatch(
+    sourcesUi,
+    /const aiDiscover = \(\) => \{\s*addStatusMessage/,
+    "AI discovery must not be a status-only callback",
+  );
+});
+
+test("AI operational prompts and quick actions reach real native commands", () => {
+  const ai = read("src-tauri/src/ai.rs");
+  const automation = read("src-tauri/src/ai_automation.rs");
+  const ui = read("src/components/tabs/AIDiagnosticsTab.tsx");
+  assert.match(ai, /AiQueryRoute::LibraryAutomation/);
+  assert.match(ai, /ai_automation::ai_library_manage/);
+  assert.match(ai, /AiQueryRoute::SourceDiscovery/);
+  assert.match(automation, /scanner::scan_sources/);
+  assert.match(automation, /enrichment::run_library_enrichment/);
+  assert.match(automation, /duplicates::find_duplicates/);
+  assert.match(ui, /invoke\("ai_library_manage"/);
+  assert.match(ui, /invoke\("run_library_enrichment"/);
+});
+
+test("Synology and WD shares become reachable scanner filesystem sources", () => {
+  const nas = read("src-tauri/src/nas_devices.rs");
+  const scanner = read("src-tauri/src/scanner.rs");
+  assert.match(nas, /fn network_source_path/);
+  assert.match(nas, /authenticate_windows_shares/);
+  assert.match(nas, /ensure_network_source_reachable/);
+  assert.match(nas, /wd_mycloud_login/);
+  assert.match(nas, /cookie_store\(true\)/);
+  assert.match(nas, /db\.add_source_data/);
+  assert.match(scanner, /WalkDir::new\(path\)/);
+  assert.doesNotMatch(
+    nas,
+    /let source_path = format!\("{}:\/\/{}:{}{}"/,
+    "NAS libraries must not be stored as unscannable HTTP URLs",
+  );
+});
+
+test("poster acquisition persists verified sidecars and media cards handle failures", () => {
+  const enrichment = read("src-tauri/src/enrichment.rs");
+  const home = read("src/components/tabs/HomeTab.tsx");
+  const kodi = read("src/components/kodi/KodiHomeLayout.tsx");
+  assert.match(enrichment, /valid_poster_payload/);
+  assert.match(enrichment, /write_poster_sidecar_bytes/);
+  assert.match(enrichment, /file\.sync_all/);
+  assert.match(enrichment, /std::fs::rename\(&temporary_path, &sidecar_path\)/);
+  assert.match(enrichment, /db\.update_media_metadata_data/);
+  assert.match(enrichment, /acquired_poster_is_validated_and_atomically_written_as_a_sidecar/);
+  for (const ui of [home, kodi]) {
+    assert.match(ui, /convertFileSrc/);
+    assert.match(ui, /onError=\{\(\) => setFailed\(true\)\}/);
+    assert.match(ui, /data-poster-source/);
+    assert.match(ui, /data-poster-fallback/);
+  }
+});
