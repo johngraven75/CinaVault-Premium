@@ -22,6 +22,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 enum AiQueryRoute {
     NetworkDiagnostics,
     AdultMetadataGather,
+    SourceDiscovery,
+    LibraryAutomation,
     SourceCheck,
     ProviderCheck,
     Inference,
@@ -44,6 +46,37 @@ fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
     {
         return AiQueryRoute::AdultMetadataGather;
     }
+    if lower.contains("discover sources")
+        || lower.contains("discover media")
+        || lower.contains("find media folders")
+        || lower.contains("locate media folders")
+    {
+        return AiQueryRoute::SourceDiscovery;
+    }
+
+    let requests_library_change = [
+        "enrich",
+        "normalize",
+        "clean up",
+        "cleanup",
+        "rename",
+        "poster",
+        "nfo",
+        "duplicate",
+        "tag",
+    ]
+    .iter()
+    .any(|term| lower.contains(term));
+    if requests_library_change
+        && (lower.contains("metadata")
+            || lower.contains("title")
+            || lower.contains("filename")
+            || lower.contains("library")
+            || lower.contains("media"))
+    {
+        return AiQueryRoute::LibraryAutomation;
+    }
+
     if lower.contains("source")
         || lower.contains("folder")
         || lower.contains("media")
@@ -56,6 +89,39 @@ fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
     }
 
     AiQueryRoute::Inference
+}
+
+fn automation_tasks_from_prompt(prompt: &str) -> Vec<String> {
+    let lower = prompt.to_lowercase();
+    let mut tasks = BTreeSet::new();
+
+    if lower.contains("scan") {
+        tasks.insert("scan".to_string());
+    }
+    if lower.contains("metadata") || lower.contains("enrich") {
+        tasks.insert("enrich".to_string());
+        tasks.insert("posters".to_string());
+        tasks.insert("nfo".to_string());
+        tasks.insert("tags".to_string());
+    }
+    if lower.contains("title")
+        || lower.contains("filename")
+        || lower.contains("normalize")
+        || lower.contains("rename")
+        || lower.contains("clean up")
+        || lower.contains("cleanup")
+    {
+        tasks.insert("enrich".to_string());
+        tasks.insert("normalize".to_string());
+    }
+    if lower.contains("duplicate") {
+        tasks.insert("duplicates".to_string());
+    }
+
+    if tasks.is_empty() {
+        tasks.insert("enrich".to_string());
+    }
+    tasks.into_iter().collect()
 }
 
 pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bool {
@@ -177,6 +243,11 @@ pub async fn ai_query(
     match classify_ai_query_prompt(&prompt) {
         AiQueryRoute::NetworkDiagnostics => run_network_diagnostics().await,
         AiQueryRoute::AdultMetadataGather => gather_adult_metadata_assets(state).await,
+        AiQueryRoute::SourceDiscovery => crate::scanner::discover_media_sources(state).await,
+        AiQueryRoute::LibraryAutomation => {
+            let tasks = automation_tasks_from_prompt(&prompt);
+            crate::ai_automation::ai_library_manage(state, Some(tasks)).await
+        }
         AiQueryRoute::SourceCheck => check_sources(state).await,
         AiQueryRoute::ProviderCheck => check_providers(state).await,
         AiQueryRoute::Inference => ai_inference(state, prompt, None, None).await,
@@ -1207,9 +1278,9 @@ async fn gather_adult_metadata_assets_inner(
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_ai_query_prompt, is_adult_gather_candidate, is_adult_library_item,
-        metadata_sidecar_path, normalize_adult_provider_key, normalize_provider_key,
-        should_prefer_remote_poster, AiQueryRoute,
+        automation_tasks_from_prompt, classify_ai_query_prompt, is_adult_gather_candidate,
+        is_adult_library_item, metadata_sidecar_path, normalize_adult_provider_key,
+        normalize_provider_key, should_prefer_remote_poster, AiQueryRoute,
     };
 
     #[test]
@@ -1224,6 +1295,23 @@ mod tests {
             classify_ai_query_prompt("Run adult metadata gather for installed providers and generate posters and chapter images"),
             AiQueryRoute::AdultMetadataGather
         );
+    }
+
+    #[test]
+    fn operational_prompts_route_to_real_side_effect_commands() {
+        assert_eq!(
+            classify_ai_query_prompt("Enrich metadata and clean up titles"),
+            AiQueryRoute::LibraryAutomation
+        );
+        assert_eq!(
+            classify_ai_query_prompt("AI discover sources"),
+            AiQueryRoute::SourceDiscovery
+        );
+        let tasks = automation_tasks_from_prompt("Enrich metadata and clean up titles");
+        assert!(tasks.iter().any(|task| task == "enrich"));
+        assert!(tasks.iter().any(|task| task == "normalize"));
+        assert!(tasks.iter().any(|task| task == "posters"));
+        assert!(tasks.iter().any(|task| task == "nfo"));
     }
 
     #[test]

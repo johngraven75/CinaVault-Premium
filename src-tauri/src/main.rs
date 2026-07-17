@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 164)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 165)
 // All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -16,11 +16,13 @@ mod adult_site_provider;
 mod ai;
 mod ai_automation;
 mod chapters;
+mod cloud_storage;
 mod downloads;
 mod duplicates;
 mod enrichment;
 mod library_artifacts;
 mod metadata_bridge;
+mod media_tools;
 mod metadata_ext;
 #[cfg(test)]
 mod metadata_posting_tests;
@@ -65,7 +67,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 164 initialized successfully");
+            log::info!("CinaVault Premium Build 165 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -100,6 +102,7 @@ fn main() {
             // Scanner
             scanner::scan_sources,
             scanner::scan_single_source,
+            scanner::discover_media_sources,
             scanner::get_scan_progress,
             scanner::cancel_scan,
             scanner::apply_embedded_titles,
@@ -158,6 +161,8 @@ fn main() {
             downloads::cancel_download,
             downloads::install_download_tools,
             downloads::check_download_tools,
+            media_tools::get_media_tools_status,
+            media_tools::ensure_media_tools,
             // VPN / Security
             vpn::vpn_connect,
             vpn::vpn_disconnect,
@@ -178,12 +183,12 @@ fn main() {
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
             // Cloud Storage
-            cloud_auth_start,
-            cloud_disconnect,
-            cloud_sync,
-            cloud_browse,
-            cloud_list_files,
-            cloud_get_status,
+            cloud_storage::cloud_auth_start,
+            cloud_storage::cloud_disconnect,
+            cloud_storage::cloud_sync,
+            cloud_storage::cloud_browse,
+            cloud_storage::cloud_list_files,
+            cloud_storage::cloud_get_status,
             // NAS Devices — Synology QuickConnect + WD My Cloud
             nas_devices::synology_connect,
             nas_devices::synology_disconnect,
@@ -204,133 +209,14 @@ fn main() {
         .expect("error while running CinaVault Premium");
 }
 
-// ════════════════════════════════════════════════════════════
-//  Cloud Storage Commands — OneDrive, Google Drive, Dropbox
-// ════════════════════════════════════════════════════════════
-
-#[tauri::command]
-async fn cloud_auth_start(provider: String, auth_url: String) -> Result<serde_json::Value, String> {
-    log::info!("Cloud auth start: provider={}, url={}", provider, auth_url);
-
-    let listener = match std::net::TcpListener::bind("127.0.0.1:19284") {
-        Ok(l) => l,
-        Err(_) => {
-            open::that(&auth_url).map_err(|e| e.to_string())?;
-            return Ok(serde_json::json!({
-                "success": true,
-                "account": format!("{} Account", provider),
-                "method": "browser_fallback"
-            }));
-        }
-    };
-
-    listener.set_nonblocking(false).ok();
-    let timeout = std::time::Duration::from_secs(120);
-    listener.set_ttl(120).ok();
-
-    open::that(&auth_url).map_err(|e| e.to_string())?;
-
-    let result = std::thread::spawn(move || -> Result<serde_json::Value, String> {
-        let start = std::time::Instant::now();
-        loop {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    use std::io::{Read, Write};
-                    let mut buf = [0u8; 4096];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let code = extract_query_param(&request, "code");
-
-                    let html = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
-                        <html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0a0a1a;color:#e8e6f0'>\
-                        <h1 style='color:#a78bfa'>CinaVault Connected!</h1>\
-                        <p>{} has been linked to CinaVault Premium.</p>\
-                        <p>You can close this window.</p></body></html>",
-                        provider
-                    );
-                    stream.write_all(html.as_bytes()).ok();
-                    stream.flush().ok();
-
-                    return Ok(serde_json::json!({
-                        "success": true,
-                        "account": format!("{} Account", provider),
-                        "code": code.unwrap_or_default(),
-                        "method": "oauth_callback"
-                    }));
-                }
-                Err(_) => {
-                    if start.elapsed() > timeout {
-                        return Err("OAuth callback timeout".to_string());
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                }
-            }
-        }
-    });
-
-    match result.join() {
-        Ok(Ok(val)) => Ok(val),
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err("OAuth handler panicked".to_string()),
-    }
-}
-
-fn extract_query_param(request: &str, key: &str) -> Option<String> {
-    let first_line = request.lines().next()?;
-    let path = first_line.split_whitespace().nth(1)?;
-    let query = path.split('?').nth(1)?;
-    for pair in query.split('&') {
-        let mut parts = pair.split('=');
-        if parts.next()? == key {
-            return parts.next().map(|s| s.to_string());
-        }
-    }
-    None
-}
-
-#[tauri::command]
-fn cloud_disconnect(provider: String) -> Result<(), String> {
-    log::info!("Cloud disconnect: {}", provider);
-    Ok(())
-}
-
-#[tauri::command]
-fn cloud_sync(provider: String, path: String) -> Result<serde_json::Value, String> {
-    log::info!("Cloud sync: provider={}, path={}", provider, path);
-    Ok(serde_json::json!({
-        "success": true,
-        "synced": 0,
-        "message": "Cloud sync placeholder"
-    }))
-}
-
-#[tauri::command]
-fn cloud_browse(provider: String, path: String) -> Result<Vec<serde_json::Value>, String> {
-    log::info!("Cloud browse: provider={}, path={}", provider, path);
-    Ok(vec![])
-}
-
-#[tauri::command]
-fn cloud_list_files(provider: String, path: String) -> Result<Vec<serde_json::Value>, String> {
-    log::info!("Cloud list: provider={}, path={}", provider, path);
-    Ok(vec![])
-}
-
-#[tauri::command]
-fn cloud_get_status() -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({
-        "connected": [],
-        "available": ["onedrive", "googledrive", "dropbox"]
-    }))
-}
+// Cloud storage commands are implemented in cloud_storage.rs and return success only after real filesystem/database work.
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.6.4",
-        "build": "164",
+        "version": "1.6.5",
+        "build": "165",
         "edition": "Premium"
     })
 }

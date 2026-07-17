@@ -59,22 +59,23 @@ const IPTVPlayer: React.FC<{ streamUrl: string }> = ({ streamUrl }) => {
       setDuration(video.duration);
     };
 
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => setIsPlaying(false);
+    const handleError = () => setError("Error loading video stream");
+
     video.addEventListener("timeupdate", updateTime);
-    video.addEventListener("play", () => setIsPlaying(true));
-    video.addEventListener("pause", () => setIsPlaying(false));
-    video.addEventListener("ended", () => setIsPlaying(false));
-    video.addEventListener("error", () => {
-      setError("Error loading video stream");
-    });
+    video.addEventListener("play", handlePlay);
+    video.addEventListener("pause", handlePause);
+    video.addEventListener("ended", handleEnded);
+    video.addEventListener("error", handleError);
 
     return () => {
       video.removeEventListener("timeupdate", updateTime);
-      video.removeEventListener("play", () => setIsPlaying(true));
-      video.removeEventListener("pause", () => setIsPlaying(false));
-      video.removeEventListener("ended", () => setIsPlaying(false));
-      video.removeEventListener("error", () => {
-        setError("Error loading video stream");
-      });
+      video.removeEventListener("play", handlePlay);
+      video.removeEventListener("pause", handlePause);
+      video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("error", handleError);
     };
   }, []);
 

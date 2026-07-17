@@ -117,6 +117,7 @@ export default function MediaSourcesTab() {
   const [newSourceType, setNewSourceType] = useState("folder");
   const [webLink, setWebLink] = useState("");
   const [savingOption, setSavingOption] = useState<string | null>(null);
+  const [discovering, setDiscovering] = useState(false);
 
   useEffect(() => {
     void loadSources();
@@ -212,10 +213,31 @@ export default function MediaSourcesTab() {
     }
   };
 
-  const aiDiscover = () => {
+  const aiDiscover = async () => {
+    if (discovering) return;
+    setDiscovering(true);
     addStatusMessage(
       "AI Source Discovery: analyzing system drives for media folders...",
     );
+    try {
+      const result = await invoke<{
+        status: string;
+        roots_checked: number;
+        discovered: number;
+        added: number;
+        existing: number;
+        paths: string[];
+        message: string;
+      }>("discover_media_sources");
+      addStatusMessage(
+        `AI Source Discovery complete: ${result.discovered} folders found, ${result.added} added, ${result.existing} already configured`,
+      );
+      await loadSources();
+    } catch (error) {
+      addStatusMessage(`AI Source Discovery failed: ${error}`);
+    } finally {
+      setDiscovering(false);
+    }
   };
 
   const saveLibraryOption = async (key: string, enabled: boolean) => {
@@ -287,8 +309,16 @@ export default function MediaSourcesTab() {
           <button onClick={addSource} className="cv-btn cv-btn-primary">
             <FolderOpen size={14} /> Add Source
           </button>
-          <button onClick={aiDiscover} className="cv-btn cv-btn-gold">
-            <Sparkles size={14} /> AI Discover Sources
+          <button
+            onClick={aiDiscover}
+            disabled={discovering}
+            className="cv-btn cv-btn-gold disabled:opacity-50"
+          >
+            <Sparkles
+              size={14}
+              className={discovering ? "animate-spin" : ""}
+            />
+            {discovering ? "Discovering Sources..." : "AI Discover Sources"}
           </button>
           <button
             onClick={scanAll}

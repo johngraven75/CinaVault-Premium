@@ -2,7 +2,16 @@
 // Synology QuickConnect + WD My Cloud Home
 use crate::AppState;
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
+use std::path::Path;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::process::Command;
 use tauri::State;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // ════════════════════════════════════════════════════════════
 //  Shared types
@@ -239,13 +248,19 @@ fn synology_get_info(
 //  Authenticates via the WD My Cloud REST API (local or cloud)
 // ════════════════════════════════════════════════════════════
 
+#[derive(Clone)]
+struct WdSession {
+    client: reqwest::blocking::Client,
+    token: String,
+}
+
 fn wd_mycloud_login(
     host: &str,
     port: u16,
     use_https: bool,
     username: &str,
     password: &str,
-) -> Result<String, String> {
+) -> Result<WdSession, String> {
     let scheme = if use_https { "https" } else { "http" };
 
     // WD My Cloud uses a cookie-based session
@@ -282,7 +297,7 @@ fn wd_mycloud_login(
             .or_else(|| json["session_id"].as_str())
             .unwrap_or("authenticated")
             .to_string();
-        Ok(token)
+        Ok(WdSession { client, token })
     } else {
         Err(format!("WD My Cloud auth failed (HTTP {})", status))
     }
@@ -292,20 +307,15 @@ fn wd_mycloud_get_shares(
     host: &str,
     port: u16,
     use_https: bool,
-    token: &str,
+    session: &WdSession,
 ) -> Result<Vec<NasLibrary>, String> {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!("{}://{}:{}/api/2.1/rest/shares", scheme, host, port);
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
+    let resp = session
+        .client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {}", session.token))
         .send()
         .map_err(|e| e.to_string())?;
 
@@ -367,20 +377,15 @@ fn wd_mycloud_get_info(
     host: &str,
     port: u16,
     use_https: bool,
-    token: &str,
+    session: &WdSession,
 ) -> (String, String, String) {
     let scheme = if use_https { "https" } else { "http" };
     let url = format!("{}://{}:{}/api/2.1/rest/device", scheme, host, port);
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default();
-
-    if let Ok(resp) = client
+    if let Ok(resp) = session
+        .client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {}", session.token))
         .send()
     {
         if let Ok(json) = resp.json::<serde_json::Value>() {
@@ -441,6 +446,80 @@ fn urlencoding_simple(s: &str) -> String {
         .collect()
 }
 
+
+fn network_source_path(host: &str, share_name: &str, share_path: &str) -> String {
+    let share = if share_name.trim().is_empty() {
+        share_path
+            .trim_matches(|character| character == '/' || character == '\\')
+            .split(|character| character == '/' || character == '\\')
+            .next()
+            .unwrap_or("Public")
+    } else {
+        share_name.trim()
+    };
+    #[cfg(target_os = "windows")]
+    {
+        format!(r"\\{}\{}", host, share)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        format!("smb://{}/{}", host, share)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn authenticate_windows_shares(
+    host: &str,
+    libraries: &[NasLibrary],
+    username: &str,
+    password: &str,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for library in libraries {
+        let remote = network_source_path(host, &library.share_name, &library.path);
+        let user_argument = format!("/user:{username}");
+        let mut command = Command::new("net");
+        command.args([
+            "use",
+            remote.as_str(),
+            password,
+            user_argument.as_str(),
+            "/persistent:no",
+        ]);
+        command.creation_flags(CREATE_NO_WINDOW);
+        match command.output() {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => errors.push(format!(
+                "{}: {}",
+                library.share_name,
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            Err(error) => errors.push(format!("{}: {error}", library.share_name)),
+        }
+    }
+    errors
+}
+
+#[cfg(not(target_os = "windows"))]
+fn authenticate_windows_shares(
+    _host: &str,
+    _libraries: &[NasLibrary],
+    _username: &str,
+    _password: &str,
+) -> Vec<String> {
+    Vec::new()
+}
+
+fn ensure_network_source_reachable(source_path: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if !Path::new(source_path).is_dir() {
+        return Err(format!(
+            "NAS share is not mounted or reachable: {source_path}. Reconnect with the NAS username and password, then try again."
+        ));
+    }
+    Ok(())
+}
+
 // ════════════════════════════════════════════════════════════
 //  Tauri Commands
 // ════════════════════════════════════════════════════════════
@@ -482,7 +561,14 @@ pub fn synology_connect(
     // Get shared folders
     let libraries = synology_get_shares(&host, resolved_port, use_https, &sid)?;
 
-    // Persist credentials in settings
+    // Establish authenticated SMB sessions so discovered shares are real filesystem sources.
+    let share_auth_errors =
+        authenticate_windows_shares(&host, &libraries, &username, &password);
+    if !share_auth_errors.is_empty() {
+        log::warn!("Some Synology shares were not mounted: {}", share_auth_errors.join("; "));
+    }
+
+    // Persist the authenticated session without storing the plaintext password.
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let creds = serde_json::json!({
         "device_type": "synology",
@@ -554,13 +640,8 @@ pub fn synology_add_library(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let host = conn["host"].as_str().unwrap_or("nas");
-    let port = conn["port"].as_u64().unwrap_or(5000);
-    let scheme = if conn["use_https"].as_bool().unwrap_or(false) {
-        "https"
-    } else {
-        "http"
-    };
-    let source_path = format!("{}://{}:{}{}", scheme, host, port, share_path);
+    let source_path = network_source_path(host, &share_name, &share_path);
+    ensure_network_source_reachable(&source_path)?;
     let source = crate::db::MediaSource {
         id: None,
         path: source_path.clone(),
@@ -590,16 +671,19 @@ pub fn wd_mycloud_connect(
     let resolved_port = port.unwrap_or(if use_https { 443 } else { 80 });
 
     // Authenticate
-    let token = wd_mycloud_login(&host, resolved_port, use_https, &username, &password)?;
+    let session = wd_mycloud_login(&host, resolved_port, use_https, &username, &password)?;
 
-    // Get device info
+    // Reuse the authenticated cookie jar and token for device/share requests.
     let (device_name, device_model, firmware) =
-        wd_mycloud_get_info(&host, resolved_port, use_https, &token);
+        wd_mycloud_get_info(&host, resolved_port, use_https, &session);
+    let libraries = wd_mycloud_get_shares(&host, resolved_port, use_https, &session)?;
+    let share_auth_errors =
+        authenticate_windows_shares(&host, &libraries, &username, &password);
+    if !share_auth_errors.is_empty() {
+        log::warn!("Some WD My Cloud shares were not mounted: {}", share_auth_errors.join("; "));
+    }
 
-    // Get shares
-    let libraries = wd_mycloud_get_shares(&host, resolved_port, use_https, &token)?;
-
-    // Persist credentials
+    // Persist the authenticated session without storing the plaintext password
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let creds = serde_json::json!({
         "device_type": "wd_mycloud",
@@ -607,7 +691,7 @@ pub fn wd_mycloud_connect(
         "port": resolved_port,
         "use_https": use_https,
         "username": username,
-        "token": token,
+        "token": session.token,
         "device_name": device_name,
         "device_model": device_model,
         "firmware": firmware,
@@ -670,13 +754,8 @@ pub fn wd_mycloud_add_library(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let host = conn["host"].as_str().unwrap_or("wd-mycloud");
-    let port = conn["port"].as_u64().unwrap_or(80);
-    let scheme = if conn["use_https"].as_bool().unwrap_or(false) {
-        "https"
-    } else {
-        "http"
-    };
-    let source_path = format!("{}://{}:{}{}", scheme, host, port, share_path);
+    let source_path = network_source_path(host, &share_name, &share_path);
+    ensure_network_source_reachable(&source_path)?;
     let source = crate::db::MediaSource {
         id: None,
         path: source_path.clone(),
@@ -693,4 +772,24 @@ pub fn wd_mycloud_add_library(
         source_path
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{network_source_path, urlencoding_simple};
+
+    #[test]
+    fn nas_library_paths_are_scanner_compatible_network_paths() {
+        let path = network_source_path("192.168.1.50", "Movies", "/Movies");
+        #[cfg(target_os = "windows")]
+        assert_eq!(path, r"\\192.168.1.50\Movies");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(path, "smb://192.168.1.50/Movies");
+    }
+
+    #[test]
+    fn nas_credentials_are_url_encoded_for_synology_authentication() {
+        assert_eq!(urlencoding_simple("name+space"), "name%2Bspace");
+        assert_eq!(urlencoding_simple("p@ss word"), "p%40ss%20word");
+    }
 }

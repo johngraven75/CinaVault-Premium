@@ -29,13 +29,22 @@ export default function DownloadsTab() {
 
   const checkTools = async () => {
     try {
-      const status = await invoke<any>("check_download_tools");
-      setToolStatus(status);
+      const status = await invoke<{
+        ready: boolean;
+        tools: Array<{ id: string; installed: boolean; version?: string | null }>;
+      }>("get_media_tools_status");
+      setToolStatus(
+        Object.fromEntries(
+          status.tools.map((tool) => [tool.id.replace("-", "_"), tool]),
+        ),
+      );
     } catch {
       setToolStatus({
         yt_dlp: { installed: false },
         ffmpeg: { installed: false },
         ffprobe: { installed: false },
+        mediainfo: { installed: false },
+        mkvtoolnix: { installed: false },
       });
     }
   };
@@ -68,13 +77,22 @@ export default function DownloadsTab() {
   };
 
   const installTools = async () => {
-    addStatusMessage("Installing download tools via winget...");
+    addStatusMessage("Automatically checking and repairing permanent media tools...");
     try {
-      const result = await invoke<any>("install_download_tools");
-      addStatusMessage("Download tools installation complete");
-      checkTools();
+      const result = await invoke<{ ready: boolean; tools: Array<{ id: string; installed: boolean }> }>(
+        "ensure_media_tools",
+      );
+      const missing = result.tools
+        .filter((tool) => !tool.installed)
+        .map((tool) => tool.id);
+      addStatusMessage(
+        result.ready
+          ? "All permanent media and download tools are loaded"
+          : `Automatic setup could not load: ${missing.join(", ")}`,
+      );
+      await checkTools();
     } catch (e) {
-      addStatusMessage(`Install failed: ${e}`);
+      addStatusMessage(`Automatic tool repair failed: ${e}`);
     }
   };
 
@@ -90,6 +108,8 @@ export default function DownloadsTab() {
             { name: "yt-dlp", status: toolStatus?.yt_dlp },
             { name: "FFmpeg", status: toolStatus?.ffmpeg },
             { name: "FFprobe", status: toolStatus?.ffprobe },
+            { name: "MediaInfo", status: toolStatus?.mediainfo },
+            { name: "MKVToolNix", status: toolStatus?.mkvtoolnix },
           ].map((tool) => (
             <div
               key={tool.name}
@@ -112,7 +132,7 @@ export default function DownloadsTab() {
             onClick={installTools}
             className="cv-btn cv-btn-secondary self-center"
           >
-            <Wrench size={14} /> Install via winget
+            <Wrench size={14} /> Recheck & Repair Automatically
           </button>
         </div>
       </div>

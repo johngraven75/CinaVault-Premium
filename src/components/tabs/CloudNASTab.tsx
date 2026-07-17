@@ -185,168 +185,129 @@ export default function CloudNASTab() {
   // ════════════════════════════════════════════════════════════
   //  Cloud OAuth handlers
   // ════════════════════════════════════════════════════════════
-  const connectOneDrive = useCallback(async () => {
-    setCloudService("onedrive", { status: "connecting" });
-    addStatusMessage("OneDrive: Starting authentication...");
-    try {
-      const params = new URLSearchParams({
-        client_id: ONEDRIVE_CLIENT_ID,
-        response_type: "code",
-        redirect_uri: ONEDRIVE_REDIRECT,
-        scope: ONEDRIVE_SCOPES,
-        response_mode: "query",
-      });
-      const result = await invoke<{
-        success: boolean;
-        account?: string;
-        error?: string;
-      }>("cloud_auth_start", {
-        provider: "onedrive",
-        authUrl: `${ONEDRIVE_AUTH_URL}?${params}`,
-      });
-      if (result.success) {
-        setCloudService("onedrive", {
-          status: "connected",
-          account: result.account || "OneDrive Account",
-          lastSync: new Date().toISOString(),
-        });
-        addStatusMessage(`OneDrive: Connected as ${result.account || "user"}`);
-      } else throw new Error(result.error || "Authentication failed");
-    } catch (err: any) {
+  const backendProvider = (id: CloudId): string =>
+    id === "gdrive" ? "googledrive" : id;
+  const cloudName = (id: CloudId): string =>
+    id === "gdrive" ? "Google Drive" : id === "onedrive" ? "OneDrive" : "Dropbox";
+  const errorText = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error);
+
+  const authenticateCloud = useCallback(
+    async (id: CloudId, authUrl: string) => {
+      const name = cloudName(id);
+      setCloudService(id, { status: "connecting" });
+      addStatusMessage(`${name}: Starting authentication...`);
       try {
-        const params = new URLSearchParams({
-          client_id: ONEDRIVE_CLIENT_ID,
-          response_type: "code",
-          redirect_uri: ONEDRIVE_REDIRECT,
-          scope: ONEDRIVE_SCOPES,
-          response_mode: "query",
+        const result = await invoke<{
+          success: boolean;
+          account?: string;
+          error?: string;
+        }>("cloud_auth_start", {
+          provider: backendProvider(id),
+          authUrl,
         });
-        await invoke("open_external_url", {
-          url: `${ONEDRIVE_AUTH_URL}?${params}`,
-        });
-        setCloudService("onedrive", {
+        if (!result.success) {
+          throw new Error(result.error || "Authentication failed");
+        }
+        setCloudService(id, {
           status: "connected",
-          account: "OneDrive (Manual Auth)",
+          account: result.account || `${name} Account`,
           lastSync: new Date().toISOString(),
         });
-        addStatusMessage("OneDrive: Browser auth launched");
-      } catch {
-        setCloudService("onedrive", { status: "error" });
-        addStatusMessage(`OneDrive: Failed — ${err.message}`);
+        addStatusMessage(`${name}: Connected as ${result.account || "user"}`);
+      } catch (error) {
+        setCloudService(id, { status: "error" });
+        addStatusMessage(`${name}: Connection failed — ${errorText(error)}`);
       }
-    }
-  }, [setCloudService, addStatusMessage]);
+    },
+    [setCloudService, addStatusMessage],
+  );
+
+  const connectOneDrive = useCallback(async () => {
+    const params = new URLSearchParams({
+      client_id: ONEDRIVE_CLIENT_ID,
+      response_type: "code",
+      redirect_uri: ONEDRIVE_REDIRECT,
+      scope: ONEDRIVE_SCOPES,
+      response_mode: "query",
+    });
+    await authenticateCloud("onedrive", `${ONEDRIVE_AUTH_URL}?${params}`);
+  }, [authenticateCloud]);
 
   const connectGDrive = useCallback(async () => {
-    setCloudService("gdrive", { status: "connecting" });
-    addStatusMessage("Google Drive: Starting authentication...");
-    try {
-      const params = new URLSearchParams({
-        client_id: GDRIVE_CLIENT_ID,
-        response_type: "code",
-        redirect_uri: GDRIVE_REDIRECT,
-        scope: GDRIVE_SCOPES,
-        access_type: "offline",
-        prompt: "consent",
-      });
-      const result = await invoke<{
-        success: boolean;
-        account?: string;
-        error?: string;
-      }>("cloud_auth_start", {
-        provider: "gdrive",
-        authUrl: `${GDRIVE_AUTH_URL}?${params}`,
-      });
-      if (result.success) {
-        setCloudService("gdrive", {
-          status: "connected",
-          account: result.account || "Google Drive Account",
-          lastSync: new Date().toISOString(),
-        });
-        addStatusMessage(
-          `Google Drive: Connected as ${result.account || "user"}`,
-        );
-      } else throw new Error(result.error || "Authentication failed");
-    } catch (err: any) {
-      try {
-        const params = new URLSearchParams({
-          client_id: GDRIVE_CLIENT_ID,
-          response_type: "code",
-          redirect_uri: GDRIVE_REDIRECT,
-          scope: GDRIVE_SCOPES,
-          access_type: "offline",
-          prompt: "consent",
-        });
-        await invoke("open_external_url", {
-          url: `${GDRIVE_AUTH_URL}?${params}`,
-        });
-        setCloudService("gdrive", {
-          status: "connected",
-          account: "Google Drive (Manual Auth)",
-          lastSync: new Date().toISOString(),
-        });
-        addStatusMessage("Google Drive: Browser auth launched");
-      } catch {
-        setCloudService("gdrive", { status: "error" });
-        addStatusMessage(`Google Drive: Failed — ${err.message}`);
-      }
-    }
-  }, [setCloudService, addStatusMessage]);
+    const params = new URLSearchParams({
+      client_id: GDRIVE_CLIENT_ID,
+      response_type: "code",
+      redirect_uri: GDRIVE_REDIRECT,
+      scope: GDRIVE_SCOPES,
+      access_type: "offline",
+      prompt: "consent",
+    });
+    await authenticateCloud("gdrive", `${GDRIVE_AUTH_URL}?${params}`);
+  }, [authenticateCloud]);
 
   const connectDropbox = useCallback(async () => {
-    setCloudService("dropbox", { status: "connecting" });
-    addStatusMessage("Dropbox: Starting authentication...");
-    try {
-      await invoke("open_external_url", { url: DROPBOX_AUTH_URL });
-      setCloudService("dropbox", {
-        status: "connected",
-        account: "Dropbox Account",
-        lastSync: new Date().toISOString(),
-      });
-      addStatusMessage("Dropbox: Browser auth launched");
-    } catch {
-      setCloudService("dropbox", { status: "error" });
-      addStatusMessage("Dropbox: Connection failed");
-    }
-  }, [setCloudService, addStatusMessage]);
+    await authenticateCloud("dropbox", DROPBOX_AUTH_URL);
+  }, [authenticateCloud]);
 
   const disconnect = useCallback(
     async (id: CloudId) => {
+      const name = cloudName(id);
       try {
-        await invoke("cloud_disconnect", { provider: id });
-      } catch {}
-      setCloudService(id, {
-        status: "disconnected",
-        account: undefined,
-        lastSync: undefined,
-      });
-      addStatusMessage(
-        `${id === "gdrive" ? "Google Drive" : id === "onedrive" ? "OneDrive" : "Dropbox"}: Disconnected`,
-      );
+        await invoke("cloud_disconnect", { provider: backendProvider(id) });
+        setCloudService(id, {
+          status: "disconnected",
+          account: undefined,
+          lastSync: undefined,
+        });
+        addStatusMessage(`${name}: Disconnected`);
+      } catch (error) {
+        setCloudService(id, { status: "error" });
+        addStatusMessage(`${name}: Disconnect failed — ${errorText(error)}`);
+      }
     },
     [setCloudService, addStatusMessage],
   );
 
   const syncCloud = useCallback(
     async (id: CloudId) => {
-      addStatusMessage(`Syncing ${id}...`);
+      const name = cloudName(id);
+      addStatusMessage(`${name}: Syncing...`);
       try {
-        await invoke("cloud_sync", { provider: id });
-      } catch {}
-      setCloudService(id, { lastSync: new Date().toISOString() });
-      addStatusMessage(`${id}: Sync complete`);
+        const result = await invoke<{ files_synced?: number }>("cloud_sync", {
+          provider: backendProvider(id),
+          path: "",
+        });
+        setCloudService(id, { lastSync: new Date().toISOString() });
+        addStatusMessage(
+          `${name}: Sync complete${typeof result?.files_synced === "number" ? ` (${result.files_synced} files)` : ""}`,
+        );
+      } catch (error) {
+        setCloudService(id, { status: "error" });
+        addStatusMessage(`${name}: Sync failed — ${errorText(error)}`);
+      }
     },
     [setCloudService, addStatusMessage],
   );
 
   const browseCloud = useCallback(
     async (id: CloudId) => {
-      addStatusMessage(`Browsing ${id} media library...`);
+      const name = cloudName(id);
+      addStatusMessage(`${name}: Browsing media library...`);
       try {
-        await invoke("cloud_browse", { provider: id });
-      } catch {}
+        const result = await invoke<unknown[]>("cloud_browse", {
+          provider: backendProvider(id),
+          path: "",
+        });
+        addStatusMessage(
+          `${name}: Found ${Array.isArray(result) ? result.length : 0} item(s)`,
+        );
+      } catch (error) {
+        setCloudService(id, { status: "error" });
+        addStatusMessage(`${name}: Browse failed — ${errorText(error)}`);
+      }
     },
-    [addStatusMessage],
+    [setCloudService, addStatusMessage],
   );
 
   // ════════════════════════════════════════════════════════════
@@ -385,10 +346,14 @@ export default function CloudNASTab() {
   const disconnectSynology = async () => {
     try {
       await invoke("synology_disconnect");
-    } catch {}
-    setSynoConnected(false);
-    setSynoInfo(null);
-    addStatusMessage("Synology: Disconnected");
+      setSynoConnected(false);
+      setSynoInfo(null);
+      setSynoError(null);
+      addStatusMessage("Synology: Disconnected");
+    } catch (error) {
+      setSynoError(errorText(error));
+      addStatusMessage(`Synology: Disconnect failed — ${errorText(error)}`);
+    }
   };
 
   const addSynoLibrary = async (lib: NasLibrary) => {
@@ -440,10 +405,14 @@ export default function CloudNASTab() {
   const disconnectWdMyCloud = async () => {
     try {
       await invoke("wd_mycloud_disconnect");
-    } catch {}
-    setWdConnected(false);
-    setWdInfo(null);
-    addStatusMessage("WD My Cloud: Disconnected");
+      setWdConnected(false);
+      setWdInfo(null);
+      setWdError(null);
+      addStatusMessage("WD My Cloud: Disconnected");
+    } catch (error) {
+      setWdError(errorText(error));
+      addStatusMessage(`WD My Cloud: Disconnect failed — ${errorText(error)}`);
+    }
   };
 
   const addWdLibrary = async (lib: NasLibrary) => {
@@ -478,7 +447,10 @@ export default function CloudNASTab() {
         name: profile.name,
       });
       profile.status = "connected";
-    } catch {}
+    } catch (error) {
+      profile.status = "error";
+      addStatusMessage(`NAS source could not be added — ${errorText(error)}`);
+    }
     setNasProfiles((prev) => [...prev, profile]);
     setShowAddNas(false);
     setNasForm({

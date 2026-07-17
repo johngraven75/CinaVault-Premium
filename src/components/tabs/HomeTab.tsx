@@ -67,6 +67,48 @@ function resolveMediaImageSrc(path?: string | null): string | undefined {
   }
 }
 
+
+function MediaPosterImage({
+  path,
+  alt,
+  className,
+  fallbackClassName,
+  fallbackSize = 32,
+}: {
+  path?: string | null;
+  alt: string;
+  className?: string;
+  fallbackClassName: string;
+  fallbackSize?: number;
+}): JSX.Element {
+  const imageSrc = resolveMediaImageSrc(path);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [imageSrc]);
+
+  if (!imageSrc || failed) {
+    return (
+      <div className={fallbackClassName} data-poster-fallback="true">
+        <Film size={fallbackSize} className="text-cv-subtext/30" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageSrc}
+      alt={alt}
+      className={className}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      data-poster-source={path?.startsWith("http") ? "remote" : "sidecar"}
+    />
+  );
+}
+
 function formatRuntime(minutes?: number): string {
   if (!minutes) return "N/A";
   const hours = Math.floor(minutes / 60);
@@ -746,21 +788,13 @@ export default function HomeTab(): JSX.Element {
               </button>
             </div>
 
-            {resolveMediaImageSrc(
-              selectedMedia.poster_path || selectedMedia.backdrop_path,
-            ) ? (
-              <img
-                src={resolveMediaImageSrc(
-                  selectedMedia.poster_path || selectedMedia.backdrop_path,
-                )}
-                alt={selectedMedia.title}
-                className="mb-4 max-h-72 w-full rounded border border-cyan-300/25 object-cover opacity-90"
-              />
-            ) : (
-              <div className="mb-4 flex h-56 w-full items-center justify-center rounded border border-cyan-300/25 bg-black/40">
-                <Film size={46} className="text-cv-accent/60" />
-              </div>
-            )}
+            <MediaPosterImage
+              path={selectedMedia.poster_path || selectedMedia.backdrop_path}
+              alt={selectedMedia.title}
+              className="mb-4 max-h-72 w-full rounded border border-cyan-300/25 object-cover opacity-90"
+              fallbackClassName="mb-4 flex h-56 w-full items-center justify-center rounded border border-cyan-300/25 bg-black/40"
+              fallbackSize={46}
+            />
 
             <div className="space-y-1">
               <TerminalLine
@@ -974,16 +1008,13 @@ function MediaCard({
 }
 
 function CardVisual({ item }: { item: MediaItem }): JSX.Element {
-  const imageSrc = resolveMediaImageSrc(item.poster_path || item.backdrop_path);
   return (
     <div className="cyber-poster aspect-[2/3]">
-      {imageSrc ? (
-        <img src={imageSrc} alt={item.title} />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center">
-          <Film size={32} className="text-cv-subtext/30" />
-        </div>
-      )}
+      <MediaPosterImage
+        path={item.poster_path || item.backdrop_path}
+        alt={item.title}
+        fallbackClassName="flex h-full w-full items-center justify-center"
+      />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
       <div className="absolute right-2 top-2 flex flex-col gap-1">
         {item.verified && (

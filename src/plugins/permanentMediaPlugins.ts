@@ -109,7 +109,7 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     installed: true,
     startup: true,
     required: true,
-    autoInstall: false,
+    autoInstall: true,
     capabilities: [
       "deep_media_analysis",
       "tag_read",
@@ -134,7 +134,7 @@ export const permanentMediaPlugins: PermanentPlugin[] = [
     installed: true,
     startup: true,
     required: true,
-    autoInstall: false,
+    autoInstall: true,
     capabilities: [
       "mkv_merge",
       "subtitle_mux",

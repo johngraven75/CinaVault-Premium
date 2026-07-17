@@ -16,14 +16,14 @@ export const PGMA_DEFAULT_CONFIG = {
     "https://github.com/CodyBerenson/PGMA-Modernized/archive/refs/heads/master.zip",
   defaultTarget: "cinavault-staging",
   notes:
-    "Leave plexPluginPath blank to deploy into CinaVault's local Plex plugin staging folder. Set it only when you want to deploy directly into a real Plex Plug-ins folder.",
+    "PGMA runs through CinaVault's native metadata bridge. A Plex bundle is optional and is never reported as deployed unless a real deployment completes.",
   requiresPlexRestart: true,
   nativeToolchain: "native-rust-pgma-bridge",
   metadataSources: ["nfo", "localArtwork"],
   downloadArtwork: true,
   overwriteExistingMetadata: false,
   limit: 5000,
-  autoDeployBundlesOnInstall: true,
+  autoDeployBundlesOnInstall: false,
   autoRefreshLibraryAfterDeploy: false,
 };
 
@@ -186,21 +186,7 @@ export class PluginAdapterEngine {
       if (shouldLogInvokeFailure()) {
         console.warn(`Plugin install failed: ${plugin.id}`, err);
       }
-      // Fallback: register as installed locally (UI-only mode)
-      const installed: InstalledPlugin = {
-        id: plugin.id,
-        name: plugin.name,
-        platform: plugin.platforms[0],
-        version: plugin.version,
-        installPath:
-          plugin.id === PGMA_PLUGIN_ID
-            ? "%APPDATA%/CinaVault/plugins/plex/Plug-ins"
-            : `plugins/${plugin.platforms[0]}/${plugin.id}`,
-        configJson: JSON.stringify(defaultConfig),
-        enabled: true,
-      };
-      this.installed.set(plugin.id, installed);
-      return true;
+      return false;
     }
   }
 
@@ -213,14 +199,19 @@ export class PluginAdapterEngine {
   // ── Uninstall a plugin ──
   async uninstallPlugin(pluginId: string): Promise<boolean> {
     if (pluginId === PGMA_PLUGIN_ID) {
-      await this.setPluginEnabled(pluginId, true);
-      return true;
+      console.warn("PGMA is a required adult metadata provider and cannot be removed.");
+      return false;
     }
     try {
       await invoke("uninstall_plugin", { pluginId });
-    } catch {}
-    this.installed.delete(pluginId);
-    return true;
+      this.installed.delete(pluginId);
+      return true;
+    } catch (error) {
+      if (shouldLogInvokeFailure()) {
+        console.warn(`Plugin uninstall failed: ${pluginId}`, error);
+      }
+      return false;
+    }
   }
 
   // ── Run / activate a plugin ──
@@ -304,32 +295,30 @@ export class PluginAdapterEngine {
     config: Record<string, any>,
   ): Promise<void> {
     const nextConfig = { ...defaultConfigForPlugin(pluginId), ...config };
+    await invoke("run_plugin", {
+      pluginId,
+      action: "configure",
+      config: JSON.stringify(nextConfig),
+    });
     const p = this.installed.get(pluginId);
     if (p) {
-      p.configJson = JSON.stringify(nextConfig);
-      this.installed.set(pluginId, p);
-    }
-    try {
-      await invoke("run_plugin", {
-        pluginId,
-        action: "configure",
-        config: JSON.stringify(nextConfig),
+      this.installed.set(pluginId, {
+        ...p,
+        configJson: JSON.stringify(nextConfig),
       });
-    } catch {}
+    }
   }
 
   // ── Enable / disable installed plugin ──
   async setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+    await invoke("run_plugin", {
+      pluginId,
+      action: enabled ? "enable" : "disable",
+    });
     const p = this.installed.get(pluginId);
     if (p) {
       this.installed.set(pluginId, { ...p, enabled });
     }
-    try {
-      await invoke("run_plugin", {
-        pluginId,
-        action: enabled ? "enable" : "disable",
-      });
-    } catch {}
   }
 
   // ── Check compatibility ──

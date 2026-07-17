@@ -478,7 +478,7 @@ export default function SettingsTab() {
                   Fusion Edition
                 </p>
                 <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>
-                  v1.0.140 · Build 140 · Tauri v2 + React 18
+                  v1.6.5 · Build 165 · Tauri v2 + React 18
                 </p>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-white/3">

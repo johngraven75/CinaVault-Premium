@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { FULL_PLUGIN_REGISTRY, type PluginEntry } from "./pluginRegistry";
+import { getStartupMediaPlugins } from "../plugins/permanentMediaPlugins";
 import {
   PGMA_PLUGIN_ID,
   PGMA_DEFAULT_CONFIG,
@@ -79,7 +80,15 @@ async function installAndValidatePlugin(plugin: PluginEntry): Promise<void> {
 async function initializePluginEngine(): Promise<void> {
   await pluginEngine.loadFromBackend();
 
-  for (const plugin of FULL_PLUGIN_REGISTRY) {
+  const startupPluginIds = new Set([
+    ...getStartupMediaPlugins().map((plugin) => plugin.id),
+    PGMA_PLUGIN_ID,
+  ]);
+  const startupPlugins = FULL_PLUGIN_REGISTRY.filter((plugin) =>
+    startupPluginIds.has(plugin.id),
+  );
+
+  for (const plugin of startupPlugins) {
     try {
       await installAndValidatePlugin(plugin);
     } catch (error) {

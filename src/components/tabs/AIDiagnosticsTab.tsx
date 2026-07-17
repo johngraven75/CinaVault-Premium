@@ -48,6 +48,17 @@ type QuickAction = {
   runNow?: () => Promise<any>;
 };
 
+type SourceDiscoveryResult = {
+  type?: "source_discovery";
+  status: string;
+  roots_checked: number;
+  discovered: number;
+  added: number;
+  existing: number;
+  paths: string[];
+  message: string;
+};
+
 type AiConfig = {
   model?: string;
   has_token?: boolean;
@@ -492,6 +503,13 @@ export default function AIDiagnosticsTab() {
     } else if (isAdultMetadataGatherResult(result)) {
       message = formatAdultMetadataGatherMessage(label, result);
       await refreshLoadedLibraryPage();
+    } else if (result?.type === "source_discovery" || result?.paths) {
+      const discovery = result as SourceDiscoveryResult;
+      message = `${label}: found ${discovery.discovered || 0}, added ${discovery.added || 0}, already configured ${discovery.existing || 0}`;
+      await refreshLoadedLibraryPage();
+    } else if (result?.type === "ai_library_manage") {
+      message = `${label}: ${result.status || "complete"}, ${result.total_updated || 0} real updates`;
+      await refreshLoadedLibraryPage();
     } else if (result?.type === "purge_photo_items") {
       message =
         result.message ||
@@ -681,13 +699,33 @@ export default function AIDiagnosticsTab() {
       label: "Network Diagnostics",
       icon: Network,
       q: "Run network diagnostics",
+      runNow: () => invoke("ai_query", { prompt: "Run network diagnostics" }),
     },
     {
       label: "Check Sources",
       icon: FolderSearch,
       q: "Check all media sources",
+      runNow: () => invoke("ai_query", { prompt: "Check all media sources" }),
     },
-    { label: "Check Providers", icon: Database, q: "Check metadata providers" },
+    {
+      label: "Discover Media Sources",
+      icon: FolderSearch,
+      q: "Discover media sources",
+      runNow: () => invoke("discover_media_sources"),
+    },
+    {
+      label: "Check Providers",
+      icon: Database,
+      q: "Check metadata providers",
+      runNow: () => invoke("ai_query", { prompt: "Check metadata providers" }),
+    },
+    {
+      label: "Run Full AI Library Management",
+      icon: Brain,
+      q: "Scan, enrich metadata, normalize titles and filenames, attach posters, write NFO files, and analyze duplicates",
+      progressTask: "ai_library_manage",
+      runNow: () => invoke("ai_library_manage", { tasks: null }),
+    },
     {
       label: "Post Metadata & Posters",
       icon: Sparkles,
