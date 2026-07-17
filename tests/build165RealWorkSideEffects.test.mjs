@@ -169,7 +169,8 @@ test("cast and IPTV controls invoke real work and clean up exact listeners", () 
   const iptv = read("src/components/IPTVPlayer.tsx");
   assert.match(cast, /castToGoogleDevice/);
   assert.match(cast, /await castToGoogleDevice/);
-  assert.match(iptv, /removeEventListener\("timeupdate", handleTimeUpdate\)/);
-  assert.match(iptv, /removeEventListener\("loadedmetadata", handleLoadedMetadata\)/);
+  assert.match(iptv, /removeEventListener\("timeupdate", updateTime\)/);
+  assert.match(iptv, /removeEventListener\("play", handlePlay\)/);
+  assert.match(iptv, /removeEventListener\("error", handleError\)/);
   assert.doesNotMatch(iptv, /removeEventListener\("[^"]+", \(\) =>/);
 });
