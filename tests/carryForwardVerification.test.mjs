@@ -428,13 +428,13 @@ const FEATURE_REGISTRY = [
   {
     build: "165",
     feature: "Plugin and provider JSON configuration validation",
-    token: "all plugin and provider JSON files are valid and enabled",
+    token: "every plugin config is valid, enabled, uniquely identified JSON",
     file: "tests/build165PluginProviderConfig.test.mjs",
   },
   {
     build: "165",
     feature: "Real-work regression coverage",
-    token: "real work",
+    token: "Build 165 real-work governance checks",
     file: "tests/build165RealWorkSideEffects.test.mjs",
   },
 
