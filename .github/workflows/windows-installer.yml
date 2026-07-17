@@ -24,8 +24,8 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: build-166-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-166-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   BUILD_NUMBER: '166'
@@ -85,7 +85,7 @@ jobs:
         run: |
           $stagingDir = 'installer-staging'
           New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
-          $bundlePath = 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle'
+          $bundlePath = 'src-tauri\\target\\x86_64-pc-windows-msvc\\release\\bundle'
           Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -in '.msi', '.exe' } |
             Copy-Item -Destination $stagingDir -Force
@@ -95,7 +95,7 @@ jobs:
             $hash = Get-FileHash -Path $file.FullName -Algorithm SHA256
             "$($hash.Hash)  $($file.Name)"
           }
-          Set-Content -Path "$stagingDir\SHA256SUMS.txt" -Value $checksums -Encoding utf8
+          Set-Content -Path "$stagingDir\\SHA256SUMS.txt" -Value $checksums -Encoding utf8
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
