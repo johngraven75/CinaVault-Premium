@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.6.5",
+  "version": "1.6.6",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -15,7 +15,7 @@
     "test:all": "node --experimental-loader ./tests/typescript-loader.mjs --test tests/*.test.mjs",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
     "test:governance": "node --experimental-loader ./tests/typescript-loader.mjs --test tests/*.test.mjs",
-    "test:build165": "node --experimental-loader ./tests/typescript-loader.mjs --test tests/*.test.mjs"
+    "test:build166": "node --experimental-loader ./tests/typescript-loader.mjs --test tests/*.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

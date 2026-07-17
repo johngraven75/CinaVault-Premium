@@ -299,7 +299,7 @@ impl Database {
             ("glassmorphism", "true"),
             ("starfield_header", "true"),
             ("offline_mode", "false"),
-            ("ai_model", "mistralai/Mistral-7B-Instruct-v0.3"),
+            ("ai_model", "Qwen/Qwen3-4B-Instruct-2507"),
             ("hf_token", ""),
             ("synology_connection", ""),
             ("wd_mycloud_connection", ""),
@@ -318,6 +318,13 @@ impl Database {
         self.conn.execute(
             "UPDATE settings SET value = 'true' WHERE key = 'prefer_embedded_titles' AND value = 'false'",
             [],
+        )?;
+        self.conn.execute(
+            "UPDATE settings SET value = ?1 WHERE key = 'ai_model' AND value = ?2",
+            params![
+                "Qwen/Qwen3-4B-Instruct-2507",
+                "mistralai/Mistral-7B-Instruct-v0.3"
+            ],
         )?;
 
         // ── Premium feature defaults: ALL enabled ──
@@ -617,7 +624,7 @@ impl Database {
             (
                 "cv-ai-match",
                 "AI Media Matcher",
-                r#"{"enabled":true,"model":"mistralai/Mistral-7B-Instruct-v0.3","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#,
+                r#"{"enabled":true,"model":"Qwen/Qwen3-4B-Instruct-2507","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#,
             ),
             (
                 "cv-cloud-sync",
