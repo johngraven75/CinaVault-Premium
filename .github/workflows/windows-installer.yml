@@ -1,4 +1,4 @@
-name: Windows Installer Build 165
+name: Windows Installer Build 166
 
 # Auto Build, Test, Cleanup
 
@@ -24,19 +24,19 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: build-165-${{ github.ref }}
+  group: build-166-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  BUILD_NUMBER: '165'
-  APP_VERSION: 1.6.5
-  BUILD_OUTPUT_DIR: releases/build-165
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build165
+  BUILD_NUMBER: '166'
+  APP_VERSION: 1.6.6
+  BUILD_OUTPUT_DIR: releases/build-166
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build166
   RUST_BACKTRACE: 1
 
 jobs:
   validate:
-    name: Validate Build 165
+    name: Validate Build 166
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
         run: npm ci
       - name: TypeScript validation
         run: npm run lint
-      - name: Run Build 165 governance tests
+      - name: Run Build 166 governance tests
         run: npm test
 
   build:
@@ -106,7 +106,7 @@ jobs:
           retention-days: 15
 
   release:
-    name: Publish v1.6.5
+    name: Publish v1.6.6
     runs-on: ubuntu-latest
     needs: build
     if: >-
@@ -118,14 +118,14 @@ jobs:
         with:
           name: ${{ env.INSTALLER_ARTIFACT_NAME }}
           path: artifacts
-      - name: Publish Build 165 release
+      - name: Publish Build 166 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.6.5
+          tag_name: v1.6.6
           target_commitish: main
-          name: CinaVault Premium Build 165
+          name: CinaVault Premium Build 166
           body: |
-            Windows MSI and NSIS installers for CinaVault Premium version 1.6.5.
+            Windows MSI and NSIS installers for CinaVault Premium version 1.6.6.
           draft: false
           prerelease: false
           generate_release_notes: true
