@@ -82,11 +82,25 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .ok_or_else(|| "Plugin manifest has no parent folder.".to_string())?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let temporary = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
     fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        error.to_string()
-    })
+    if path.exists() {
+        let _ = fs::remove_file(&backup);
+        fs::rename(path, &backup).map_err(|error| error.to_string())?;
+    }
+    match fs::rename(&temporary, path) {
+        Ok(()) => {
+            let _ = fs::remove_file(&backup);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            if backup.exists() {
+                let _ = fs::rename(&backup, path);
+            }
+            Err(error.to_string())
+        }
+    }
 }
 
 fn load_installed() -> Result<Vec<InstalledPlugin>, String> {
