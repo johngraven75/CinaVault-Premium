@@ -1,4 +1,4 @@
-name: Windows Installer Build 167 Beta 1
+name: Windows Installer Build 168
 
 on:
   push:
@@ -16,12 +16,14 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: build-167-beta-1
+  group: build-168
   cancel-in-progress: false
 
 env:
-  TAG_NAME: v1.6.7-beta.1
-  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build167-Beta1
+  BUILD_NUMBER: '168'
+  APP_VERSION: 1.6.8
+  TAG_NAME: v1.6.8
+  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build168
 
 jobs:
   build-and-release:
@@ -35,7 +37,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Check for existing prerelease
+      - name: Check for existing release
         id: release
         shell: pwsh
         env:
@@ -54,7 +56,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
 
       - name: Setup Rust
         if: steps.release.outputs.exists != 'true'
@@ -71,7 +72,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.release.outputs.exists != 'true'
-        run: npm ci
+        run: npm install
 
       - name: Validate and test
         if: steps.release.outputs.exists != 'true'
@@ -106,20 +107,19 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: installer-staging/
           if-no-files-found: error
+          retention-days: 30
 
-      - name: Publish Build 167 Beta 1 prerelease
+      - name: Publish Build 168 release
         if: steps.release.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium Build 167 Beta 1
+          name: CinaVault Premium Build 168
           body: |
-            Windows MSI and NSIS installers for CinaVault Premium Build 167 Beta 1.
-
-            This is a prerelease build for validation and beta testing.
+            Windows MSI and NSIS installers for CinaVault Premium Build 168, version 1.6.8.
           draft: false
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
