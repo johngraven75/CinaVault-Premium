@@ -349,6 +349,7 @@ pub async fn discover_media_sources(
     let db = state.db.lock().map_err(|error| error.to_string())?;
     let (paths, added) = discover_and_add_sources(&db, &roots)?;
     Ok(serde_json::json!({
+        "type": "source_discovery",
         "status": "success",
         "roots_checked": roots.len(),
         "discovered": paths.len(),
