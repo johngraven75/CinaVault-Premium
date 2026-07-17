@@ -150,6 +150,19 @@ Each new build must:
 
 ---
 
+### Build 165 (Real Work + NAS + Metadata + Poster Integrity)
+
+| Feature | Token to Verify | Source File |
+|---|---|---|
+| Operational AI routing | `AiQueryRoute::LibraryAutomation` | `src-tauri/src/ai.rs` |
+| Real media-source discovery | `discover_and_add_sources` | `src-tauri/src/scanner.rs` |
+| Scanner-compatible WD/Synology sources | `network_source_path` | `src-tauri/src/nas_devices.rs` |
+| Complete adult provider routing | `configured_adult_provider_order` | `src-tauri/src/metadata.rs` |
+| Validated atomic poster sidecars | `write_poster_sidecar_bytes` | `src-tauri/src/enrichment.rs` |
+| Media-card poster fallback | `data-poster-fallback` | `src/components/tabs/HomeTab.tsx` |
+| Provider/plugin JSON validation | `build165PluginProviderConfig` | `tests/build165PluginProviderConfig.test.mjs` |
+| Real side-effect regression tests | `build165RealWorkSideEffects` | `tests/build165RealWorkSideEffects.test.mjs` |
+
 ## Build History Summary
 
 | Build | Key Features Added | Carry-Forward Status |
@@ -167,8 +180,10 @@ Each new build must:
 | 150 | Plugin manager fully implemented (8 Tauri commands) | ✅ Verified |
 | 151–153 | (No release notes on file — features carried forward from 150) | ⚠️ No release notes |
 | 154 | Synology + WD My Cloud NAS integration, CinaVault logo branding | ✅ Verified |
-| 155 | Full automation: CI/CD, maintenance, library, carry-forward governance | ✅ Current |
+| 155 | Full automation: CI/CD, maintenance, library, carry-forward governance | ✅ Verified |
+| 156–164 | Features preserved; Build 164 audited against the 20 most recent published releases | ✅ Verified by Build 165 audit |
+| 165 | Real AI work, source discovery, WD/Synology scanning, adult providers, poster integrity | ✅ Current |
 
 ---
 
-*Last updated: Build 155 — Generated automatically by CI carry-forward governance pipeline.*
+*Last updated: Build 165 — verified by CI carry-forward governance and real side-effect tests.*
