@@ -186,21 +186,7 @@ export class PluginAdapterEngine {
       if (shouldLogInvokeFailure()) {
         console.warn(`Plugin install failed: ${plugin.id}`, err);
       }
-      // Fallback: register as installed locally (UI-only mode)
-      const installed: InstalledPlugin = {
-        id: plugin.id,
-        name: plugin.name,
-        platform: plugin.platforms[0],
-        version: plugin.version,
-        installPath:
-          plugin.id === PGMA_PLUGIN_ID
-            ? "%APPDATA%/CinaVault/plugins/plex/Plug-ins"
-            : `plugins/${plugin.platforms[0]}/${plugin.id}`,
-        configJson: JSON.stringify(defaultConfig),
-        enabled: true,
-      };
-      this.installed.set(plugin.id, installed);
-      return true;
+      return false;
     }
   }
 
@@ -213,14 +199,19 @@ export class PluginAdapterEngine {
   // ── Uninstall a plugin ──
   async uninstallPlugin(pluginId: string): Promise<boolean> {
     if (pluginId === PGMA_PLUGIN_ID) {
-      await this.setPluginEnabled(pluginId, true);
-      return true;
+      console.warn("PGMA is a required adult metadata provider and cannot be removed.");
+      return false;
     }
     try {
       await invoke("uninstall_plugin", { pluginId });
-    } catch {}
-    this.installed.delete(pluginId);
-    return true;
+      this.installed.delete(pluginId);
+      return true;
+    } catch (error) {
+      if (shouldLogInvokeFailure()) {
+        console.warn(`Plugin uninstall failed: ${pluginId}`, error);
+      }
+      return false;
+    }
   }
 
   // ── Run / activate a plugin ──
