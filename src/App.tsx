@@ -181,16 +181,9 @@ function readLocalPersistedState(): Record<string, string> {
 async function saveAllSettingsToBackend(
   state: Record<string, string>,
 ): Promise<void> {
-  try {
-    for (const [key, value] of Object.entries(state)) {
-      await invoke("set_setting", { key, value });
-    }
-  } catch {
-    try {
-      localStorage.setItem("cinavault_state", JSON.stringify(state));
-    } catch (storageError) {
-      console.warn("Failed to save state:", storageError);
-    }
+  localStorage.setItem("cinavault_state", JSON.stringify(state));
+  for (const [key, value] of Object.entries(state)) {
+    await invoke("set_setting", { key, value });
   }
 }
 
@@ -199,12 +192,19 @@ export default function App(): JSX.Element {
     activeTab,
     currentTheme,
     sidebarCollapsed,
+    settings,
+    featureSettings,
+    metadataProviders,
+    scheduledTasks,
+    cloudServices,
+    libraryView,
     addStatusMessage,
     getPersistedState,
     restorePersistedState,
   } = useAppStore();
 
   const isSaving = useRef<boolean>(false);
+  const hasRestoredSettings = useRef<boolean>(false);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const activeTitle = TAB_TITLES[activeTab];
   const featureCount = useMemo(() => getEnabledCinaVaultFeatures().length, []);
@@ -212,7 +212,7 @@ export default function App(): JSX.Element {
   const startupPluginsReady = initializePermanentMediaPluginsAtStartup().ready;
 
   const saveState = useCallback(async (): Promise<void> => {
-    if (isSaving.current) return;
+    if (isSaving.current || !hasRestoredSettings.current) return;
 
     isSaving.current = true;
     try {
@@ -231,10 +231,20 @@ export default function App(): JSX.Element {
 
     const initializeApplication = async (): Promise<void> => {
       try {
-        restorePersistedState(readLocalPersistedState());
+        const localState = readLocalPersistedState();
+        let persistedState = localState;
+        try {
+          const backendState =
+            await invoke<Record<string, string>>("get_all_settings");
+          persistedState = { ...localState, ...backendState };
+        } catch (error) {
+          console.warn("Backend settings unavailable; using local state:", error);
+        }
+
+        restorePersistedState(persistedState);
+        hasRestoredSettings.current = true;
         if (cancelled) return;
 
-        applyTheme(currentTheme);
         await pluginEngine.initialize();
         const mediaTools = await ensurePermanentMediaPluginsAtStartup();
         if (!mediaTools.ready) {
@@ -262,7 +272,11 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [restorePersistedState, currentTheme, addStatusMessage]);
+  }, [restorePersistedState, addStatusMessage]);
+
+  useEffect(() => {
+    applyTheme(currentTheme);
+  }, [currentTheme]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -270,7 +284,18 @@ export default function App(): JSX.Element {
     }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [activeTab, currentTheme, sidebarCollapsed, saveState]);
+  }, [
+    activeTab,
+    currentTheme,
+    sidebarCollapsed,
+    settings,
+    featureSettings,
+    metadataProviders,
+    scheduledTasks,
+    cloudServices,
+    libraryView,
+    saveState,
+  ]);
 
   const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>): void => {
     if (!(event.target instanceof Element)) return;
