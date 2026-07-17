@@ -181,7 +181,11 @@ function readLocalPersistedState(): Record<string, string> {
 async function saveAllSettingsToBackend(
   state: Record<string, string>,
 ): Promise<void> {
-  localStorage.setItem("cinavault_state", JSON.stringify(state));
+  try {
+    localStorage.setItem("cinavault_state", JSON.stringify(state));
+  } catch (error) {
+    console.warn("Local settings backup failed:", error);
+  }
   for (const [key, value] of Object.entries(state)) {
     await invoke("set_setting", { key, value });
   }
