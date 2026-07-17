@@ -1,4 +1,5 @@
 // CinaVault Premium — Build 157 Cyber HUD Command Header
+// Build 140 Cyber HUD Command Header behavior is permanently carried forward.
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
