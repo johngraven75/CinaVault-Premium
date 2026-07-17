@@ -1,5 +1,10 @@
 // CinaVault Premium — Metadata Fetching Module
 // Supports TMDb, OMDb, TVDB, Fanart.tv, and 30+ providers
+use crate::adult_site_provider::{
+    porn_site_nuxt_base_url, porn_site_nuxt_entries, porn_site_nuxt_entry_image,
+    porn_site_nuxt_entry_overview, porn_site_nuxt_entry_rating, porn_site_nuxt_entry_title,
+    porn_site_nuxt_search_url,
+};
 use crate::AppState;
 use regex::Regex;
 use rusqlite::params;
@@ -530,34 +535,252 @@ fn provider_match_from_tpdb_detail(data: &serde_json::Value) -> ProviderWriteMat
     }
 }
 
+fn configured_adult_provider_order(
+    provider_keys: &std::collections::HashMap<String, String>,
+) -> Vec<&'static str> {
+    ["tpdb", "stashdb", "porn_site_nuxt", "iafd", "phoenixadult", "pgma"]
+        .into_iter()
+        .filter(|provider| provider_keys.contains_key(*provider))
+        .collect()
+}
+
+fn provider_value_is_real_key(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && !value.ends_with("_scrape")
+        && !value.ends_with("_manifest")
+        && !value.ends_with("_bridge")
+}
+
+async fn fetch_stashdb_item_metadata(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: &str,
+) -> Result<Option<ProviderWriteMatch>, String> {
+    let data = client
+        .post("https://stashdb.org/graphql")
+        .header("Content-Type", "application/json")
+        .header("ApiKey", api_key)
+        .json(&serde_json::json!({
+            "query": "query($title:String!){ queryScenes(input:{title:$title, per_page:1, page:1, direction:DESC, sort:DATE}) { scenes { title details release_date images { url width height } tags { name } } } }",
+            "variables": { "title": query }
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(errors) = data.get("errors") {
+        return Err(errors.to_string());
+    }
+    let Some(scene) = data
+        .get("data")
+        .and_then(|value| value.get("queryScenes"))
+        .and_then(|value| value.get("scenes"))
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+    else {
+        return Ok(None);
+    };
+    let poster_path = scene
+        .get("images")
+        .and_then(|value| value.as_array())
+        .and_then(|items| items.first())
+        .and_then(|image| image.get("url"))
+        .and_then(|value| value.as_str())
+        .and_then(|value| non_empty_string(Some(value)));
+    let genre = scene
+        .get("tags")
+        .and_then(|value| value.as_array())
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|tag| tag.get("name").and_then(|value| value.as_str()))
+                .take(6)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|value| !value.trim().is_empty());
+    Ok(Some(ProviderWriteMatch {
+        title: non_empty_string(scene.get("title").and_then(|value| value.as_str())),
+        overview: non_empty_string(scene.get("details").and_then(|value| value.as_str())),
+        poster_path,
+        year: parse_year_prefix(scene.get("release_date").and_then(|value| value.as_str())),
+        rating: None,
+        genre,
+        tmdb_id: None,
+        imdb_id: None,
+        media_type: Some("adult".to_string()),
+    }))
+}
+
+async fn fetch_nuxt_item_metadata(
+    client: &reqwest::Client,
+    query: &str,
+    configured_base_url: &str,
+) -> Result<Option<ProviderWriteMatch>, String> {
+    let base_url = porn_site_nuxt_base_url(
+        (!configured_base_url.trim().is_empty()).then_some(configured_base_url),
+    );
+    let response = client
+        .get(porn_site_nuxt_search_url(&base_url, query))
+        .header("Accept", "application/json")
+        .header("User-Agent", "CinaVault/1.6.4")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("http_{}", status.as_u16()));
+    }
+    let data = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(entry) = porn_site_nuxt_entries(&data).into_iter().next() else {
+        return Ok(None);
+    };
+    Ok(Some(ProviderWriteMatch {
+        title: porn_site_nuxt_entry_title(entry),
+        overview: porn_site_nuxt_entry_overview(entry),
+        poster_path: porn_site_nuxt_entry_image(entry),
+        year: None,
+        rating: porn_site_nuxt_entry_rating(entry),
+        genre: Some("Adult".to_string()),
+        tmdb_id: None,
+        imdb_id: None,
+        media_type: Some("adult".to_string()),
+    }))
+}
+
+async fn fetch_iafd_item_metadata(
+    client: &reqwest::Client,
+    query: &str,
+) -> Result<Option<ProviderWriteMatch>, String> {
+    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
+    let response = client
+        .get(format!(
+            "https://www.iafd.com/results.asp?searchtype=comprehensive&searchstring={encoded}"
+        ))
+        .header("User-Agent", "Mozilla/5.0 CinaVault/1.6.4")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("http_{}", response.status().as_u16()));
+    }
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    let query_token = query
+        .split_whitespace()
+        .find(|token| token.len() >= 4)
+        .unwrap_or(query)
+        .to_ascii_lowercase();
+    if !body.to_ascii_lowercase().contains(&query_token) {
+        return Ok(None);
+    }
+    Ok(Some(ProviderWriteMatch {
+        title: clean_title_candidate(query),
+        overview: None,
+        poster_path: None,
+        year: None,
+        rating: None,
+        genre: Some("Adult".to_string()),
+        tmdb_id: None,
+        imdb_id: None,
+        media_type: Some("adult".to_string()),
+    }))
+}
+
 async fn fetch_adult_item_metadata(
     client: &reqwest::Client,
     provider_keys: &std::collections::HashMap<String, String>,
     item: &MediaItemLookup,
     provider_errors: &mut Vec<String>,
 ) -> Option<ProviderWriteMatch> {
-    let tpdb_key = provider_keys.get("tpdb")?;
-    for query in build_metadata_queries(item) {
-        match fetch_theporndb_search_metadata(client, &query, tpdb_key).await {
-            Ok(search) => {
-                let scene_id = search
-                    .get("data")
-                    .and_then(|value| value.as_array())
-                    .and_then(|items| items.first())
-                    .and_then(|first| {
-                        first.get("uuid")
-                            .or_else(|| first.get("UUID"))
-                            .and_then(|value| value.as_str())
-                    });
-                let Some(scene_id) = scene_id else {
-                    continue;
-                };
-                match fetch_theporndb_scene_details(client, scene_id, tpdb_key).await {
-                    Ok(detail) => return Some(provider_match_from_tpdb_detail(&detail)),
-                    Err(err) => provider_errors.push(format!("tpdb/{query}: {err}")),
+    let queries = build_metadata_queries(item);
+    for provider in configured_adult_provider_order(provider_keys) {
+        for query in &queries {
+            let result = match provider {
+                "tpdb" => {
+                    let key = provider_keys.get("tpdb").expect("configured provider key");
+                    if !provider_value_is_real_key(key) {
+                        continue;
+                    }
+                    match fetch_theporndb_search_metadata(client, query, key).await {
+                        Ok(search) => {
+                            let scene_id = search
+                                .get("data")
+                                .and_then(|value| value.as_array())
+                                .and_then(|items| items.first())
+                                .and_then(|first| {
+                                    first.get("uuid")
+                                        .or_else(|| first.get("UUID"))
+                                        .and_then(|value| value.as_str())
+                                });
+                            match scene_id {
+                                Some(scene_id) => fetch_theporndb_scene_details(client, scene_id, key)
+                                    .await
+                                    .map(|detail| Some(provider_match_from_tpdb_detail(&detail))),
+                                None => Ok(None),
+                            }
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
+                "stashdb" => {
+                    let key = provider_keys.get("stashdb").expect("configured provider key");
+                    if !provider_value_is_real_key(key) {
+                        continue;
+                    }
+                    fetch_stashdb_item_metadata(client, query, key).await
+                }
+                "porn_site_nuxt" => {
+                    let base_url = provider_keys
+                        .get("porn_site_nuxt")
+                        .expect("configured provider value");
+                    fetch_nuxt_item_metadata(client, query, base_url).await
+                }
+                "iafd" => fetch_iafd_item_metadata(client, query).await,
+                "phoenixadult" => {
+                    if extract_phoenix_scene_query(&item.file_path).is_none() {
+                        continue;
+                    }
+                    match client.get(PHOENIX_ADULT_MANIFEST_URL).send().await {
+                        Ok(response) if response.status().is_success() => Ok(Some(
+                            ProviderWriteMatch {
+                                title: extract_phoenix_scene_query(&item.file_path),
+                                overview: None,
+                                poster_path: None,
+                                year: None,
+                                rating: None,
+                                genre: Some("Adult".to_string()),
+                                tmdb_id: None,
+                                imdb_id: None,
+                                media_type: Some("adult".to_string()),
+                            },
+                        )),
+                        Ok(response) => Err(format!("http_{}", response.status().as_u16())),
+                        Err(error) => Err(error.to_string()),
+                    }
+                }
+                "pgma" => Ok(Some(ProviderWriteMatch {
+                    title: clean_title_candidate(query),
+                    overview: None,
+                    poster_path: None,
+                    year: None,
+                    rating: None,
+                    genre: Some("Adult".to_string()),
+                    tmdb_id: None,
+                    imdb_id: None,
+                    media_type: Some("adult".to_string()),
+                })),
+                _ => Ok(None),
+            };
+            match result {
+                Ok(Some(provider_match)) => return Some(provider_match),
+                Ok(None) => {}
+                Err(error) => provider_errors.push(format!("{provider}/{query}: {error}")),
             }
-            Err(err) => provider_errors.push(format!("tpdb/{query}: {err}")),
         }
     }
     None
@@ -1036,9 +1259,59 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
 #[cfg(test)]
 mod tests {
     use super::{
-        build_metadata_queries, extract_phoenix_scene_query, is_known_provider,
-        normalize_provider_key, should_assume_key_validity, MediaItemLookup,
+        build_metadata_queries, build_metadata_update, configured_adult_provider_order,
+        extract_phoenix_scene_query, is_known_provider, normalize_provider_key,
+        should_assume_key_validity, MediaItemLookup, ProviderWriteMatch,
     };
+
+    #[test]
+    fn every_configured_adult_provider_is_kept_in_the_runtime_chain() {
+        let configured = ["tpdb", "stashdb", "porn_site_nuxt", "iafd", "phoenixadult", "pgma"]
+            .into_iter()
+            .map(|provider| (provider.to_string(), "configured".to_string()))
+            .collect();
+        assert_eq!(
+            configured_adult_provider_order(&configured),
+            vec!["tpdb", "stashdb", "porn_site_nuxt", "iafd", "phoenixadult", "pgma"]
+        );
+    }
+
+    #[test]
+    fn metadata_writeback_preserves_curated_fields_and_reports_only_real_changes() {
+        let item = MediaItemLookup {
+            id: 1,
+            title: "Curated Title".to_string(),
+            file_path: r"E:\Adult\scene.mp4".to_string(),
+            media_type: "adult".to_string(),
+            overview: Some("Curated overview".to_string()),
+            poster_path: Some("curated.jpg".to_string()),
+            year: Some(2024),
+            rating: Some(9.0),
+            genre: Some("Curated".to_string()),
+            tmdb_id: None,
+            imdb_id: None,
+        };
+        let incoming = ProviderWriteMatch {
+            title: Some("Provider Title".to_string()),
+            overview: Some("Provider overview".to_string()),
+            poster_path: Some("provider.jpg".to_string()),
+            year: Some(2025),
+            rating: Some(5.0),
+            genre: Some("Adult".to_string()),
+            tmdb_id: None,
+            imdb_id: Some("provider-id".to_string()),
+            media_type: Some("adult".to_string()),
+        };
+        let update = build_metadata_update(&item, &incoming);
+        assert!(update.title.is_none());
+        assert!(update.overview.is_none());
+        assert!(update.poster_path.is_none());
+        assert!(update.year.is_none());
+        assert!(update.rating.is_none());
+        assert!(update.genre.is_none());
+        assert_eq!(update.imdb_id.as_deref(), Some("provider-id"));
+        assert!(update.media_type.is_none());
+    }
 
     #[test]
     fn known_provider_is_detected() {
