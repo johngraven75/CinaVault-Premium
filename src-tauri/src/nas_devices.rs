@@ -2,6 +2,7 @@
 // Synology QuickConnect + WD My Cloud Home
 use crate::AppState;
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
 use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -476,12 +477,13 @@ fn authenticate_windows_shares(
     let mut errors = Vec::new();
     for library in libraries {
         let remote = network_source_path(host, &library.share_name, &library.path);
+        let user_argument = format!("/user:{username}");
         let mut command = Command::new("net");
         command.args([
             "use",
             remote.as_str(),
             password,
-            format!("/user:{username}").as_str(),
+            user_argument.as_str(),
             "/persistent:no",
         ]);
         command.creation_flags(CREATE_NO_WINDOW);
@@ -638,13 +640,6 @@ pub fn synology_add_library(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let host = conn["host"].as_str().unwrap_or("nas");
-    let port = conn["port"].as_u64().unwrap_or(5000);
-    let scheme = if conn["use_https"].as_bool().unwrap_or(false) {
-        "https"
-    } else {
-        "http"
-    };
-    let _ = (port, scheme);
     let source_path = network_source_path(host, &share_name, &share_path);
     ensure_network_source_reachable(&source_path)?;
     let source = crate::db::MediaSource {
@@ -759,13 +754,6 @@ pub fn wd_mycloud_add_library(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let host = conn["host"].as_str().unwrap_or("wd-mycloud");
-    let port = conn["port"].as_u64().unwrap_or(80);
-    let scheme = if conn["use_https"].as_bool().unwrap_or(false) {
-        "https"
-    } else {
-        "http"
-    };
-    let _ = (port, scheme);
     let source_path = network_source_path(host, &share_name, &share_path);
     ensure_network_source_reachable(&source_path)?;
     let source = crate::db::MediaSource {
