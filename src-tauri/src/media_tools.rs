@@ -1,10 +1,11 @@
-// CinaVault Premium — startup bootstrap for required media/download tools.
+// CinaVault Premium — startup bootstrap and execution bridge for media tools.
 //
 // This module performs real executable checks and, on Windows, silently asks
 // winget to install missing permanent tools. It never marks a tool ready based
 // only on catalog flags.
 use serde::Serialize;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -62,8 +63,15 @@ struct ToolStatus {
     package: String,
 }
 
+fn command_for(executable: &str) -> Command {
+    let mut command = Command::new(executable);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
 fn executable_status(tool: MediaTool) -> ToolStatus {
-    let output = Command::new(tool.executable).arg(tool.version_arg).output();
+    let output = command_for(tool.executable).arg(tool.version_arg).output();
     match output {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -99,9 +107,49 @@ fn current_statuses() -> Vec<ToolStatus> {
         .collect()
 }
 
+fn validate_media_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("A media file path is required.".to_string());
+    }
+    let candidate = Path::new(trimmed);
+    if !candidate.exists() {
+        return Err(format!("Media file does not exist: {trimmed}"));
+    }
+    if !candidate.is_file() {
+        return Err(format!("Media path is not a file: {trimmed}"));
+    }
+    candidate
+        .canonicalize()
+        .map_err(|error| format!("Unable to resolve media file path: {error}"))
+}
+
+fn run_json_tool(executable: &str, args: &[&str], path: &str) -> Result<serde_json::Value, String> {
+    let media_path = validate_media_path(path)?;
+    let output = command_for(executable)
+        .args(args)
+        .arg(&media_path)
+        .output()
+        .map_err(|error| format!("Failed to start {executable}: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("{executable} exited with code {:?}.", output.status.code())
+        } else {
+            format!("{executable} failed: {stderr}")
+        });
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| format!("{executable} returned non-UTF-8 output: {error}"))?;
+    serde_json::from_str(&stdout)
+        .map_err(|error| format!("{executable} returned invalid JSON: {error}"))
+}
+
 #[cfg(target_os = "windows")]
 fn install_winget_package(package: &str) -> serde_json::Value {
-    let mut command = Command::new("winget");
+    let mut command = command_for("winget");
     command.args([
         "install",
         "--id",
@@ -112,7 +160,6 @@ fn install_winget_package(package: &str) -> serde_json::Value {
         "--accept-package-agreements",
         "--accept-source-agreements",
     ]);
-    command.creation_flags(CREATE_NO_WINDOW);
     match command.output() {
         Ok(output) => serde_json::json!({
             "package": package,
@@ -169,6 +216,16 @@ pub fn ensure_media_tools() -> Result<serde_json::Value, String> {
         "installations": installations,
         "tools": after,
     }))
+}
+
+#[tauri::command]
+pub fn inspect_with_mediainfo(path: String) -> Result<serde_json::Value, String> {
+    run_json_tool("mediainfo", &["--Output=JSON"], &path)
+}
+
+#[tauri::command]
+pub fn inspect_with_mkvtoolnix(path: String) -> Result<serde_json::Value, String> {
+    run_json_tool("mkvmerge", &["--identification-format", "json", "--identify"], &path)
 }
 
 #[cfg(test)]
