@@ -11,8 +11,8 @@ use tauri::State;
 use walkdir::WalkDir;
 
 const MEDIA_EXTENSIONS: &[&str] = &[
-    "mkv", "mp4", "avi", "mov", "wmv", "m4v", "webm", "mpg", "mpeg", "ts", "m2ts",
-    "mp3", "flac", "m4a", "aac", "wav", "ogg",
+    "mkv", "mp4", "avi", "mov", "wmv", "m4v", "webm", "mpg", "mpeg", "ts", "m2ts", "mp3", "flac",
+    "m4a", "aac", "wav", "ogg",
 ];
 
 fn provider_key(provider: &str) -> Result<&'static str, String> {
@@ -91,7 +91,9 @@ fn count_media_files(root: &Path) -> u64 {
                 .path()
                 .extension()
                 .and_then(|extension| extension.to_str())
-                .map(|extension| MEDIA_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
+                .map(|extension| {
+                    MEDIA_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+                })
                 .unwrap_or(false)
         })
         .count() as u64
@@ -117,7 +119,12 @@ fn list_directory_entries(root: &Path) -> Result<Vec<Value>, String> {
             .as_str()
             .unwrap_or_default()
             .to_ascii_lowercase()
-            .cmp(&right["name"].as_str().unwrap_or_default().to_ascii_lowercase())
+            .cmp(
+                &right["name"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase(),
+            )
     });
     Ok(entries)
 }
@@ -160,15 +167,17 @@ pub fn cloud_disconnect(state: State<AppState>, provider: String) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn cloud_sync(
-    state: State<AppState>,
-    provider: String,
-    path: String,
-) -> Result<Value, String> {
+pub fn cloud_sync(state: State<AppState>, provider: String, path: String) -> Result<Value, String> {
     let root = resolve_provider_path(&provider, &path)?;
     let provider = provider_key(&provider)?;
     let count = count_media_files(&root);
-    let name = format!("{} — {}", provider, root.file_name().and_then(|value| value.to_str()).unwrap_or("Media"));
+    let name = format!(
+        "{} — {}",
+        provider,
+        root.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("Media")
+    );
     let source_path = root.to_string_lossy().to_string();
 
     let db = state.db.lock().map_err(|error| error.to_string())?;
@@ -229,7 +238,12 @@ pub fn cloud_get_status(state: State<AppState>) -> Result<Value, String> {
             .filter(|value| !value.is_empty())
         {
             if let Ok(record) = serde_json::from_str::<Value>(&raw) {
-                if record["root"].as_str().map(Path::new).map(readable_directory).unwrap_or(false) {
+                if record["root"]
+                    .as_str()
+                    .map(Path::new)
+                    .map(readable_directory)
+                    .unwrap_or(false)
+                {
                     connected.push(record);
                 }
             }
@@ -248,7 +262,10 @@ mod tests {
 
     #[test]
     fn cloud_folder_operations_read_real_files_and_never_fake_counts() {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!("cinavault-cloud-test-{stamp}"));
         std::fs::create_dir_all(root.join("Movies")).unwrap();
         std::fs::write(root.join("Movies").join("Feature.mkv"), b"media").unwrap();

@@ -199,7 +199,9 @@ export class PluginAdapterEngine {
   // ── Uninstall a plugin ──
   async uninstallPlugin(pluginId: string): Promise<boolean> {
     if (pluginId === PGMA_PLUGIN_ID) {
-      console.warn("PGMA is a required adult metadata provider and cannot be removed.");
+      console.warn(
+        "PGMA is a required adult metadata provider and cannot be removed.",
+      );
       return false;
     }
     try {

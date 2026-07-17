@@ -314,10 +314,7 @@ export default function MediaSourcesTab() {
             disabled={discovering}
             className="cv-btn cv-btn-gold disabled:opacity-50"
           >
-            <Sparkles
-              size={14}
-              className={discovering ? "animate-spin" : ""}
-            />
+            <Sparkles size={14} className={discovering ? "animate-spin" : ""} />
             {discovering ? "Discovering Sources..." : "AI Discover Sources"}
           </button>
           <button

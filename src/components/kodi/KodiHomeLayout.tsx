@@ -41,7 +41,6 @@ function resolveImg(path?: string | null): string | undefined {
   }
 }
 
-
 function KodiPosterImage({
   path,
   alt,

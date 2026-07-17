@@ -31,7 +31,11 @@ export default function DownloadsTab() {
     try {
       const status = await invoke<{
         ready: boolean;
-        tools: Array<{ id: string; installed: boolean; version?: string | null }>;
+        tools: Array<{
+          id: string;
+          installed: boolean;
+          version?: string | null;
+        }>;
       }>("get_media_tools_status");
       setToolStatus(
         Object.fromEntries(
@@ -77,11 +81,14 @@ export default function DownloadsTab() {
   };
 
   const installTools = async () => {
-    addStatusMessage("Automatically checking and repairing permanent media tools...");
+    addStatusMessage(
+      "Automatically checking and repairing permanent media tools...",
+    );
     try {
-      const result = await invoke<{ ready: boolean; tools: Array<{ id: string; installed: boolean }> }>(
-        "ensure_media_tools",
-      );
+      const result = await invoke<{
+        ready: boolean;
+        tools: Array<{ id: string; installed: boolean }>;
+      }>("ensure_media_tools");
       const missing = result.tools
         .filter((tool) => !tool.installed)
         .map((tool) => tool.id);

@@ -57,7 +57,9 @@ pub struct PluginRunResult {
 fn plugin_root() -> Result<PathBuf, String> {
     let base = dirs::data_local_dir()
         .or_else(dirs::data_dir)
-        .ok_or_else(|| "The operating-system application-data folder is unavailable.".to_string())?;
+        .ok_or_else(|| {
+            "The operating-system application-data folder is unavailable.".to_string()
+        })?;
     Ok(base.join("CinaVault").join("plugins"))
 }
 
@@ -109,7 +111,8 @@ fn load_installed() -> Result<Vec<InstalledPlugin>, String> {
         return Ok(Vec::new());
     }
     let contents = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&contents).map_err(|error| format!("Invalid plugin registry JSON: {error}"))
+    serde_json::from_str(&contents)
+        .map_err(|error| format!("Invalid plugin registry JSON: {error}"))
 }
 
 fn save_installed(installed: &[InstalledPlugin]) -> Result<(), String> {
@@ -180,7 +183,11 @@ fn default_catalog() -> Vec<PluginEntry> {
             repo_id: "official".to_string(),
             author: "CinaVault Team".to_string(),
             homepage: "https://www.themoviedb.org".to_string(),
-            tags: vec!["metadata".to_string(), "movies".to_string(), "tv".to_string()],
+            tags: vec![
+                "metadata".to_string(),
+                "movies".to_string(),
+                "tv".to_string(),
+            ],
         },
         PluginEntry {
             id: "subtitle-opensubtitles".to_string(),
@@ -202,7 +209,11 @@ fn default_catalog() -> Vec<PluginEntry> {
             repo_id: "official".to_string(),
             author: "CinaVault Team".to_string(),
             homepage: "https://cinavault.app/plugins/chromecast".to_string(),
-            tags: vec!["cast".to_string(), "chromecast".to_string(), "google".to_string()],
+            tags: vec![
+                "cast".to_string(),
+                "chromecast".to_string(),
+                "google".to_string(),
+            ],
         },
     ]
 }
@@ -224,7 +235,12 @@ pub fn add_plugin_repo(id: String, name: String, url: String) -> Result<Vec<Plug
     if repositories.iter().any(|repo| repo.id == id) {
         return Err(format!("Repository '{id}' already exists."));
     }
-    repositories.push(PluginRepo { id, name, url, enabled: true });
+    repositories.push(PluginRepo {
+        id,
+        name,
+        url,
+        enabled: true,
+    });
     save_repositories(&repositories)?;
     Ok(repositories)
 }
@@ -299,7 +315,9 @@ pub fn install_plugin(
 pub fn uninstall_plugin(plugin_id: String) -> Result<String, String> {
     validate_id(&plugin_id)?;
     if plugin_id == PGMA_PLUGIN_ID {
-        return Err("PGMA is a required adult metadata provider and cannot be removed.".to_string());
+        return Err(
+            "PGMA is a required adult metadata provider and cannot be removed.".to_string(),
+        );
     }
     let _io = PLUGIN_IO.lock().map_err(|error| error.to_string())?;
     let mut installed = load_installed()?;
@@ -336,7 +354,8 @@ pub fn run_plugin(
 
     match action.as_str() {
         "configure" => {
-            let config = config.ok_or_else(|| "Plugin configuration JSON is required.".to_string())?;
+            let config =
+                config.ok_or_else(|| "Plugin configuration JSON is required.".to_string())?;
             let _: serde_json::Value = serde_json::from_str(&config)
                 .map_err(|error| format!("Invalid plugin configuration JSON: {error}"))?;
             plugin.config_json = config;
@@ -356,7 +375,11 @@ pub fn run_plugin(
     save_manifest(plugin)?;
     let output = format!("Plugin '{}' action '{}' persisted.", plugin.id, action);
     save_installed(&installed)?;
-    Ok(PluginRunResult { success: true, output, exit_code: 0 })
+    Ok(PluginRunResult {
+        success: true,
+        output,
+        exit_code: 0,
+    })
 }
 
 #[tauri::command]

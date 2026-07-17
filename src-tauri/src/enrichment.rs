@@ -1738,14 +1738,18 @@ mod tests {
 
     #[test]
     fn acquired_poster_is_validated_and_atomically_written_as_a_sidecar() {
-        let dir = std::env::temp_dir().join(format!("cinavault-poster-write-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-poster-write-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("temp dir should be created");
         let video = dir.join("Movie.mp4");
         fs::write(&video, b"video").expect("video should be created");
         let png = b"\x89PNG\r\n\x1a\nvalid-image-payload";
 
         assert!(valid_poster_payload(Some("image/png"), png));
-        assert!(!valid_poster_payload(Some("text/html"), b"<html>error</html>"));
+        assert!(!valid_poster_payload(
+            Some("text/html"),
+            b"<html>error</html>"
+        ));
         let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "png", png)
             .expect("poster sidecar should be written");
 

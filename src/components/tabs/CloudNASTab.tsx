@@ -188,7 +188,11 @@ export default function CloudNASTab() {
   const backendProvider = (id: CloudId): string =>
     id === "gdrive" ? "googledrive" : id;
   const cloudName = (id: CloudId): string =>
-    id === "gdrive" ? "Google Drive" : id === "onedrive" ? "OneDrive" : "Dropbox";
+    id === "gdrive"
+      ? "Google Drive"
+      : id === "onedrive"
+        ? "OneDrive"
+        : "Dropbox";
   const errorText = (error: unknown): string =>
     error instanceof Error ? error.message : String(error);
 

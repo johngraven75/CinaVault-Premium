@@ -67,7 +67,6 @@ function resolveMediaImageSrc(path?: string | null): string | undefined {
   }
 }
 
-
 function MediaPosterImage({
   path,
   alt,

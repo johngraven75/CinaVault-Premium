@@ -21,8 +21,8 @@ mod downloads;
 mod duplicates;
 mod enrichment;
 mod library_artifacts;
-mod metadata_bridge;
 mod media_tools;
+mod metadata_bridge;
 mod metadata_ext;
 #[cfg(test)]
 mod metadata_posting_tests;

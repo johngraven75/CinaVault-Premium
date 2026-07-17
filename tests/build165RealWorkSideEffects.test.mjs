@@ -18,7 +18,10 @@ test("AI source discovery mutates the source database and the button invokes it"
   assert.match(scanner, /pub async fn discover_media_sources/);
   assert.match(scanner, /discover_and_add_sources/);
   assert.match(scanner, /db\.add_source_data/);
-  assert.match(scanner, /discovery_adds_real_database_sources_from_media_directories/);
+  assert.match(
+    scanner,
+    /discovery_adds_real_database_sources_from_media_directories/,
+  );
   assert.match(sourcesUi, /invoke[^]*"discover_media_sources"/);
   assert.doesNotMatch(
     sourcesUi,
@@ -67,7 +70,10 @@ test("poster acquisition persists verified sidecars and media cards handle failu
   assert.match(enrichment, /file\.sync_all/);
   assert.match(enrichment, /std::fs::rename\(&temporary_path, &sidecar_path\)/);
   assert.match(enrichment, /db\.update_media_metadata_data/);
-  assert.match(enrichment, /acquired_poster_is_validated_and_atomically_written_as_a_sidecar/);
+  assert.match(
+    enrichment,
+    /acquired_poster_is_validated_and_atomically_written_as_a_sidecar/,
+  );
   for (const ui of [home, kodi]) {
     assert.match(ui, /convertFileSrc/);
     assert.match(ui, /onError=\{\(\) => setFailed\(true\)\}/);
@@ -83,7 +89,10 @@ test("cloud commands read real folders, persist sources, and reject fake success
   assert.match(cloud, /list_directory_entries/);
   assert.match(cloud, /count_media_files/);
   assert.match(cloud, /db\.add_source_data/);
-  assert.match(cloud, /unreadable_cloud_folder_returns_an_error_instead_of_success/);
+  assert.match(
+    cloud,
+    /unreadable_cloud_folder_returns_an_error_instead_of_success/,
+  );
   assert.doesNotMatch(main, /Cloud sync placeholder/);
   assert.doesNotMatch(main, /Ok\(vec!\[\]\)/);
 });
@@ -93,7 +102,13 @@ test("permanent media tools automatically check and install at application start
   const app = read("src/App.tsx");
   const downloads = read("src/components/tabs/DownloadsTab.tsx");
   const catalog = read("src/plugins/permanentMediaPlugins.ts");
-  for (const tool of ["ffmpeg", "ffprobe", "yt-dlp", "mediainfo", "mkvtoolnix"]) {
+  for (const tool of [
+    "ffmpeg",
+    "ffprobe",
+    "yt-dlp",
+    "mediainfo",
+    "mkvtoolnix",
+  ]) {
     assert.match(tools, new RegExp(`id: "${tool}"`));
   }
   assert.match(tools, /--disable-interactivity/);
@@ -103,7 +118,6 @@ test("permanent media tools automatically check and install at application start
   assert.match(downloads, /ensure_media_tools/);
   assert.doesNotMatch(catalog, /autoInstall: false/);
 });
-
 
 test("settings restore from the backend and all persistent slices autosave", () => {
   const app = read("src/App.tsx");
@@ -136,10 +150,16 @@ test("cloud and plugin failures cannot be converted into local success", () => {
   assert.match(cloudUi, /Browse failed/);
   assert.doesNotMatch(cloudUi, /catch \{\}/);
   assert.doesNotMatch(adapter, /action: "configure"[^]*?catch \{\}/);
-  assert.match(runtime, /no executable runtime registered; no work was performed/);
+  assert.match(
+    runtime,
+    /no executable runtime registered; no work was performed/,
+  );
   assert.match(runtime, /atomic_write/);
   assert.match(runtime, /save_manifest/);
-  assert.match(runtime, /PGMA is a required adult metadata provider and cannot be removed/);
+  assert.match(
+    runtime,
+    /PGMA is a required adult metadata provider and cannot be removed/,
+  );
 });
 
 test("startup installs only permanent plugins and adult providers default enabled", () => {
@@ -147,7 +167,10 @@ test("startup installs only permanent plugins and adult providers default enable
   const store = read("src/store/appStore.ts");
   assert.match(initialize, /getStartupMediaPlugins/);
   assert.match(initialize, /startupPluginIds\.has\(plugin\.id\)/);
-  assert.doesNotMatch(initialize, /for \(const plugin of FULL_PLUGIN_REGISTRY\)/);
+  assert.doesNotMatch(
+    initialize,
+    /for \(const plugin of FULL_PLUGIN_REGISTRY\)/,
+  );
   for (const id of [
     "pgma",
     "porn_site_nuxt",

@@ -3,9 +3,9 @@
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
-use std::path::Path;
-#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 use tauri::State;
@@ -446,7 +446,6 @@ fn urlencoding_simple(s: &str) -> String {
         .collect()
 }
 
-
 fn network_source_path(host: &str, share_name: &str, share_path: &str) -> String {
     let share = if share_name.trim().is_empty() {
         share_path
@@ -562,10 +561,12 @@ pub fn synology_connect(
     let libraries = synology_get_shares(&host, resolved_port, use_https, &sid)?;
 
     // Establish authenticated SMB sessions so discovered shares are real filesystem sources.
-    let share_auth_errors =
-        authenticate_windows_shares(&host, &libraries, &username, &password);
+    let share_auth_errors = authenticate_windows_shares(&host, &libraries, &username, &password);
     if !share_auth_errors.is_empty() {
-        log::warn!("Some Synology shares were not mounted: {}", share_auth_errors.join("; "));
+        log::warn!(
+            "Some Synology shares were not mounted: {}",
+            share_auth_errors.join("; ")
+        );
     }
 
     // Persist the authenticated session without storing the plaintext password.
@@ -677,10 +678,12 @@ pub fn wd_mycloud_connect(
     let (device_name, device_model, firmware) =
         wd_mycloud_get_info(&host, resolved_port, use_https, &session);
     let libraries = wd_mycloud_get_shares(&host, resolved_port, use_https, &session)?;
-    let share_auth_errors =
-        authenticate_windows_shares(&host, &libraries, &username, &password);
+    let share_auth_errors = authenticate_windows_shares(&host, &libraries, &username, &password);
     if !share_auth_errors.is_empty() {
-        log::warn!("Some WD My Cloud shares were not mounted: {}", share_auth_errors.join("; "));
+        log::warn!(
+            "Some WD My Cloud shares were not mounted: {}",
+            share_auth_errors.join("; ")
+        );
     }
 
     // Persist the authenticated session without storing the plaintext password

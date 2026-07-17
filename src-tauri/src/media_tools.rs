@@ -5,9 +5,9 @@
 // only on catalog flags.
 use serde::Serialize;
 use std::collections::HashSet;
-use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::Command;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -21,11 +21,36 @@ struct MediaTool {
 }
 
 const REQUIRED_MEDIA_TOOLS: &[MediaTool] = &[
-    MediaTool { id: "ffmpeg", executable: "ffmpeg", version_arg: "-version", winget_package: "Gyan.FFmpeg" },
-    MediaTool { id: "ffprobe", executable: "ffprobe", version_arg: "-version", winget_package: "Gyan.FFmpeg" },
-    MediaTool { id: "yt-dlp", executable: "yt-dlp", version_arg: "--version", winget_package: "yt-dlp.yt-dlp" },
-    MediaTool { id: "mediainfo", executable: "mediainfo", version_arg: "--Version", winget_package: "MediaArea.MediaInfo.CLI" },
-    MediaTool { id: "mkvtoolnix", executable: "mkvmerge", version_arg: "--version", winget_package: "MoritzBunkus.MKVToolNix" },
+    MediaTool {
+        id: "ffmpeg",
+        executable: "ffmpeg",
+        version_arg: "-version",
+        winget_package: "Gyan.FFmpeg",
+    },
+    MediaTool {
+        id: "ffprobe",
+        executable: "ffprobe",
+        version_arg: "-version",
+        winget_package: "Gyan.FFmpeg",
+    },
+    MediaTool {
+        id: "yt-dlp",
+        executable: "yt-dlp",
+        version_arg: "--version",
+        winget_package: "yt-dlp.yt-dlp",
+    },
+    MediaTool {
+        id: "mediainfo",
+        executable: "mediainfo",
+        version_arg: "--Version",
+        winget_package: "MediaArea.MediaInfo.CLI",
+    },
+    MediaTool {
+        id: "mkvtoolnix",
+        executable: "mkvmerge",
+        version_arg: "--version",
+        winget_package: "MoritzBunkus.MKVToolNix",
+    },
 ];
 
 #[derive(Debug, Serialize)]
@@ -153,7 +178,10 @@ mod tests {
 
     #[test]
     fn every_permanent_download_tool_has_an_automatic_package() {
-        let ids = REQUIRED_MEDIA_TOOLS.iter().map(|tool| tool.id).collect::<HashSet<_>>();
+        let ids = REQUIRED_MEDIA_TOOLS
+            .iter()
+            .map(|tool| tool.id)
+            .collect::<HashSet<_>>();
         for required in ["ffmpeg", "ffprobe", "yt-dlp", "mediainfo", "mkvtoolnix"] {
             assert!(ids.contains(required));
         }

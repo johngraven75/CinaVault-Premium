@@ -243,7 +243,10 @@ export default function App(): JSX.Element {
             await invoke<Record<string, string>>("get_all_settings");
           persistedState = { ...localState, ...backendState };
         } catch (error) {
-          console.warn("Backend settings unavailable; using local state:", error);
+          console.warn(
+            "Backend settings unavailable; using local state:",
+            error,
+          );
         }
 
         restorePersistedState(persistedState);
@@ -261,7 +264,9 @@ export default function App(): JSX.Element {
             `Automatic media-tool setup needs attention: ${missing || "unknown tools"}`,
           );
         } else {
-          addStatusMessage("FFmpeg, FFprobe, yt-dlp, MediaInfo, and MKVToolNix loaded");
+          addStatusMessage(
+            "FFmpeg, FFprobe, yt-dlp, MediaInfo, and MKVToolNix loaded",
+          );
         }
 
         const appWindow = getCurrentWindow();

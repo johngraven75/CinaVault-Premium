@@ -6,9 +6,9 @@ use crate::library_artifacts::{
 use crate::AppState;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeSet, HashSet};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -241,7 +241,6 @@ fn source_report_json(
     })
 }
 
-
 fn looks_like_media_directory(path: &Path) -> bool {
     let name = path
         .file_name()
@@ -249,8 +248,19 @@ fn looks_like_media_directory(path: &Path) -> bool {
         .unwrap_or_default()
         .to_ascii_lowercase();
     [
-        "movie", "film", "cinema", "video", "tv", "television", "series", "show",
-        "music", "audio", "media", "adult", "personal vids",
+        "movie",
+        "film",
+        "cinema",
+        "video",
+        "tv",
+        "television",
+        "series",
+        "show",
+        "music",
+        "audio",
+        "media",
+        "adult",
+        "personal vids",
     ]
     .iter()
     .any(|keyword| name.contains(keyword))

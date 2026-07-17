@@ -26,7 +26,9 @@ function readJson(path) {
 
 test("every plugin config is valid, enabled, uniquely identified JSON", () => {
   assert.ok(existsSync(CONFIG_DIR), "plugins/configs must exist");
-  const files = readdirSync(CONFIG_DIR).filter((file) => file.endsWith(".json"));
+  const files = readdirSync(CONFIG_DIR).filter((file) =>
+    file.endsWith(".json"),
+  );
   assert.ok(files.length >= 20, "expected the complete plugin config catalog");
 
   const keys = new Set();
@@ -37,8 +39,16 @@ test("every plugin config is valid, enabled, uniquely identified JSON", () => {
     assert.ok(config._key?.trim(), `${file}: _key is required`);
     assert.ok(config._category?.trim(), `${file}: _category is required`);
     assert.ok(config._description?.trim(), `${file}: _description is required`);
-    assert.equal(typeof config.enabled, "boolean", `${file}: enabled must be boolean`);
-    assert.equal(config.enabled, true, `${file}: shipped features must start enabled`);
+    assert.equal(
+      typeof config.enabled,
+      "boolean",
+      `${file}: enabled must be boolean`,
+    );
+    assert.equal(
+      config.enabled,
+      true,
+      `${file}: shipped features must start enabled`,
+    );
     assert.ok(!keys.has(config._key), `${file}: duplicate _key ${config._key}`);
     keys.add(config._key);
 
@@ -60,7 +70,10 @@ test("every plugin config is valid, enabled, uniquely identified JSON", () => {
 
 test("all adult providers are enabled and aligned from config to startup routing", () => {
   const engine = readJson(resolve(CONFIG_DIR, "cv-metadata-engine.json"));
-  const dbSource = readFileSync(resolve(ROOT, "src-tauri", "src", "db.rs"), "utf8");
+  const dbSource = readFileSync(
+    resolve(ROOT, "src-tauri", "src", "db.rs"),
+    "utf8",
+  );
   const metadataSource = readFileSync(
     resolve(ROOT, "src-tauri", "src", "metadata.rs"),
     "utf8",
@@ -68,7 +81,10 @@ test("all adult providers are enabled and aligned from config to startup routing
 
   for (const provider of ADULT_PROVIDERS) {
     const configPath = resolve(CONFIG_DIR, `${provider}.json`);
-    assert.ok(existsSync(configPath), `missing adult provider config: ${provider}`);
+    assert.ok(
+      existsSync(configPath),
+      `missing adult provider config: ${provider}`,
+    );
     const config = readJson(configPath);
     assert.equal(config._key, provider);
     assert.equal(config.enabled, true);
