@@ -15,6 +15,16 @@ declare module "./pluginAdapter" {
 
 type PluginBootConfig = Record<string, unknown>;
 
+type PluginConfigSeed = {
+  pluginId: string;
+  name: string;
+  version: string;
+  platform: string;
+  category: string;
+  configurable: boolean;
+  defaultConfig: PluginBootConfig;
+};
+
 function defaultConfigFor(plugin: PluginEntry): PluginBootConfig {
   if (plugin.id === PGMA_PLUGIN_ID) {
     return { ...PGMA_DEFAULT_CONFIG, enabled: true, installedAtBoot: true };
@@ -35,6 +45,18 @@ function defaultConfigFor(plugin: PluginEntry): PluginBootConfig {
   };
 }
 
+function configSeeds(): PluginConfigSeed[] {
+  return FULL_PLUGIN_REGISTRY.map((plugin) => ({
+    pluginId: plugin.id,
+    name: plugin.name,
+    version: plugin.version,
+    platform: plugin.platforms[0] || "cinavault",
+    category: plugin.category,
+    configurable: plugin.configurable,
+    defaultConfig: defaultConfigFor(plugin),
+  }));
+}
+
 function isValidConfig(raw: string | undefined): boolean {
   if (!raw || !raw.trim()) return false;
   try {
@@ -45,6 +67,10 @@ function isValidConfig(raw: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+async function provisionAllPluginConfigs(): Promise<void> {
+  await invoke("ensure_plugin_config_files", { seeds: configSeeds() });
 }
 
 async function installAndValidatePlugin(plugin: PluginEntry): Promise<void> {
@@ -80,6 +106,9 @@ async function installAndValidatePlugin(plugin: PluginEntry): Promise<void> {
 async function initializePluginEngine(): Promise<void> {
   await pluginEngine.loadFromBackend();
 
+  // Always create/repair one valid default JSON template for every plugin option.
+  await provisionAllPluginConfigs();
+
   const startupPluginIds = new Set([
     ...getStartupMediaPlugins().map((plugin) => plugin.id),
     PGMA_PLUGIN_ID,
@@ -96,6 +125,9 @@ async function initializePluginEngine(): Promise<void> {
     }
   }
 
+  // Run again after startup installs so every installed plugin receives a
+  // physical config.json in its permanent plugin directory.
+  await provisionAllPluginConfigs();
   await pluginEngine.loadFromBackend();
 }
 
