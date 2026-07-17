@@ -1,6 +1,6 @@
 [package]
 name = "cinavault-premium"
-version = "1.6.5"
+version = "1.6.6"
 description = "CinaVault Premium — A Full-Featured Media Server"
 authors = ["CinaVault Team"]
 edition = "2021"
