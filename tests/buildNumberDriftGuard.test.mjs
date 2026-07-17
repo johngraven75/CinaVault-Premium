@@ -6,9 +6,9 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
-const currentBuild = "165";
-const currentVersion = "1.6.5";
-const historicalBuilds = ["160", "161", "162", "163", "164"];
+const currentBuild = "166";
+const currentVersion = "1.6.6";
+const historicalBuilds = ["160", "161", "162", "163", "164", "165"];
 const excludedDirectories = new Set([
   ".git",
   "node_modules",
