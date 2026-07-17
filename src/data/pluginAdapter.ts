@@ -16,14 +16,14 @@ export const PGMA_DEFAULT_CONFIG = {
     "https://github.com/CodyBerenson/PGMA-Modernized/archive/refs/heads/master.zip",
   defaultTarget: "cinavault-staging",
   notes:
-    "Leave plexPluginPath blank to deploy into CinaVault's local Plex plugin staging folder. Set it only when you want to deploy directly into a real Plex Plug-ins folder.",
+    "PGMA runs through CinaVault's native metadata bridge. A Plex bundle is optional and is never reported as deployed unless a real deployment completes.",
   requiresPlexRestart: true,
   nativeToolchain: "native-rust-pgma-bridge",
   metadataSources: ["nfo", "localArtwork"],
   downloadArtwork: true,
   overwriteExistingMetadata: false,
   limit: 5000,
-  autoDeployBundlesOnInstall: true,
+  autoDeployBundlesOnInstall: false,
   autoRefreshLibraryAfterDeploy: false,
 };
 
