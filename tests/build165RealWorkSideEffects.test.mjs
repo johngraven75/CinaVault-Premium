@@ -87,3 +87,19 @@ test("cloud commands read real folders, persist sources, and reject fake success
   assert.doesNotMatch(main, /Cloud sync placeholder/);
   assert.doesNotMatch(main, /Ok\(vec!\[\]\)/);
 });
+
+test("permanent media tools automatically check and install at application startup", () => {
+  const tools = read("src-tauri/src/media_tools.rs");
+  const app = read("src/App.tsx");
+  const downloads = read("src/components/tabs/DownloadsTab.tsx");
+  const catalog = read("src/plugins/permanentMediaPlugins.ts");
+  for (const tool of ["ffmpeg", "ffprobe", "yt-dlp", "mediainfo", "mkvtoolnix"]) {
+    assert.match(tools, new RegExp(`id: "${tool}"`));
+  }
+  assert.match(tools, /--disable-interactivity/);
+  assert.match(tools, /--accept-package-agreements/);
+  assert.match(app, /ensurePermanentMediaPluginsAtStartup/);
+  assert.match(downloads, /get_media_tools_status/);
+  assert.match(downloads, /ensure_media_tools/);
+  assert.doesNotMatch(catalog, /autoInstall: false/);
+});
