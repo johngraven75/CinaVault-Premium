@@ -10,13 +10,31 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::State;
 
-// Best free HuggingFace model for media library management (instruction-following, free tier)
-const DEFAULT_MODEL: &str = "mistralai/Mistral-7B-Instruct-v0.3";
+// Efficient multilingual instruction model selected for structured media-library work.
+const DEFAULT_MODEL: &str = "Qwen/Qwen3-4B-Instruct-2507";
 const ROUTING_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn read_hf_token_file(path: &Path) -> Option<String> {
+    let token = std::fs::read_to_string(path).ok()?;
+    let token = token.trim();
+    if token.starts_with("hf_") && token.len() > 20 {
+        Some(token.to_string())
+    } else {
+        None
+    }
+}
+
+fn cached_hf_token() -> Option<String> {
+    let token_path = dirs::home_dir()?
+        .join(".cache")
+        .join("huggingface")
+        .join("token");
+    read_hf_token_file(&token_path)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiQueryRoute {
@@ -268,6 +286,7 @@ pub async fn ai_inference(
             .filter(|t| !t.trim().is_empty())
             .or_else(|| std::env::var("CINAVAULT_HF_TOKEN").ok())
             .or_else(|| std::env::var("HF_TOKEN").ok())
+            .or_else(cached_hf_token)
     };
 
     let model_id = model.unwrap_or_else(|| {
@@ -1384,7 +1403,8 @@ pub fn set_hf_token(state: State<AppState>, token: String) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
-/// Checks if a HuggingFace token is available (DB or env var) and auto-seeds it into DB.
+/// Checks DB, environment variables, and the persistent Hugging Face CLI cache.
+/// A valid fallback credential is copied into the app DB so subsequent calls are stable.
 /// Returns availability status and source so the UI can show the correct state.
 #[tauri::command]
 pub fn ensure_hf_token(state: State<AppState>) -> Result<serde_json::Value, String> {
@@ -1399,26 +1419,31 @@ pub fn ensure_hf_token(state: State<AppState>) -> Result<serde_json::Value, Stri
             }));
         }
     }
-    // 2. Check env vars and auto-seed into DB so future calls find it
-    let env_token = std::env::var("CINAVAULT_HF_TOKEN")
+    // 2. Import a valid environment or Hugging Face CLI cached credential.
+    let (source, fallback_token) = if let Some(token) = std::env::var("CINAVAULT_HF_TOKEN")
         .ok()
-        .or_else(|| std::env::var("HF_TOKEN").ok());
-    if let Some(token) = env_token {
-        if !token.trim().is_empty() {
-            let _ = db.set_setting_data("hf_token", &token);
-            return Ok(serde_json::json!({
-                "available": true,
-                "source": "env_auto_seeded",
-                "model": DEFAULT_MODEL,
-            }));
-        }
+        .or_else(|| std::env::var("HF_TOKEN").ok())
+        .filter(|token| !token.trim().is_empty())
+    {
+        ("env_auto_seeded", Some(token))
+    } else {
+        ("hf_cache_auto_seeded", cached_hf_token())
+    };
+    if let Some(token) = fallback_token {
+        db.set_setting_data("hf_token", &token)
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::json!({
+            "available": true,
+            "source": source,
+            "model": DEFAULT_MODEL,
+        }));
     }
     Ok(serde_json::json!({
         "available": false,
         "source": "missing",
         "model": DEFAULT_MODEL,
         "get_token_url": "https://huggingface.co/settings/tokens",
-        "hint": "Enter your HuggingFace token in the AI Configure panel, or set CINAVAULT_HF_TOKEN env var",
+        "hint": "Sign in with the Hugging Face CLI, enter a token in AI Configure, or set CINAVAULT_HF_TOKEN",
     }))
 }
 
@@ -1442,7 +1467,8 @@ pub fn get_ai_config(state: State<AppState>) -> Result<serde_json::Value, String
         || std::env::var("HF_TOKEN")
             .map(|t| !t.trim().is_empty())
             .unwrap_or(false);
-    let has_token = db_token_present || env_token_present;
+    let cached_token_present = cached_hf_token().is_some();
+    let has_token = db_token_present || env_token_present || cached_token_present;
     Ok(serde_json::json!({
         "model": model,
         "has_token": has_token,
