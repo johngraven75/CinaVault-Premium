@@ -22,3 +22,56 @@ env:
 jobs:
   build-and-release:
     name: Build and publish Windows prerelease
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate frontend
+        run: npm run build
+
+      - name: Build Tauri installers
+        run: npm run tauri build
+
+      - name: Stage release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File |
+            Where-Object { $_.Extension -in '.exe', '.msi' } |
+            Copy-Item -Destination release-assets
+          $assets = Get-ChildItem release-assets -File
+          if ($assets.Count -eq 0) {
+            throw 'No Windows installer assets were produced.'
+          }
+          $assets | ForEach-Object { Write-Host $_.FullName }
+
+      - name: Publish Build 167 Beta 1 prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.6.7-beta.1
+          name: CinaVault Premium Build 167 Beta 1
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/*.exe
+            release-assets/*.msi
