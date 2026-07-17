@@ -384,12 +384,17 @@ fn media_item_is_adult(item: &MediaItemLookup) -> bool {
         || has_adult_hint(&item.file_path)
 }
 
-fn should_replace_title(current: &str, incoming: Option<&str>) -> Option<String> {
+fn should_replace_title(current: &str, file_path: &str, incoming: Option<&str>) -> Option<String> {
     let incoming = clean_title_candidate(incoming?)?;
     let current = current.trim();
+    let filename_title = std::path::Path::new(file_path)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(normalize_filename_title)
+        .unwrap_or_default();
     if current.is_empty()
         || current.eq_ignore_ascii_case("unknown")
-        || current.eq_ignore_ascii_case(&normalize_filename_title(current))
+        || (!filename_title.is_empty() && current.eq_ignore_ascii_case(&filename_title))
         || current.contains('_')
         || current.contains('.')
         || current.eq_ignore_ascii_case(&incoming)
@@ -884,7 +889,7 @@ async fn fetch_standard_item_metadata(
 
 fn build_metadata_update(item: &MediaItemLookup, provider: &ProviderWriteMatch) -> ProviderWriteMatch {
     let mut update = ProviderWriteMatch::default();
-    update.title = should_replace_title(&item.title, provider.title.as_deref());
+    update.title = should_replace_title(&item.title, &item.file_path, provider.title.as_deref());
     if item.overview.as_deref().map(|value| value.trim().is_empty()).unwrap_or(true) {
         update.overview = provider.overview.clone();
     }
