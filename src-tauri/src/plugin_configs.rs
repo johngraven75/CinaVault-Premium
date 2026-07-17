@@ -52,8 +52,25 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .ok_or_else(|| "Configuration file has no parent folder.".to_string())?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let temporary = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
     fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())
+    if path.exists() {
+        let _ = fs::remove_file(&backup);
+        fs::rename(path, &backup).map_err(|error| error.to_string())?;
+    }
+    match fs::rename(&temporary, path) {
+        Ok(()) => {
+            let _ = fs::remove_file(&backup);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            if backup.exists() {
+                let _ = fs::rename(&backup, path);
+            }
+            Err(error.to_string())
+        }
+    }
 }
 
 fn normalized_default(seed: &PluginConfigSeed) -> Value {
@@ -61,33 +78,15 @@ fn normalized_default(seed: &PluginConfigSeed) -> Value {
         Value::Object(values) => values,
         _ => Map::new(),
     };
-    object
-        .entry("schemaVersion".to_string())
-        .or_insert(Value::from(1));
-    object
-        .entry("pluginId".to_string())
-        .or_insert(Value::from(seed.plugin_id.clone()));
-    object
-        .entry("name".to_string())
-        .or_insert(Value::from(seed.name.clone()));
-    object
-        .entry("version".to_string())
-        .or_insert(Value::from(seed.version.clone()));
-    object
-        .entry("platform".to_string())
-        .or_insert(Value::from(seed.platform.clone()));
-    object
-        .entry("category".to_string())
-        .or_insert(Value::from(seed.category.clone()));
-    object
-        .entry("configurable".to_string())
-        .or_insert(Value::from(seed.configurable));
-    object
-        .entry("enabled".to_string())
-        .or_insert(Value::from(true));
-    object
-        .entry("source".to_string())
-        .or_insert(Value::from("cinavault-default"));
+    object.entry("schemaVersion".to_string()).or_insert(Value::from(1));
+    object.entry("pluginId".to_string()).or_insert(Value::from(seed.plugin_id.clone()));
+    object.entry("name".to_string()).or_insert(Value::from(seed.name.clone()));
+    object.entry("version".to_string()).or_insert(Value::from(seed.version.clone()));
+    object.entry("platform".to_string()).or_insert(Value::from(seed.platform.clone()));
+    object.entry("category".to_string()).or_insert(Value::from(seed.category.clone()));
+    object.entry("configurable".to_string()).or_insert(Value::from(seed.configurable));
+    object.entry("enabled".to_string()).or_insert(Value::from(true));
+    object.entry("source".to_string()).or_insert(Value::from("cinavault-default"));
     Value::Object(object)
 }
 
@@ -120,10 +119,7 @@ pub fn ensure_plugin_config_files(
     for seed in &seeds {
         validate_id(&seed.plugin_id)?;
         let defaults = normalized_default(seed);
-        write_json(
-            &defaults_root.join(format!("{}.json", seed.plugin_id)),
-            &defaults,
-        )?;
+        write_json(&defaults_root.join(format!("{}.json", seed.plugin_id)), &defaults)?;
         defaults_by_id.insert(seed.plugin_id.clone(), defaults);
         templates_written += 1;
     }
@@ -143,15 +139,19 @@ pub fn ensure_plugin_config_files(
         let Some(object) = plugin.as_object_mut() else {
             continue;
         };
-        let Some(plugin_id) = object.get("id").and_then(Value::as_str) else {
+        let Some(plugin_id) = object
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
             continue;
         };
-        validate_id(plugin_id)?;
+        validate_id(&plugin_id)?;
 
-        let fallback = defaults_by_id.get(plugin_id).cloned().unwrap_or_else(|| {
+        let fallback = defaults_by_id.get(&plugin_id).cloned().unwrap_or_else(|| {
             let mut generic = Map::new();
             generic.insert("schemaVersion".to_string(), Value::from(1));
-            generic.insert("pluginId".to_string(), Value::from(plugin_id));
+            generic.insert("pluginId".to_string(), Value::from(plugin_id.clone()));
             generic.insert("enabled".to_string(), Value::from(true));
             generic.insert("source".to_string(), Value::from("cinavault-generated"));
             Value::Object(generic)
@@ -173,14 +173,13 @@ pub fn ensure_plugin_config_files(
             .get("installPath")
             .and_then(Value::as_str)
             .map(PathBuf::from)
-            .unwrap_or_else(|| root.join("native").join(plugin_id));
+            .unwrap_or_else(|| root.join("native").join(&plugin_id));
         fs::create_dir_all(&install_path).map_err(|error| error.to_string())?;
         write_json(&install_path.join("config.json"), &merged)?;
         installed_configs_written += 1;
     }
 
-    let registry_value = Value::Array(installed);
-    write_json(&registry_path, &registry_value)?;
+    write_json(&registry_path, &Value::Array(installed))?;
 
     Ok(PluginConfigReport {
         templates_written,
