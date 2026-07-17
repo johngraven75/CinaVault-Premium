@@ -391,6 +391,12 @@ const FEATURE_REGISTRY = [
   // ── Build 165: Real Work, NAS, Adult Metadata, Poster Integrity ──────────
   {
     build: "165",
+    feature: "Permanent media tools auto-bootstrap at app startup",
+    token: "ensure_media_tools",
+    file: "src-tauri/src/media_tools.rs",
+  },
+  {
+    build: "165",
     feature: "AI operational prompts execute library automation",
     token: "AiQueryRoute::LibraryAutomation",
     file: "src-tauri/src/ai.rs",
