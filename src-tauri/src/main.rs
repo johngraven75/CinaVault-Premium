@@ -22,6 +22,7 @@ mod duplicates;
 mod enrichment;
 mod library_artifacts;
 mod metadata_bridge;
+mod media_tools;
 mod metadata_ext;
 #[cfg(test)]
 mod metadata_posting_tests;
@@ -160,6 +161,8 @@ fn main() {
             downloads::cancel_download,
             downloads::install_download_tools,
             downloads::check_download_tools,
+            media_tools::get_media_tools_status,
+            media_tools::ensure_media_tools,
             // VPN / Security
             vpn::vpn_connect,
             vpn::vpn_disconnect,
