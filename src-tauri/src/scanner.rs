@@ -8,7 +8,8 @@ use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::collections::{BTreeSet, HashSet};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::State;
@@ -238,6 +239,124 @@ fn source_report_json(
         "updated": updated,
         "errors": errors,
     })
+}
+
+
+fn looks_like_media_directory(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    [
+        "movie", "film", "cinema", "video", "tv", "television", "series", "show",
+        "music", "audio", "media", "adult", "personal vids",
+    ]
+    .iter()
+    .any(|keyword| name.contains(keyword))
+}
+
+fn discover_media_directories(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut discovered = BTreeSet::new();
+    for root in roots {
+        if root.is_dir() && looks_like_media_directory(root) {
+            discovered.insert(root.clone());
+        }
+        let entries = match std::fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() && looks_like_media_directory(&path) {
+                discovered.insert(path);
+            }
+        }
+    }
+    discovered.into_iter().collect()
+}
+
+fn platform_discovery_roots() -> Vec<PathBuf> {
+    let mut roots = BTreeSet::new();
+    #[cfg(target_os = "windows")]
+    for drive in b'C'..=b'Z' {
+        let root = PathBuf::from(format!("{}:\\", drive as char));
+        if root.is_dir() {
+            roots.insert(root);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    roots.insert(PathBuf::from("/"));
+
+    if let Some(home) = dirs::home_dir() {
+        roots.insert(home);
+    }
+    if let Some(videos) = dirs::video_dir() {
+        roots.insert(videos);
+    }
+    if let Some(audio) = dirs::audio_dir() {
+        roots.insert(audio);
+    }
+    roots.into_iter().collect()
+}
+
+fn discover_and_add_sources(
+    db: &crate::db::Database,
+    roots: &[PathBuf],
+) -> Result<(Vec<String>, usize), String> {
+    let candidates = discover_media_directories(roots);
+    let existing = db
+        .get_sources_data()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|source| source.path.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let mut added = 0usize;
+    let mut discovered = Vec::new();
+
+    for path in candidates {
+        let path_string = path.to_string_lossy().to_string();
+        discovered.push(path_string.clone());
+        if existing.contains(&path_string.to_ascii_lowercase()) {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("Discovered Media")
+            .to_string();
+        db.add_source_data(&MediaSource {
+            id: None,
+            path: path_string,
+            source_type: "folder".to_string(),
+            name,
+            enabled: true,
+            last_scanned: None,
+            item_count: 0,
+        })
+        .map_err(|error| error.to_string())?;
+        added += 1;
+    }
+
+    Ok((discovered, added))
+}
+
+#[tauri::command]
+pub async fn discover_media_sources(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let roots = platform_discovery_roots();
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    let (paths, added) = discover_and_add_sources(&db, &roots)?;
+    Ok(serde_json::json!({
+        "status": "success",
+        "roots_checked": roots.len(),
+        "discovered": paths.len(),
+        "added": added,
+        "existing": paths.len().saturating_sub(added),
+        "paths": paths,
+        "message": format!("Discovered {} media folders and added {} new sources", paths.len(), added),
+    }))
 }
 
 #[tauri::command]
@@ -496,14 +615,41 @@ fn scan_directory(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_media_files, poster_cache_path_for_file, should_extract_poster_for_scan,
-        should_index_path,
+        collect_media_files, discover_and_add_sources, poster_cache_path_for_file,
+        should_extract_poster_for_scan, should_index_path,
     };
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_path(parts: &[&str]) -> PathBuf {
         parts.iter().collect()
+    }
+
+    #[test]
+    fn discovery_adds_real_database_sources_from_media_directories() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("cinavault-discovery-test-{stamp}"));
+        std::fs::create_dir_all(root.join("Movies")).unwrap();
+        std::fs::create_dir_all(root.join("TV Shows")).unwrap();
+        std::fs::create_dir_all(root.join("Documents")).unwrap();
+        let db_path = root.join("discovery.sqlite");
+        let db = crate::db::Database::new(db_path.to_string_lossy().as_ref()).unwrap();
+
+        let (paths, added) = discover_and_add_sources(&db, &[root.clone()]).unwrap();
+        let sources = db.get_sources_data().unwrap();
+
+        assert_eq!(added, 2);
+        assert_eq!(paths.len(), 2);
+        assert_eq!(sources.len(), 2);
+        assert!(sources.iter().any(|source| source.name == "Movies"));
+        assert!(sources.iter().any(|source| source.name == "TV Shows"));
+        assert!(!sources.iter().any(|source| source.name == "Documents"));
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
