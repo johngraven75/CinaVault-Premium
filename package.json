@@ -12,3 +12,4 @@
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
     "test": "node --test tests/carryForwardVerification.test.mjs",
+    "test:all": "node --test
