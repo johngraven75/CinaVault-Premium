@@ -5,7 +5,10 @@ import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
 import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
 import "./styles/media-row-poster-final-fix.css";
-import { initializePermanentMediaPluginsAtStartup } from "./services/startupMediaPluginService";
+import {
+  ensurePermanentMediaPluginsAtStartup,
+  initializePermanentMediaPluginsAtStartup,
+} from "./services/startupMediaPluginService";
 // CinaVault Premium — Build 155 Media Center Application Shell
 import { useEffect, useCallback, useMemo, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
@@ -233,6 +236,18 @@ export default function App(): JSX.Element {
 
         applyTheme(currentTheme);
         await pluginEngine.initialize();
+        const mediaTools = await ensurePermanentMediaPluginsAtStartup();
+        if (!mediaTools.ready) {
+          const missing = mediaTools.tools
+            .filter((tool) => !tool.installed)
+            .map((tool) => tool.id)
+            .join(", ");
+          addStatusMessage(
+            `Automatic media-tool setup needs attention: ${missing || "unknown tools"}`,
+          );
+        } else {
+          addStatusMessage("FFmpeg, FFprobe, yt-dlp, MediaInfo, and MKVToolNix loaded");
+        }
 
         const appWindow = getCurrentWindow();
         await appWindow.setTitle("CinaVault Premium");
