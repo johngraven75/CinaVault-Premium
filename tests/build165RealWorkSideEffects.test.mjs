@@ -146,7 +146,8 @@ test("startup installs only permanent plugins and adult providers default enable
   const initialize = read("src/data/pluginAdapterInitialize.ts");
   const store = read("src/store/appStore.ts");
   assert.match(initialize, /getStartupMediaPlugins/);
-  assert.doesNotMatch(initialize, /PLUGIN_REGISTRY\.filter/);
+  assert.match(initialize, /startupPluginIds\.has\(plugin\.id\)/);
+  assert.doesNotMatch(initialize, /for \(const plugin of FULL_PLUGIN_REGISTRY\)/);
   for (const id of [
     "pgma",
     "porn_site_nuxt",
