@@ -28,7 +28,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUILD_NUMBER: '164'
+  BUILD_NUMBER: '165'
   APP_VERSION: 1.6.5
   BUILD_OUTPUT_DIR: releases/build-165
   INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build165
