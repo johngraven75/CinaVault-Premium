@@ -75,3 +75,15 @@ test("poster acquisition persists verified sidecars and media cards handle failu
     assert.match(ui, /data-poster-fallback/);
   }
 });
+
+test("cloud commands read real folders, persist sources, and reject fake success", () => {
+  const cloud = read("src-tauri/src/cloud_storage.rs");
+  const main = read("src-tauri/src/main.rs");
+  assert.match(cloud, /resolve_provider_path/);
+  assert.match(cloud, /list_directory_entries/);
+  assert.match(cloud, /count_media_files/);
+  assert.match(cloud, /db\.add_source_data/);
+  assert.match(cloud, /unreadable_cloud_folder_returns_an_error_instead_of_success/);
+  assert.doesNotMatch(main, /Cloud sync placeholder/);
+  assert.doesNotMatch(main, /Ok\(vec!\[\]\)/);
+});
