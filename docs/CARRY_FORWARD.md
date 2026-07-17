@@ -187,4 +187,12 @@ Each new build must:
 
 ---
 
-*Last updated: Build 165 — verified by CI carry-forward governance and real side-effect tests.*
+### Build 166 (Persistent Hugging Face Model Selection)
+
+- Selected `Qwen/Qwen3-4B-Instruct-2507` after a successful authenticated structured-output inference test.
+- Restores a valid credential from the standard Hugging Face CLI cache when the application database is empty after reinstall.
+- Migrates only the former Mistral default, preserving explicit user model choices.
+- Carries forward all Build 165 AI, NAS, metadata-provider, poster-sidecar, media-tool, cloud, casting, and plugin behavior.
+- Publishes both MSI and NSIS EXE installers with SHA-256 checksums.
+
+*Last updated: Build 166 — verified by CI carry-forward governance, live Hugging Face inference, and installer tests.*
