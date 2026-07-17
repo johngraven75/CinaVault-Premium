@@ -2,15 +2,7 @@ name: Windows Installer Build 167 Beta 1
 
 on:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - 'releases/**'
-      - 'docs/**'
-      - '**.md'
-  pull_request:
-    branches:
-      - main
+    branches: [main]
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
@@ -18,13 +10,110 @@ on:
 permissions:
   contents: write
   actions: read
-  pull-requests: read
 
 concurrency:
-  group: build-167-beta-1-${{ github.event_name }}-${{ github.ref }}
+  group: build-167-beta-1
   cancel-in-progress: false
 
 env:
-  BUILD_NUMBER: '167'
-  APP_VERSION: 1.6.7-beta.1
-  INSTALLER_ARTIFACT_NAME: Cina
+  TAG_NAME: v1.6.7-beta.1
+  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build167-Beta1
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for existing prerelease
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            "exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+          exit 0
+
+      - name: Setup Node.js
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Rust
+        if: steps.release.outputs.exists != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        if: steps.release.outputs.exists != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+
+      - name: Install dependencies
+        if: steps.release.outputs.exists != 'true'
+        run: npm ci
+
+      - name: Validate and test
+        if: steps.release.outputs.exists != 'true'
+        run: |
+          npm run lint
+          npm test
+
+      - name: Build Windows installers
+        if: steps.release.outputs.exists != 'true'
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
+
+      - name: Stage installers and checksums
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path installer-staging -Force | Out-Null
+          Get-ChildItem 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle' -Recurse -File |
+            Where-Object { $_.Extension -in '.msi', '.exe' } |
+            Copy-Item -Destination installer-staging -Force
+          $files = Get-ChildItem installer-staging -File | Where-Object { $_.Extension -in '.msi', '.exe' }
+          if (-not $files) { throw 'No MSI or EXE installer was produced.' }
+          $checksums = foreach ($file in $files) {
+            $hash = Get-FileHash $file.FullName -Algorithm SHA256
+            "$($hash.Hash)  $($file.Name)"
+          }
+          Set-Content installer-staging\SHA256SUMS.txt $checksums -Encoding utf8
+
+      - name: Upload workflow artifact
+        if: steps.release.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: installer-staging/
+          if-no-files-found: error
+
+      - name: Publish Build 167 Beta 1 prerelease
+        if: steps.release.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          target_commitish: main
+          name: CinaVault Premium Build 167 Beta 1
+          body: |
+            Windows MSI and NSIS installers for CinaVault Premium Build 167 Beta 1.
+
+            This is a prerelease build for validation and beta testing.
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            installer-staging/*.msi
+            installer-staging/*.exe
+            installer-staging/SHA256SUMS.txt
