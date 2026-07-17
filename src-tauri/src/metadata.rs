@@ -625,7 +625,7 @@ async fn fetch_nuxt_item_metadata(
     let response = client
         .get(porn_site_nuxt_search_url(&base_url, query))
         .header("Accept", "application/json")
-        .header("User-Agent", "CinaVault/1.6.4")
+        .header("User-Agent", "CinaVault/1.6.5")
         .send()
         .await
         .map_err(|error| error.to_string())?;
@@ -662,7 +662,7 @@ async fn fetch_iafd_item_metadata(
         .get(format!(
             "https://www.iafd.com/results.asp?searchtype=comprehensive&searchstring={encoded}"
         ))
-        .header("User-Agent", "Mozilla/5.0 CinaVault/1.6.4")
+        .header("User-Agent", "Mozilla/5.0 CinaVault/1.6.5")
         .send()
         .await
         .map_err(|error| error.to_string())?;
