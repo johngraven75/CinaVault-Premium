@@ -1,4 +1,4 @@
-name: Windows Installer Build 164
+name: Windows Installer Build 165
 
 # Auto Build, Test, Cleanup
 
@@ -16,6 +16,7 @@ on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
@@ -23,19 +24,19 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: build-164-${{ github.ref }}
+  group: build-165-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   BUILD_NUMBER: '164'
-  APP_VERSION: 1.6.4
-  BUILD_OUTPUT_DIR: releases/build-164
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build164
+  APP_VERSION: 1.6.5
+  BUILD_OUTPUT_DIR: releases/build-165
+  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build165
   RUST_BACKTRACE: 1
 
 jobs:
   validate:
-    name: Validate Build 164
+    name: Validate Build 165
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +49,7 @@ jobs:
         run: npm ci
       - name: TypeScript validation
         run: npm run lint
-      - name: Run Build 164 governance tests
+      - name: Run Build 165 governance tests
         run: npm test
 
   build:
@@ -105,28 +106,26 @@ jobs:
           retention-days: 15
 
   release:
-    name: Publish v1.6.4
+    name: Publish v1.6.5
     runs-on: ubuntu-latest
     needs: build
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'schedule') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main'
     steps:
       - name: Download installer artifact
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.INSTALLER_ARTIFACT_NAME }}
           path: artifacts
-      - name: Publish Build 164 release
+      - name: Publish Build 165 release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.6.4
+          tag_name: v1.6.5
           target_commitish: main
-          name: CinaVault Premium Build 164
+          name: CinaVault Premium Build 165
           body: |
-            Windows MSI and NSIS installers for CinaVault Premium version 1.6.4.
+            Windows MSI and NSIS installers for CinaVault Premium version 1.6.5.
           draft: false
           prerelease: false
           generate_release_notes: true
