@@ -447,7 +447,10 @@ export default function CloudNASTab() {
         name: profile.name,
       });
       profile.status = "connected";
-    } catch {}
+    } catch (error) {
+      profile.status = "error";
+      addStatusMessage(`NAS source could not be added — ${errorText(error)}`);
+    }
     setNasProfiles((prev) => [...prev, profile]);
     setShowAddNas(false);
     setNasForm({
