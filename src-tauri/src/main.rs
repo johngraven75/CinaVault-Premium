@@ -8,6 +8,7 @@ mod iptv;
 mod jellyfin;
 mod player;
 mod plugins;
+mod plugin_configs;
 mod scanner;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -136,6 +137,7 @@ fn main() {
             plugins::uninstall_plugin,
             plugins::run_plugin,
             plugins::get_installed_plugins,
+            plugin_configs::ensure_plugin_config_files,
             pgma_bridge::find_local_candidates,
             pgma_bridge::refresh_pgma_library,
             // Player
@@ -163,6 +165,8 @@ fn main() {
             downloads::check_download_tools,
             media_tools::get_media_tools_status,
             media_tools::ensure_media_tools,
+            media_tools::inspect_with_mediainfo,
+            media_tools::inspect_with_mkvtoolnix,
             // VPN / Security
             vpn::vpn_connect,
             vpn::vpn_disconnect,
