@@ -4,6 +4,7 @@ Build 165 restores real, observable work to AI media-management commands and str
 
 ## Restored and improved
 
+- FFmpeg, FFprobe, yt-dlp, MediaInfo, and MKVToolNix are checked and silently installed/loaded at application startup without an in-app authorization step.
 - AI metadata enrichment and title cleanup now invoke native library automation and report actual changed/error counts.
 - AI source discovery now finds real media directories and persists enabled SQLite sources.
 - WD My Cloud username/password authentication reuses a live session and creates reachable scanner-compatible shares.
