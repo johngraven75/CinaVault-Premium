@@ -126,8 +126,6 @@ function KodiHero({ items, onPlay, onSelect }: HeroProps): JSX.Element {
     );
   }
 
-  const backdropSrc = resolveImg(hero.backdrop_path ?? hero.poster_path);
-
   return (
     <div className="kodi-hero">
       <KodiPosterImage
@@ -211,7 +209,6 @@ interface CardProps {
 }
 
 function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
-  const imgSrc = resolveImg(item.poster_path);
   const hasNfo = Boolean(item.nfo_path);
   const hasPoster = Boolean(
     item.poster_path && !item.poster_path.startsWith("http"),
