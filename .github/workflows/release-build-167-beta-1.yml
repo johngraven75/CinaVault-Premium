@@ -1,0 +1,23 @@
+name: Release Build 167 Beta 1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/release-triggers/build-167-beta-1.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22
