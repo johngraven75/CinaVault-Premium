@@ -12,4 +12,46 @@
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
     "test": "node --test tests/carryForwardVerification.test.mjs",
-    "test:all": "node --test
+    "test:all": "node --test tests/carryForwardVerification.test.mjs",
+    "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
+    "test:governance": "node --test tests/carryForwardVerification.test.mjs",
+    "test:build166": "node --test tests/carryForwardVerification.test.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-os": "^2.3.2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "castv2-client": "^0.0.2",
+    "clsx": "2.1.0",
+    "esbuild": "0.25.12",
+    "framer-motion": "11.0.3",
+    "lucide-react": "0.400.0",
+    "mdns-js": "^0.2.9",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-virtuoso": "4.7.0",
+    "zustand": "4.5.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.6",
+    "@playwright/test": "^1.61.1",
+    "@tauri-apps/cli": "^2.11.3",
+    "@types/node": "^26.1.0",
+    "@types/react": "18.3.0",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "autoprefixer": "10.4.19",
+    "postcss": "8.5.15",
+    "tailwindcss": "3.4.4",
+    "typescript": "5.4.5",
+    "vite": "6.4.3"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.4",
+    "debug": "^4.4.1"
+  }
+}
