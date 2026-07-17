@@ -58,3 +58,19 @@ Build 165 is accepted only when all of the following are green:
 4. Tauri Windows MSI and NSIS packaging.
 5. Artifact staging with `SHA256SUMS.txt`.
 6. Main-branch publication of GitHub release `v1.6.5` with MSI, EXE, and checksums.
+
+## Attached code-review disposition
+
+| Finding | Build 165 disposition | Proof gate |
+| --- | --- | --- |
+| Full catalog installed at startup | Startup scope is permanent media tools plus PGMA only. Catalog entries remain available for user selection. | `build165RealWorkSideEffects.test.mjs` |
+| Settings saved but not restored / incomplete autosave | Native settings load before initialization; all persistent store slices trigger autosave with local backup. | Frontend build and governance test |
+| Cast button not wired | Cast control calls the native Google Cast bridge and exposes actual pending/error state. | Frontend build and governance test |
+| Plugin failures shown as success | Local state changes only after native success; manifests and registry are persisted; unsupported execution returns an error. | Rust plugin tests and governance test |
+| Stale feature toggles | Desired value is calculated before the call and committed locally only after backend success. | Frontend build |
+| IPTV listener cleanup | Named callbacks are reused for registration and removal. | Governance test |
+| Cloud operations claimed success on failure | Provider keys are normalized and every connect/sync/browse/disconnect path reports native errors without applying success state. | Frontend build and governance test |
+| Theme reinitialized plugins | Plugin initialization is startup-only; theme application is a separate effect. | Governance test |
+| PGMA uninstall silently re-enabled | UI and native runtime both reject removal with an explicit error. | Governance test |
+| Version label drift | Visible settings label is v1.6.5 / Build 165. | Version drift tests |
+| Poisoned mutex panics | Plugin I/O locks return structured errors; no mutex `unwrap` remains. | Rust tests |
