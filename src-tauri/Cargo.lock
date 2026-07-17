@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "cinavault-premium"
-version = "1.6.5"
+version = "1.6.6"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
