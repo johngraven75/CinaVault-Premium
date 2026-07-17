@@ -1,7 +1,5 @@
 name: Windows Installer Build 167 Beta 1
 
-# Validate, build, package, and publish the Build 167 Beta 1 Windows prerelease.
-
 on:
   push:
     branches:
@@ -13,6 +11,8 @@ on:
   pull_request:
     branches:
       - main
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -27,109 +27,4 @@ concurrency:
 env:
   BUILD_NUMBER: '167'
   APP_VERSION: 1.6.7-beta.1
-  BUILD_OUTPUT_DIR: releases/build-167-beta-1
-  INSTALLER_ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build167-Beta1
-  RUST_BACKTRACE: 1
-
-jobs:
-  validate:
-    name: Validate Build 167 Beta 1
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: TypeScript validation
-        run: npm run lint
-      - name: Run tests
-        run: npm test
-
-  build:
-    name: Build Windows Installer
-    runs-on: windows-latest
-    needs: validate
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          cache-on-failure: true
-      - name: Install dependencies
-        run: npm ci
-      - name: Build frontend
-        run: npm run build
-      - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --nocapture
-      - name: Build Tauri Windows installer
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc
-      - name: Stage installer artifacts and hashes
-        shell: pwsh
-        run: |
-          $stagingDir = 'installer-staging'
-          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
-          $bundlePath = 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle'
-          Get-ChildItem -Path $bundlePath -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -in '.msi', '.exe' } |
-            Copy-Item -Destination $stagingDir -Force
-          $files = Get-ChildItem $stagingDir -File | Where-Object { $_.Extension -in '.msi', '.exe' }
-          if (-not $files) { throw 'No MSI or EXE installer was produced.' }
-          $checksums = foreach ($file in $files) {
-            $hash = Get-FileHash -Path $file.FullName -Algorithm SHA256
-            "$($hash.Hash)  $($file.Name)"
-          }
-          Set-Content -Path "$stagingDir\SHA256SUMS.txt" -Value $checksums -Encoding utf8
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.INSTALLER_ARTIFACT_NAME }}
-          path: installer-staging/
-          if-no-files-found: error
-          compression-level: 9
-          retention-days: 15
-
-  release:
-    name: Publish v1.6.7-beta.1 prerelease
-    runs-on: ubuntu-latest
-    needs: build
-    if: >-
-      github.event_name != 'pull_request' &&
-      github.ref == 'refs/heads/main'
-    steps:
-      - name: Download installer artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.INSTALLER_ARTIFACT_NAME }}
-          path: artifacts
-      - name: Publish Build 167 Beta 1 prerelease
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.6.7-beta.1
-          target_commitish: main
-          name: CinaVault Premium Build 167 Beta 1
-          body: |
-            Windows MSI and NSIS installers for CinaVault Premium Build 167 Beta 1.
-
-            This is a prerelease build for validation and beta testing.
-          draft: false
-          prerelease: true
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: |
-            artifacts/*.msi
-            artifacts/*.exe
-            artifacts/SHA256SUMS.txt
+  INSTALLER_ARTIFACT_NAME: Cina
