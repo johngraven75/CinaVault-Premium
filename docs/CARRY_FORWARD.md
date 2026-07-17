@@ -154,6 +154,7 @@ Each new build must:
 
 | Feature | Token to Verify | Source File |
 |---|---|---|
+| Automatic FFmpeg/download tool bootstrap | `ensure_media_tools` | `src-tauri/src/media_tools.rs` |
 | Operational AI routing | `AiQueryRoute::LibraryAutomation` | `src-tauri/src/ai.rs` |
 | Real media-source discovery | `discover_and_add_sources` | `src-tauri/src/scanner.rs` |
 | Scanner-compatible WD/Synology sources | `network_source_path` | `src-tauri/src/nas_devices.rs` |
