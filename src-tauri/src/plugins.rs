@@ -117,6 +117,32 @@ fn save_installed(installed: &[InstalledPlugin]) -> Result<(), String> {
     atomic_write(&registry_path()?, &contents)
 }
 
+fn repositories_path() -> Result<PathBuf, String> {
+    Ok(plugin_root()?.join("repositories.json"))
+}
+
+fn load_repositories() -> Result<Vec<PluginRepo>, String> {
+    let path = repositories_path()?;
+    if !path.exists() {
+        let repositories = default_repositories();
+        save_repositories(&repositories)?;
+        return Ok(repositories);
+    }
+    let contents = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    serde_json::from_str(&contents)
+        .map_err(|error| format!("Invalid plugin repository JSON: {error}"))
+}
+
+fn save_repositories(repositories: &[PluginRepo]) -> Result<(), String> {
+    let contents = serde_json::to_vec_pretty(repositories).map_err(|error| error.to_string())?;
+    atomic_write(&repositories_path()?, &contents)
+}
+
+fn save_catalog(catalog: &[PluginEntry]) -> Result<(), String> {
+    let contents = serde_json::to_vec_pretty(catalog).map_err(|error| error.to_string())?;
+    atomic_write(&plugin_root()?.join("catalog.json"), &contents)
+}
+
 fn manifest_path(plugin: &InstalledPlugin) -> PathBuf {
     PathBuf::from(&plugin.install_path).join("plugin.json")
 }
@@ -183,30 +209,45 @@ fn default_catalog() -> Vec<PluginEntry> {
 
 #[tauri::command]
 pub fn get_plugin_repos() -> Result<Vec<PluginRepo>, String> {
-    Ok(default_repositories())
+    let _io = PLUGIN_IO.lock().map_err(|error| error.to_string())?;
+    load_repositories()
 }
 
 #[tauri::command]
 pub fn add_plugin_repo(id: String, name: String, url: String) -> Result<Vec<PluginRepo>, String> {
     validate_id(&id)?;
-    let mut repositories = default_repositories();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("Plugin repository URL must use HTTP or HTTPS.".to_string());
+    }
+    let _io = PLUGIN_IO.lock().map_err(|error| error.to_string())?;
+    let mut repositories = load_repositories()?;
     if repositories.iter().any(|repo| repo.id == id) {
         return Err(format!("Repository '{id}' already exists."));
     }
     repositories.push(PluginRepo { id, name, url, enabled: true });
+    save_repositories(&repositories)?;
     Ok(repositories)
 }
 
 #[tauri::command]
 pub fn remove_plugin_repo(id: String) -> Result<Vec<PluginRepo>, String> {
-    let mut repositories = default_repositories();
+    let _io = PLUGIN_IO.lock().map_err(|error| error.to_string())?;
+    let mut repositories = load_repositories()?;
+    let before = repositories.len();
     repositories.retain(|repo| repo.id != id);
+    if repositories.len() == before {
+        return Err(format!("Plugin repository '{id}' does not exist."));
+    }
+    save_repositories(&repositories)?;
     Ok(repositories)
 }
 
 #[tauri::command]
 pub fn sync_plugin_catalog() -> Result<usize, String> {
-    Ok(default_catalog().len())
+    let _io = PLUGIN_IO.lock().map_err(|error| error.to_string())?;
+    let catalog = default_catalog();
+    save_catalog(&catalog)?;
+    Ok(catalog.len())
 }
 
 #[tauri::command]
