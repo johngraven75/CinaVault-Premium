@@ -1010,59 +1010,127 @@ fn build_metadata_update(
     update
 }
 
-/// Downloads a remote poster image URL to a local sidecar file next to the video.
-/// Returns the local file path on success.
+const MAX_POSTER_BYTES: usize = 25 * 1024 * 1024;
+
+fn poster_extension(url: &str, content_type: Option<&str>) -> &'static str {
+    let content_type = content_type.unwrap_or_default().to_ascii_lowercase();
+    if content_type.contains("png") {
+        return "png";
+    }
+    if content_type.contains("webp") {
+        return "webp";
+    }
+    if content_type.contains("gif") {
+        return "gif";
+    }
+    let url_path = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
+    if url_path.ends_with(".png") {
+        "png"
+    } else if url_path.ends_with(".webp") {
+        "webp"
+    } else if url_path.ends_with(".gif") {
+        "gif"
+    } else {
+        "jpg"
+    }
+}
+
+fn valid_poster_payload(content_type: Option<&str>, bytes: &[u8]) -> bool {
+    if bytes.is_empty() || bytes.len() > MAX_POSTER_BYTES {
+        return false;
+    }
+    if content_type
+        .map(|value| value.to_ascii_lowercase().starts_with("text/"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+}
+
+fn write_poster_sidecar_bytes(
+    video_path: &str,
+    extension: &str,
+    bytes: &[u8],
+) -> Result<String, String> {
+    if !valid_poster_payload(None, bytes) {
+        return Err("poster payload is empty, too large, or not a supported image".to_string());
+    }
+    let video = Path::new(video_path);
+    let parent = video.parent().ok_or("video file has no parent directory")?;
+    let stem = video
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or("video file has no stem")?;
+    let extension = match extension.to_ascii_lowercase().as_str() {
+        "png" => "png",
+        "webp" => "webp",
+        "gif" => "gif",
+        _ => "jpg",
+    };
+    let sidecar_path = parent.join(format!("{stem}-poster.{extension}"));
+    if sidecar_path
+        .metadata()
+        .map(|metadata| metadata.len() > 0)
+        .unwrap_or(false)
+    {
+        return Ok(sidecar_path.to_string_lossy().to_string());
+    }
+
+    let temporary_path = parent.join(format!("{stem}-poster.{extension}.part"));
+    {
+        let mut file = std::fs::File::create(&temporary_path)
+            .map_err(|error| format!("poster create failed: {error}"))?;
+        file.write_all(bytes)
+            .map_err(|error| format!("poster write failed: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("poster sync failed: {error}"))?;
+    }
+    std::fs::rename(&temporary_path, &sidecar_path)
+        .map_err(|error| format!("poster finalize failed: {error}"))?;
+    Ok(sidecar_path.to_string_lossy().to_string())
+}
+
+/// Downloads a remote poster image URL to a verified local sidecar file next to the video.
 async fn download_poster_to_sidecar(
     client: &reqwest::Client,
     url: &str,
     video_path: &str,
 ) -> Result<String, String> {
-    let video = Path::new(video_path);
-    let parent = video.parent().ok_or("video file has no parent directory")?;
-    let stem = video
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or("video file has no stem")?;
-
-    // Determine extension from URL (default jpg)
-    let ext = url
-        .split('?')
-        .next()
-        .and_then(|u| u.rsplit('.').next())
-        .map(|e| e.to_ascii_lowercase())
-        .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp"))
-        .unwrap_or_else(|| "jpg".to_string());
-
-    let sidecar_name = format!("{stem}-poster.{ext}");
-    let sidecar_path = parent.join(&sidecar_name);
-
-    // Skip download if sidecar already exists
-    if sidecar_path.exists() {
-        return Ok(sidecar_path.to_string_lossy().to_string());
-    }
-
     let response = client
         .get(url)
-        .header("User-Agent", "CinaVault/1.0")
+        .header("User-Agent", "CinaVault/1.6.4")
         .send()
         .await
-        .map_err(|e| format!("poster fetch failed: {e}"))?;
-
+        .map_err(|error| format!("poster fetch failed: {error}"))?;
     if !response.status().is_success() {
         return Err(format!("poster HTTP {}", response.status()));
     }
-
+    if response
+        .content_length()
+        .map(|length| length > MAX_POSTER_BYTES as u64)
+        .unwrap_or(false)
+    {
+        return Err(format!("poster exceeds {} bytes", MAX_POSTER_BYTES));
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let extension = poster_extension(url, content_type.as_deref());
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("poster read failed: {e}"))?;
-
-    let mut file =
-        std::fs::File::create(&sidecar_path).map_err(|e| format!("poster create failed: {e}"))?;
-    file.write_all(&bytes)
-        .map_err(|e| format!("poster write failed: {e}"))?;
-
-    Ok(sidecar_path.to_string_lossy().to_string())
+        .map_err(|error| format!("poster read failed: {error}"))?;
+    if !valid_poster_payload(content_type.as_deref(), &bytes) {
+        return Err("poster response was not a supported image".to_string());
+    }
+    write_poster_sidecar_bytes(video_path, extension, &bytes)
 }
 
 /// Writes a Kodi-compatible NFO sidecar XML file next to the video file.
@@ -1572,8 +1640,8 @@ mod tests {
     use super::{
         build_metadata_update, build_query_candidates, classify_library_item,
         local_embedded_title_match, local_sidecar_artwork_match, normalize_filename_title,
-        rename_confidence, safe_rename_target, EnrichmentMode, LibraryItemRecord, ProviderMatch,
-        RenameTarget, SourceKind,
+        rename_confidence, safe_rename_target, valid_poster_payload, write_poster_sidecar_bytes,
+        EnrichmentMode, LibraryItemRecord, ProviderMatch, RenameTarget, SourceKind,
     };
     use std::fs;
 
@@ -1650,6 +1718,26 @@ mod tests {
         assert_eq!(provider.title.as_deref(), Some("Actual Scene Title"));
         assert_eq!(update.title.as_deref(), Some("Actual Scene Title"));
         assert_eq!(update.changed_fields, 1);
+    }
+
+    #[test]
+    fn acquired_poster_is_validated_and_atomically_written_as_a_sidecar() {
+        let dir = std::env::temp_dir().join(format!("cinavault-poster-write-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Movie.mp4");
+        fs::write(&video, b"video").expect("video should be created");
+        let png = b"\x89PNG\r\n\x1a\nvalid-image-payload";
+
+        assert!(valid_poster_payload(Some("image/png"), png));
+        assert!(!valid_poster_payload(Some("text/html"), b"<html>error</html>"));
+        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "png", png)
+            .expect("poster sidecar should be written");
+
+        assert!(poster.ends_with("Movie-poster.png"));
+        assert_eq!(fs::read(&poster).unwrap(), png);
+        assert!(!dir.join("Movie-poster.png.part").exists());
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
