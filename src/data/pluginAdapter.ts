@@ -295,32 +295,30 @@ export class PluginAdapterEngine {
     config: Record<string, any>,
   ): Promise<void> {
     const nextConfig = { ...defaultConfigForPlugin(pluginId), ...config };
+    await invoke("run_plugin", {
+      pluginId,
+      action: "configure",
+      config: JSON.stringify(nextConfig),
+    });
     const p = this.installed.get(pluginId);
     if (p) {
-      p.configJson = JSON.stringify(nextConfig);
-      this.installed.set(pluginId, p);
-    }
-    try {
-      await invoke("run_plugin", {
-        pluginId,
-        action: "configure",
-        config: JSON.stringify(nextConfig),
+      this.installed.set(pluginId, {
+        ...p,
+        configJson: JSON.stringify(nextConfig),
       });
-    } catch {}
+    }
   }
 
   // ── Enable / disable installed plugin ──
   async setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
+    await invoke("run_plugin", {
+      pluginId,
+      action: enabled ? "enable" : "disable",
+    });
     const p = this.installed.get(pluginId);
     if (p) {
       this.installed.set(pluginId, { ...p, enabled });
     }
-    try {
-      await invoke("run_plugin", {
-        pluginId,
-        action: enabled ? "enable" : "disable",
-      });
-    } catch {}
   }
 
   // ── Check compatibility ──
