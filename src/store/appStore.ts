@@ -261,17 +261,17 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
     id: "porn_site_nuxt",
     name: "Porn Site Nuxt",
     category: "Adult",
-    enabled: false,
+    enabled: true,
   },
-  { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: false },
-  { id: "stashdb", name: "StashDB", category: "Adult", enabled: false },
+  { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: true },
+  { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
   {
     id: "phoenixadult",
     name: "PhoenixAdult",
     category: "Adult",
-    enabled: false,
+    enabled: true,
   },
-  { id: "iafd", name: "IAFD", category: "Adult", enabled: false },
+  { id: "iafd", name: "IAFD", category: "Adult", enabled: true },
   // Subtitles
   {
     id: "opensubtitles",
