@@ -4,6 +4,7 @@ const STARTUP_MESSAGE = "CinaVault Premier Server by Media Fire FL LLC";
 let audioContext: AudioContext | null = null;
 let initialized = false;
 let lastInteractionAt = 0;
+let startupRequested = false;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -96,6 +97,8 @@ function speakStartupAnnouncement(): void {
 }
 
 export async function playStartupAnnouncement(): Promise<void> {
+  if (startupRequested) return;
+  startupRequested = true;
   const audio = new Audio(STARTUP_AUDIO_PATH);
   audio.preload = "auto";
   audio.volume = 0.92;
@@ -124,11 +127,17 @@ export function initializeSpaceAudio(): () => void {
     if (now - lastInteractionAt < 45) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (!target) return;
-    const control = target.closest("button, [role='button'], a, input[type='button'], input[type='submit']");
+    const control = target.closest(
+      "button, [role='button'], a, input[type='button'], input[type='submit']",
+    );
     if (!(control instanceof HTMLElement) || control.hasAttribute("disabled")) return;
     lastInteractionAt = now;
-    if (isMenuControl(control)) playSpaceMenuSelect();
-    else playSpaceClick();
+    if (isMenuControl(control)) {
+      playSpaceMenuSelect();
+      window.setTimeout(playSpaceTransition, 70);
+    } else {
+      playSpaceClick();
+    }
   };
 
   document.addEventListener("pointerdown", handlePointer, true);
