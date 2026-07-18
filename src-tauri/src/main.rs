@@ -16,6 +16,7 @@ mod metadata {
 mod adult_site_provider;
 mod ai;
 mod ai_automation;
+mod cast_devices;
 mod chapters;
 mod cloud_storage;
 mod downloads;
@@ -185,6 +186,8 @@ fn main() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
+            cast_devices::discover_cast_devices,
+            cast_devices::cast_media_to_device,
             get_app_info,
             open_external_url,
             get_system_info,
