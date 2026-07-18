@@ -11,9 +11,10 @@
     "tauri": "tauri",
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
-    "test": "node --test tests/carryForwardVerification.test.mjs",
-    "test:all": "node --test tests/carryForwardVerification.test.mjs",
+    "test": "node --test tests/carryForwardVerification.test.mjs tests/build169UnifiedCasting.test.mjs",
+    "test:all": "node --test tests/carryForwardVerification.test.mjs tests/build169UnifiedCasting.test.mjs",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
+    "test:casting": "node --test tests/build169UnifiedCasting.test.mjs",
     "test:governance": "node --test tests/carryForwardVerification.test.mjs",
     "test:build166": "node --test tests/carryForwardVerification.test.mjs"
   },
