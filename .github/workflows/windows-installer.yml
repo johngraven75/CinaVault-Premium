@@ -1,5 +1,7 @@
 name: Windows Installer Build 168
 
+# Auto Build, Test, Cleanup
+
 on:
   push:
     branches: [main]
