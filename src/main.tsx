@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./data/pluginAdapterInitialize";
 import App from "./App";
+import {
+  initializeSpaceAudio,
+  playStartupAnnouncement,
+} from "./services/spaceAudio";
 import "./styles/index.css";
 import "./styles/cyber-hud.css";
 import "./styles/metadata-actions.css";
@@ -40,6 +44,11 @@ function advanceSplash(): void {
 }
 
 advanceSplash();
+initializeSpaceAudio();
+
+// Prefer a packaged human-recorded startup file. Browser speech is the fallback
+// when /audio/cinavault-startup.mp3 is not available or autoplay is restricted.
+window.setTimeout(() => void playStartupAnnouncement(), 450);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
