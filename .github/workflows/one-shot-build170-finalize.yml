@@ -1,0 +1,25 @@
+name: One-shot Build 170 finalization
+
+on:
+  push:
+    branches: [fix/metadata-scan-bundled-vpn]
+    paths: [.github/workflows/one-shot-build170-finalize.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/metadata-scan-bundled-vpn
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets:
