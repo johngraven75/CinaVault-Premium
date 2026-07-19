@@ -203,3 +203,5 @@ jobs:
             installer-staging/*.msi
             installer-staging/*.exe
             installer-staging/SHA256SUMS.txt
+
+# Retriggered after final Build 170 metadata alignment.
