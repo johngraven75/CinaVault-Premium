@@ -143,7 +143,6 @@ async fn fetch_porn_site_nuxt_results(
     }))
 }
 
-#[tauri::command]
 pub fn get_metadata_providers() -> Vec<MetadataProvider> {
     let mut providers = crate::metadata::get_metadata_providers();
     if !providers
@@ -173,7 +172,6 @@ pub fn get_metadata_providers() -> Vec<MetadataProvider> {
     providers
 }
 
-#[tauri::command]
 pub async fn fetch_metadata(
     provider: String,
     query: String,
@@ -193,7 +191,6 @@ pub async fn fetch_metadata(
     }
 }
 
-#[tauri::command]
 pub async fn search_metadata(
     provider: String,
     query: String,
@@ -204,7 +201,6 @@ pub async fn search_metadata(
     fetch_metadata(provider, query, api_key).await
 }
 
-#[tauri::command]
 pub async fn check_media_item_metadata(
     state: State<'_, AppState>,
     id: i64,
@@ -212,7 +208,6 @@ pub async fn check_media_item_metadata(
     crate::metadata::check_media_item_metadata(state, id).await
 }
 
-#[tauri::command]
 pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = db
@@ -240,7 +235,6 @@ pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, 
     }))
 }
 
-#[tauri::command]
 pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_json::Value, String> {
     let provider = normalize_provider_key(&provider);
     let valid = match provider.as_str() {
@@ -269,7 +263,6 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
     }))
 }
 
-#[tauri::command]
 pub fn set_api_key(
     state: State<AppState>,
     provider: String,
@@ -286,7 +279,6 @@ pub fn set_api_key(
     Ok(())
 }
 
-#[tauri::command]
 pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = db
