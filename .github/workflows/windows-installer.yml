@@ -27,46 +27,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check for existing release
-        id: release
+      - name: Remove existing Build 170 release and tag
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            "exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            gh release delete $env:TAG_NAME --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 170 release.' }
           } else {
-            "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
+            if ($LASTEXITCODE -eq 0) {
+              git push origin ":refs/tags/$env:TAG_NAME"
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 170 tag.' }
+            }
           }
           exit 0
 
       - name: Setup Node.js
-        if: steps.release.outputs.exists != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Setup Rust
-        if: steps.release.outputs.exists != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
       - name: Cache Rust
-        if: steps.release.outputs.exists != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
           cache-on-failure: true
 
       - name: Install dependencies
-        if: steps.release.outputs.exists != 'true'
         run: npm install --ignore-scripts
 
       - name: Verify Build 170 versions
-        if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -77,7 +76,6 @@ jobs:
           if (-not $main.Contains('"build": "170"')) { throw 'Runtime build identity is not 170.' }
 
       - name: Download and verify official WireGuard engine
-        if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -94,65 +92,27 @@ jobs:
           if ($engineSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($engineSignature.Status)" }
           New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
           Copy-Item $engine.FullName src-tauri\tools\wireguard\wireguard.exe -Force
-          $staged = Resolve-Path src-tauri\tools\wireguard\wireguard.exe
-          Write-Host "Staged WireGuard at $staged"
-          Get-Item $staged | Format-List FullName,Length,LastWriteTime
+          if (-not (Test-Path src-tauri\tools\wireguard\wireguard.exe -PathType Leaf)) { throw 'WireGuard staging failed.' }
 
       - name: Frontend validation
-        if: steps.release.outputs.exists != 'true'
         run: |
           npm run lint
           npm test
           npm run build
 
       - name: Rust formatting
-        if: steps.release.outputs.exists != 'true'
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
-      - name: Verify WireGuard before Rust
-        if: steps.release.outputs.exists != 'true'
-        shell: pwsh
-        run: |
-          $path = Join-Path $PWD 'src-tauri\tools\wireguard\wireguard.exe'
-          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "WireGuard missing before Rust validation: $path" }
-          Get-Item -LiteralPath $path | Format-List FullName,Length,LastWriteTime
-
       - name: Rust tests
-        id: rust_tests
-        if: steps.release.outputs.exists != 'true'
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked 2>&1 | Tee-Object -FilePath rust-test.log
-          $exitCode = $LASTEXITCODE
-          "exit_code=$exitCode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          exit $exitCode
-
-      - name: Upload Rust diagnostics
-        if: steps.release.outputs.exists != 'true' && steps.rust_tests.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Build170-Rust-Test-Diagnostics
-          path: rust-test.log
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Stop after Rust test failure
-        if: steps.release.outputs.exists != 'true' && steps.rust_tests.outcome == 'failure'
-        shell: pwsh
-        run: exit 1
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
 
       - name: Rust compile
-        if: steps.release.outputs.exists != 'true'
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
 
       - name: Build Windows installers
-        if: steps.release.outputs.exists != 'true'
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
       - name: Stage and verify installers
-        if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -160,10 +120,10 @@ jobs:
           Get-ChildItem 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle' -Recurse -File |
             Where-Object { $_.Extension -in '.msi', '.exe' } |
             Copy-Item -Destination installer-staging -Force
-          $msi = Get-ChildItem installer-staging -File -Filter *.msi
-          $exe = Get-ChildItem installer-staging -File -Filter *.exe
-          if (-not $msi) { throw 'No MSI installer was produced.' }
-          if (-not $exe) { throw 'No NSIS EXE installer was produced.' }
+          $msi = @(Get-ChildItem installer-staging -File -Filter *.msi)
+          $exe = @(Get-ChildItem installer-staging -File -Filter *.exe)
+          if ($msi.Count -lt 1) { throw 'No MSI installer was produced.' }
+          if ($exe.Count -lt 1) { throw 'No NSIS EXE installer was produced.' }
           $files = Get-ChildItem installer-staging -File | Where-Object { $_.Extension -in '.msi', '.exe' }
           $checksums = foreach ($file in $files) {
             $hash = Get-FileHash $file.FullName -Algorithm SHA256
@@ -173,7 +133,6 @@ jobs:
           Get-Content installer-staging\SHA256SUMS.txt
 
       - name: Upload verified installers
-        if: steps.release.outputs.exists != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -182,7 +141,6 @@ jobs:
           retention-days: 30
 
       - name: Publish Build 170 release
-        if: steps.release.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
