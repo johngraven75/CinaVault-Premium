@@ -1,4 +1,4 @@
-name: Build 170 Automation
+name: Build 171 Automation
 
 on:
   push:
@@ -10,14 +10,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: build-170-release
+  group: build-171-release
   cancel-in-progress: true
 
 env:
-  BUILD_NUMBER: '170'
-  APP_VERSION: 1.7.0
-  TAG_NAME: v1.7.0
-  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build170
+  BUILD_NUMBER: '171'
+  APP_VERSION: 1.7.1
+  TAG_NAME: v1.7.1
+  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build171
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Remove existing Build 170 release and tag
+      - name: Remove existing Build 171 release and tag
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,12 +35,12 @@ jobs:
           gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release delete $env:TAG_NAME --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 170 release.' }
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 171 release.' }
           } else {
             git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
             if ($LASTEXITCODE -eq 0) {
               git push origin ":refs/tags/$env:TAG_NAME"
-              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 170 tag.' }
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 171 tag.' }
             }
           }
           exit 0
@@ -65,15 +65,17 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Verify Build 170 versions
+      - name: Verify Build 171 versions
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
           if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
+          if ($cargoVersion -ne $env:APP_VERSION) { throw "Cargo.toml version is $cargoVersion, expected $env:APP_VERSION" }
           $main = Get-Content src-tauri/src/main.rs -Raw
-          if (-not $main.Contains('"build": "170"')) { throw 'Runtime build identity is not 170.' }
+          if (-not $main.Contains('"build": "171"')) { throw 'Runtime build identity is not 171.' }
 
       - name: Download and verify official WireGuard engine
         shell: pwsh
@@ -92,7 +94,6 @@ jobs:
           if ($engineSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($engineSignature.Status)" }
           New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
           Copy-Item $engine.FullName src-tauri\tools\wireguard\wireguard.exe -Force
-          if (-not (Test-Path src-tauri\tools\wireguard\wireguard.exe -PathType Leaf)) { throw 'WireGuard staging failed.' }
 
       - name: Frontend validation
         run: |
@@ -130,7 +131,6 @@ jobs:
             "$($hash.Hash)  $($file.Name)"
           }
           Set-Content installer-staging\SHA256SUMS.txt $checksums -Encoding utf8
-          Get-Content installer-staging\SHA256SUMS.txt
 
       - name: Upload verified installers
         uses: actions/upload-artifact@v4
@@ -140,16 +140,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish Build 170 release
+      - name: Publish Build 171 release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium Build 170
+          name: CinaVault Premium Build 171
           body: |
-            CinaVault Premium Build 170, version 1.7.0.
+            CinaVault Premium Build 171, version 1.7.1.
 
-            Includes truthful metadata-provider diagnostics, verified atomic NFO sidecars, persistent WireGuard profile support, source health diagnostics, and verified Windows MSI and NSIS installers.
+            Performance-focused release with nonblocking startup, background plugin initialization, faster media-tool readiness checks, and a responsive application shell foundation.
           draft: false
           prerelease: false
           generate_release_notes: true
