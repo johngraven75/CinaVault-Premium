@@ -27,6 +27,7 @@ type PluginConfigSeed = {
 
 let quickInitialization: Promise<void> | null = null;
 let backgroundMaintenance: Promise<void> | null = null;
+let backgroundTimer: number | null = null;
 
 function defaultConfigFor(plugin: PluginEntry): PluginBootConfig {
   if (plugin.id === PGMA_PLUGIN_ID) {
@@ -63,7 +64,7 @@ function configSeeds(): PluginConfigSeed[] {
 function isValidConfig(raw: string | undefined): boolean {
   if (!raw || !raw.trim()) return false;
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed));
   } catch {
     return false;
@@ -101,29 +102,30 @@ async function installAndValidatePlugin(plugin: PluginEntry): Promise<void> {
 }
 
 async function runBounded<T>(
-  items: T[],
+  items: readonly T[],
   concurrency: number,
   worker: (item: T) => Promise<void>,
 ): Promise<void> {
-  const queue = [...items];
-  const runners = Array.from(
-    { length: Math.max(1, Math.min(concurrency, queue.length || 1)) },
-    async () => {
-      while (queue.length > 0) {
-        const item = queue.shift();
-        if (item === undefined) return;
-        await worker(item);
-      }
-    },
-  );
+  let nextIndex = 0;
+  const runnerCount = Math.max(1, Math.min(concurrency, items.length || 1));
+
+  const runners = Array.from({ length: runnerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      await worker(items[currentIndex]);
+    }
+  });
+
   await Promise.all(runners);
 }
 
 async function maintainPluginsInBackground(): Promise<void> {
   try {
-    await invoke("ensure_plugin_config_files", { seeds: configSeeds() });
+    const seeds = configSeeds();
+    await invoke("ensure_plugin_config_files", { seeds });
 
-    const startupPluginIds = new Set([
+    const startupPluginIds = new Set<string>([
       ...getStartupMediaPlugins().map((plugin) => plugin.id),
       PGMA_PLUGIN_ID,
     ]);
@@ -139,7 +141,7 @@ async function maintainPluginsInBackground(): Promise<void> {
       }
     });
 
-    await invoke("ensure_plugin_config_files", { seeds: configSeeds() });
+    await invoke("ensure_plugin_config_files", { seeds });
     await pluginEngine.loadFromBackend();
   } catch (error) {
     console.warn("Plugin background maintenance did not complete:", error);
@@ -147,28 +149,28 @@ async function maintainPluginsInBackground(): Promise<void> {
 }
 
 function scheduleBackgroundMaintenance(): void {
-  if (backgroundMaintenance) return;
+  if (backgroundMaintenance || backgroundTimer !== null) return;
 
   const start = (): void => {
+    backgroundTimer = null;
     backgroundMaintenance = maintainPluginsInBackground().finally(() => {
       backgroundMaintenance = null;
     });
   };
 
-  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-    window.requestIdleCallback(start, { timeout: 2500 });
-  } else if (typeof window !== "undefined") {
-    window.setTimeout(start, 250);
-  } else {
+  if (typeof window === "undefined") {
     start();
+    return;
   }
+
+  backgroundTimer = window.setTimeout(start, 300);
 }
 
 async function initializePluginEngine(): Promise<void> {
   if (!quickInitialization) {
     quickInitialization = pluginEngine
       .loadFromBackend()
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.warn("Installed plugins could not be loaded during startup:", error);
       })
       .then(() => {
