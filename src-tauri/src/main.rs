@@ -16,15 +16,19 @@ mod metadata {
 mod adult_site_provider;
 mod ai;
 mod ai_automation;
+mod atomic_file;
 mod chapters;
 mod cloud_storage;
 mod downloads;
 mod duplicates;
-mod enrichment;
+mod enrichment {
+    include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
+}
 mod library_artifacts;
 mod media_tools;
 mod metadata_bridge;
 mod metadata_ext;
+mod metadata_guard;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod nas_devices;
@@ -138,14 +142,14 @@ fn main() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
-            metadata_ext::fetch_metadata,
-            metadata_ext::search_metadata,
-            metadata_ext::check_media_item_metadata,
-            metadata_ext::get_provider_status,
-            metadata_ext::test_api_key,
-            metadata_ext::set_api_key,
-            metadata_ext::get_api_keys,
-            metadata_ext::get_metadata_providers,
+            metadata_guard::fetch_metadata,
+            metadata_guard::search_metadata,
+            metadata_guard::check_media_item_metadata,
+            metadata_guard::get_provider_status,
+            metadata_guard::test_api_key,
+            metadata_guard::set_api_key,
+            metadata_guard::get_api_keys,
+            metadata_guard::get_metadata_providers,
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
             downloads::start_download,
