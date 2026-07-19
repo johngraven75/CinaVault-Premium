@@ -1,43 +1,31 @@
-name: Windows Installer Build 168
-
-# Auto Build, Test, Cleanup
+name: Build 170 Automation
 
 on:
   push:
     branches: [main]
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
   actions: read
-  pull-requests: read
 
 concurrency:
-  group: build-168
-  cancel-in-progress: false
+  group: build-170-release
+  cancel-in-progress: true
 
 env:
-  BUILD_NUMBER: '168'
-  APP_VERSION: 1.6.8
-  TAG_NAME: v1.6.8
-  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build168
+  BUILD_NUMBER: '170'
+  APP_VERSION: 1.7.0
+  TAG_NAME: v1.7.0
+  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build170
+  WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
-  build-and-release:
+  build-test-release:
     runs-on: windows-latest
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Check for existing release
         id: release
@@ -64,6 +52,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+          components: rustfmt
 
       - name: Cache Rust
         if: steps.release.outputs.exists != 'true'
@@ -74,35 +63,79 @@ jobs:
 
       - name: Install dependencies
         if: steps.release.outputs.exists != 'true'
-        run: npm install
+        run: npm install --ignore-scripts
 
-      - name: Validate and test
+      - name: Verify Build 170 versions
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
+          if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
+          $main = Get-Content src-tauri/src/main.rs -Raw
+          if (-not $main.Contains('"build": "170"')) { throw 'Runtime build identity is not 170.' }
+
+      - name: Frontend validation
         if: steps.release.outputs.exists != 'true'
         run: |
           npm run lint
           npm test
+          npm run build
+
+      - name: Rust validation
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
+          cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+
+      - name: Download and verify official WireGuard engine
+        if: steps.release.outputs.exists != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
+          $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
+          if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
+          New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
+          $target = (Resolve-Path .\wireguard-extracted).Path
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed with exit code $($process.ExitCode)" }
+          $engine = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
+          if (-not $engine) { throw 'wireguard.exe was not found in the official MSI' }
+          $engineSignature = Get-AuthenticodeSignature $engine.FullName
+          if ($engineSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($engineSignature.Status)" }
+          New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
+          Copy-Item $engine.FullName src-tauri\tools\wireguard\wireguard.exe -Force
 
       - name: Build Windows installers
         if: steps.release.outputs.exists != 'true'
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
-      - name: Stage installers and checksums
+      - name: Stage and verify installers
         if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path installer-staging -Force | Out-Null
           Get-ChildItem 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle' -Recurse -File |
             Where-Object { $_.Extension -in '.msi', '.exe' } |
             Copy-Item -Destination installer-staging -Force
+          $msi = Get-ChildItem installer-staging -File -Filter *.msi
+          $exe = Get-ChildItem installer-staging -File -Filter *.exe
+          if (-not $msi) { throw 'No MSI installer was produced.' }
+          if (-not $exe) { throw 'No NSIS EXE installer was produced.' }
           $files = Get-ChildItem installer-staging -File | Where-Object { $_.Extension -in '.msi', '.exe' }
-          if (-not $files) { throw 'No MSI or EXE installer was produced.' }
           $checksums = foreach ($file in $files) {
             $hash = Get-FileHash $file.FullName -Algorithm SHA256
             "$($hash.Hash)  $($file.Name)"
           }
           Set-Content installer-staging\SHA256SUMS.txt $checksums -Encoding utf8
+          Get-Content installer-staging\SHA256SUMS.txt
 
-      - name: Upload workflow artifact
+      - name: Upload verified installers
         if: steps.release.outputs.exists != 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -111,15 +144,17 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish Build 168 release
+      - name: Publish Build 170 release
         if: steps.release.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium Build 168
+          name: CinaVault Premium Build 170
           body: |
-            Windows MSI and NSIS installers for CinaVault Premium Build 168, version 1.6.8.
+            CinaVault Premium Build 170, version 1.7.0.
+
+            Includes truthful metadata-provider diagnostics, verified atomic NFO sidecars, persistent WireGuard profile support, source health diagnostics, and verified Windows MSI and NSIS installers.
           draft: false
           prerelease: false
           generate_release_notes: true
