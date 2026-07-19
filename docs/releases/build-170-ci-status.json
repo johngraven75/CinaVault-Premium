@@ -1,11 +1,11 @@
 {
   "workflow": "Build 170 Automation",
-  "run_id": 29706587470,
-  "run_number": 497,
+  "run_id": 29706592169,
+  "run_number": 498,
   "status": "completed",
-  "conclusion": "cancelled",
-  "head_sha": "74734dce382f79f2d9174cb79d7dff165ad3eded",
+  "conclusion": "failure",
+  "head_sha": "8898c77ac381b2ac8167e713e3375f90cb246f83",
   "event": "push",
-  "html_url": "https://github.com/johngraven75/CinaVault-Premium/actions/runs/29706587470",
-  "updated_at": "2026-07-19T22:41:44Z"
+  "html_url": "https://github.com/johngraven75/CinaVault-Premium/actions/runs/29706592169",
+  "updated_at": "2026-07-19T22:43:21Z"
 }
