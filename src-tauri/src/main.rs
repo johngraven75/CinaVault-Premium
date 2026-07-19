@@ -7,8 +7,8 @@ mod db;
 mod iptv;
 mod jellyfin;
 mod player;
-mod plugins;
 mod plugin_configs;
+mod plugins;
 mod scanner;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));

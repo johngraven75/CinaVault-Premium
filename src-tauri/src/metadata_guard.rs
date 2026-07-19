@@ -135,7 +135,9 @@ mod tests {
     fn only_implemented_providers_are_advertised() {
         let providers = get_metadata_providers();
         assert!(!providers.is_empty());
-        assert!(providers.iter().all(|provider| ensure_implemented(&provider.key).is_ok()));
+        assert!(providers
+            .iter()
+            .all(|provider| ensure_implemented(&provider.key).is_ok()));
         assert!(!providers.iter().any(|provider| provider.key == "tvdb"));
         assert!(!providers.iter().any(|provider| provider.key == "fanart"));
     }

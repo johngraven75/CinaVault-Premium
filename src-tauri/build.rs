@@ -11,8 +11,8 @@ fn manifest_and_output_paths(source_name: &str, output_name: &str) -> (PathBuf, 
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo"),
     );
     let source_path = manifest_dir.join("src").join(source_name);
-    let out_path = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set by Cargo"))
-        .join(output_name);
+    let out_path =
+        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set by Cargo")).join(output_name);
     (source_path, out_path)
 }
 

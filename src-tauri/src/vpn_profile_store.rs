@@ -39,7 +39,9 @@ pub fn validate_profile(content: &str) -> Result<(), String> {
         "AllowedIPs",
     ] {
         if !normalized.contains(required) {
-            return Err(format!("WireGuard profile is missing required field: {required}"));
+            return Err(format!(
+                "WireGuard profile is missing required field: {required}"
+            ));
         }
     }
     if normalized.contains("PrivateKey =") || normalized.contains("PrivateKey=") {
@@ -93,12 +95,16 @@ pub fn import_profile(app: &AppHandle, source_path: &str) -> Result<StoredVpnPro
     })
 }
 
-pub fn list_profiles(app: &AppHandle, active_name: Option<&str>) -> Result<Vec<StoredVpnProfile>, String> {
+pub fn list_profiles(
+    app: &AppHandle,
+    active_name: Option<&str>,
+) -> Result<Vec<StoredVpnProfile>, String> {
     let mut profiles = Vec::new();
     for entry in std::fs::read_dir(profile_directory(app)?)
         .map_err(|error| format!("unable to list WireGuard profiles: {error}"))?
     {
-        let entry = entry.map_err(|error| format!("unable to inspect WireGuard profile: {error}"))?;
+        let entry =
+            entry.map_err(|error| format!("unable to inspect WireGuard profile: {error}"))?;
         let path = entry.path();
         if !path.is_file()
             || !path

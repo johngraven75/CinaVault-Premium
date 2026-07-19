@@ -15,7 +15,10 @@ fn wireguard_executable(app: &AppHandle) -> Result<PathBuf, String> {
         .resource_dir()
         .map_err(|error| format!("unable to resolve application resources: {error}"))?;
     let candidates = [
-        resource_dir.join("tools").join("wireguard").join("wireguard.exe"),
+        resource_dir
+            .join("tools")
+            .join("wireguard")
+            .join("wireguard.exe"),
         resource_dir.join("wireguard").join("wireguard.exe"),
         resource_dir.join("wireguard.exe"),
     ];
@@ -85,10 +88,7 @@ pub async fn vpn_profiles(
 }
 
 #[tauri::command]
-pub async fn vpn_connect(
-    app: AppHandle,
-    profile: String,
-) -> Result<serde_json::Value, String> {
+pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
     {
         let executable = wireguard_executable(&app)?;
