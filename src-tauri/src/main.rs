@@ -29,8 +29,10 @@ mod metadata_ext;
 mod metadata_posting_tests;
 mod nas_devices;
 mod pgma_bridge;
+mod source_health;
 mod task_progress;
 mod vpn;
+mod vpn_profile_store;
 
 use db::Database;
 use std::sync::Mutex;
@@ -97,6 +99,7 @@ fn main() {
             db::get_sources,
             db::add_source,
             db::remove_source,
+            source_health::validate_source_path,
             scanner::scan_sources,
             scanner::scan_single_source,
             scanner::discover_media_sources,
@@ -155,6 +158,8 @@ fn main() {
             media_tools::ensure_media_tools,
             media_tools::inspect_with_mediainfo,
             media_tools::inspect_with_mkvtoolnix,
+            vpn::vpn_import_profile,
+            vpn::vpn_profiles,
             vpn::vpn_connect,
             vpn::vpn_disconnect,
             vpn::vpn_status,
