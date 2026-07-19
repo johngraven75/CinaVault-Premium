@@ -90,24 +90,26 @@ jobs:
       - name: Rust tests
         id: rust_tests
         if: steps.release.outputs.exists != 'true'
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
           cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked *>&1 | Tee-Object -FilePath rust-test.log
-          $code = $LASTEXITCODE
-          if ($code -ne 0) { exit $code }
+          exit $LASTEXITCODE
 
-      - name: Persist Rust failure diagnostics
-        if: failure() && steps.rust_tests.outcome == 'failure'
+      - name: Upload Rust diagnostics
+        if: steps.release.outputs.exists != 'true' && steps.rust_tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build170-Rust-Test-Diagnostics
+          path: rust-test.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop after Rust test failure
+        if: steps.release.outputs.exists != 'true' && steps.rust_tests.outcome == 'failure'
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path docs\releases -Force | Out-Null
-          Copy-Item rust-test.log docs\releases\build-170-rust-test.log -Force
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/releases/build-170-rust-test.log
-          git commit -m "docs: capture Build 170 Rust failure [skip ci]" || exit 0
-          git push origin HEAD:main
+        run: exit 1
 
       - name: Rust compile
         if: steps.release.outputs.exists != 'true'
