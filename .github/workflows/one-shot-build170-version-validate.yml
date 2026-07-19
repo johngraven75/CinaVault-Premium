@@ -65,3 +65,5 @@ jobs:
           git add -A
           git commit -m "Prepare and validate CinaVault Premium Build 170"
           git push origin "HEAD:$env:GITHUB_REF_NAME"
+
+# Triggered on main after PR #41 merge.
