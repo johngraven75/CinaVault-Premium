@@ -31,7 +31,9 @@ pub struct PluginConfigReport {
 fn plugin_root() -> Result<PathBuf, String> {
     let base = dirs::data_local_dir()
         .or_else(dirs::data_dir)
-        .ok_or_else(|| "The operating-system application-data folder is unavailable.".to_string())?;
+        .ok_or_else(|| {
+            "The operating-system application-data folder is unavailable.".to_string()
+        })?;
     Ok(base.join("CinaVault").join("plugins"))
 }
 
@@ -41,7 +43,9 @@ fn validate_id(plugin_id: &str) -> Result<(), String> {
             .chars()
             .all(|value| value.is_ascii_alphanumeric() || matches!(value, '-' | '_' | '.'))
     {
-        return Err(format!("Plugin id contains unsupported path characters: {plugin_id}"));
+        return Err(format!(
+            "Plugin id contains unsupported path characters: {plugin_id}"
+        ));
     }
     Ok(())
 }
@@ -78,15 +82,33 @@ fn normalized_default(seed: &PluginConfigSeed) -> Value {
         Value::Object(values) => values,
         _ => Map::new(),
     };
-    object.entry("schemaVersion".to_string()).or_insert(Value::from(1));
-    object.entry("pluginId".to_string()).or_insert(Value::from(seed.plugin_id.clone()));
-    object.entry("name".to_string()).or_insert(Value::from(seed.name.clone()));
-    object.entry("version".to_string()).or_insert(Value::from(seed.version.clone()));
-    object.entry("platform".to_string()).or_insert(Value::from(seed.platform.clone()));
-    object.entry("category".to_string()).or_insert(Value::from(seed.category.clone()));
-    object.entry("configurable".to_string()).or_insert(Value::from(seed.configurable));
-    object.entry("enabled".to_string()).or_insert(Value::from(true));
-    object.entry("source".to_string()).or_insert(Value::from("cinavault-default"));
+    object
+        .entry("schemaVersion".to_string())
+        .or_insert(Value::from(1));
+    object
+        .entry("pluginId".to_string())
+        .or_insert(Value::from(seed.plugin_id.clone()));
+    object
+        .entry("name".to_string())
+        .or_insert(Value::from(seed.name.clone()));
+    object
+        .entry("version".to_string())
+        .or_insert(Value::from(seed.version.clone()));
+    object
+        .entry("platform".to_string())
+        .or_insert(Value::from(seed.platform.clone()));
+    object
+        .entry("category".to_string())
+        .or_insert(Value::from(seed.category.clone()));
+    object
+        .entry("configurable".to_string())
+        .or_insert(Value::from(seed.configurable));
+    object
+        .entry("enabled".to_string())
+        .or_insert(Value::from(true));
+    object
+        .entry("source".to_string())
+        .or_insert(Value::from("cinavault-default"));
     Value::Object(object)
 }
 
@@ -119,7 +141,10 @@ pub fn ensure_plugin_config_files(
     for seed in &seeds {
         validate_id(&seed.plugin_id)?;
         let defaults = normalized_default(seed);
-        write_json(&defaults_root.join(format!("{}.json", seed.plugin_id)), &defaults)?;
+        write_json(
+            &defaults_root.join(format!("{}.json", seed.plugin_id)),
+            &defaults,
+        )?;
         defaults_by_id.insert(seed.plugin_id.clone(), defaults);
         templates_written += 1;
     }
@@ -139,11 +164,7 @@ pub fn ensure_plugin_config_files(
         let Some(object) = plugin.as_object_mut() else {
             continue;
         };
-        let Some(plugin_id) = object
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-        else {
+        let Some(plugin_id) = object.get("id").and_then(Value::as_str).map(str::to_string) else {
             continue;
         };
         validate_id(&plugin_id)?;
