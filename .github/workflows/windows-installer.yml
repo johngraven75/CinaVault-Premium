@@ -65,7 +65,7 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Verify Build 171 versions
+      - name: Verify Build 171 identity and dynamic header
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -74,8 +74,14 @@ jobs:
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
           if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "Cargo.toml version is $cargoVersion, expected $env:APP_VERSION" }
+
           $main = Get-Content src-tauri/src/main.rs -Raw
           if (-not $main.Contains('"build": "171"')) { throw 'Runtime build identity is not 171.' }
+
+          $header = Get-Content src/components/Header.tsx -Raw
+          if (-not $header.Contains('"get_app_info"')) { throw 'Header no longer reads runtime app identity.' }
+          if (-not $header.Contains('CinaVault B{appInfo.build}')) { throw 'Header build badge is not runtime-driven.' }
+          if ($header -match 'CinaVault B\d+') { throw 'Hardcoded visible build badge detected in Header.tsx.' }
 
       - name: Download and verify official WireGuard engine
         shell: pwsh
@@ -152,7 +158,7 @@ jobs:
           body: |
             CinaVault Premium Build 171, version 1.7.1.
 
-            Performance-focused release with nonblocking startup, background plugin initialization, faster media-tool readiness checks, and a responsive application shell foundation.
+            Performance-focused release with nonblocking startup, background plugin initialization, faster media-tool readiness checks, a runtime-driven build badge, and a responsive application shell foundation.
           draft: false
           prerelease: false
           generate_release_notes: true
