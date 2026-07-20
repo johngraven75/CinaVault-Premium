@@ -1,8 +1,8 @@
-// CinaVault Premium — Build 157 Cyber HUD Command Header
-// Build 140 Cyber HUD Command Header behavior is permanently carried forward (CinaVault B140).
-import { useEffect, useRef, useState } from "react";
+// CinaVault Premium — runtime-driven Cyber HUD Command Header
+import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Activity,
   Bell,
@@ -14,8 +14,15 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
-import { useAppStore, TabId } from "../store/appStore";
+import { useAppStore, type TabId } from "../store/appStore";
 import { getUnreadStatusMessages } from "../utils/pluginUiSafety";
+
+interface AppInfo {
+  name: string;
+  version: string;
+  build: string;
+  edition: string;
+}
 
 interface TabMeta {
   label: string;
@@ -23,11 +30,17 @@ interface TabMeta {
   signal: string;
 }
 
+const FALLBACK_APP_INFO: AppInfo = {
+  name: "CinaVault Premium",
+  version: "1.7.1",
+  build: "171",
+  edition: "Premium",
+};
+
 const TAB_META: Record<TabId, TabMeta> = {
   home: {
     label: "Movies",
-    subtitle:
-      "Holographic library carousel, vault inventory, and instant playback",
+    subtitle: "Holographic library carousel, vault inventory, and instant playback",
     signal: "Vault",
   },
   sources: {
@@ -98,14 +111,6 @@ const PRIMARY_TABS: TabId[] = [
   "settings",
 ];
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  phase: number;
-  size: number;
-}
-
 export default function Header(): JSX.Element {
   const {
     activeTab,
@@ -114,92 +119,29 @@ export default function Header(): JSX.Element {
     setSearchQuery,
     statusMessages,
   } = useAppStore();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [clock, setClock] = useState(new Date());
+  const reduceMotion = useReducedMotion();
+  const [clock, setClock] = useState(() => new Date());
   const [showNotifications, setShowNotifications] = useState(false);
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
-  const unreadMessages = getUnreadStatusMessages(
-    statusMessages,
-    lastReadMessageIndex,
+  const [appInfo, setAppInfo] = useState<AppInfo>(FALLBACK_APP_INFO);
+
+  const unreadMessages = useMemo(
+    () => getUnreadStatusMessages(statusMessages, lastReadMessageIndex),
+    [statusMessages, lastReadMessageIndex],
   );
   const activeMeta = TAB_META[activeTab] ?? TAB_META.home;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-
-    let animationFrame = 0;
-    let width = 0;
-    let height = 0;
-    let particles: Particle[] = [];
-
-    const resize = (): void => {
-      const ratio = Math.max(1, window.devicePixelRatio || 1);
-      width = canvas.offsetWidth;
-      height = canvas.offsetHeight;
-      canvas.width = Math.max(1, Math.floor(width * ratio));
-      canvas.height = Math.max(1, Math.floor(height * ratio));
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      particles = Array.from({ length: 96 }, () => ({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        vx: 0.18 + Math.random() * 0.72,
-        phase: Math.random() * Math.PI * 2,
-        size: 0.55 + Math.random() * 1.4,
-      }));
-    };
-
-    const draw = (): void => {
-      const now = performance.now();
-      context.clearRect(0, 0, width, height);
-
-      const glow = context.createRadialGradient(
-        width * 0.18,
-        height * 0.32,
-        0,
-        width * 0.18,
-        height * 0.32,
-        width * 0.7,
-      );
-      glow.addColorStop(0, "rgba(0,245,255,0.16)");
-      glow.addColorStop(0.48, "rgba(189,0,255,0.055)");
-      glow.addColorStop(1, "transparent");
-      context.fillStyle = glow;
-      context.fillRect(0, 0, width, height);
-
-      context.globalCompositeOperation = "lighter";
-      for (const particle of particles) {
-        particle.x += particle.vx;
-        if (particle.x > width + 8) particle.x = -8;
-        const y = particle.y + Math.sin(now * 0.0015 + particle.phase) * 5;
-        const alpha = 0.28 + Math.sin(now * 0.002 + particle.phase) * 0.16;
-        context.beginPath();
-        context.arc(particle.x, y, particle.size, 0, Math.PI * 2);
-        context.fillStyle = `rgba(0,245,255,${Math.max(0.08, alpha)})`;
-        context.fill();
-      }
-
-      const scanX = ((now * 0.08) % (width + 180)) - 180;
-      const beam = context.createLinearGradient(scanX, 0, scanX + 180, 0);
-      beam.addColorStop(0, "transparent");
-      beam.addColorStop(0.48, "rgba(0,245,255,0.0)");
-      beam.addColorStop(0.5, "rgba(0,245,255,0.36)");
-      beam.addColorStop(1, "transparent");
-      context.fillStyle = beam;
-      context.fillRect(0, 0, width, height);
-      context.globalCompositeOperation = "source-over";
-
-      animationFrame = requestAnimationFrame(draw);
-    };
-
-    resize();
-    draw();
-    window.addEventListener("resize", resize);
-
+    let active = true;
+    void invoke<AppInfo>("get_app_info")
+      .then((info) => {
+        if (active && info?.build) setAppInfo(info);
+      })
+      .catch((error: unknown) => {
+        console.warn("Runtime build identity could not be loaded:", error);
+      });
     return () => {
-      cancelAnimationFrame(animationFrame);
-      window.removeEventListener("resize", resize);
+      active = false;
     };
   }, []);
 
@@ -215,61 +157,56 @@ export default function Header(): JSX.Element {
       } else {
         await document.documentElement.requestFullscreen();
       }
-    } catch {}
+    } catch (error) {
+      console.warn("Fullscreen request failed:", error);
+    }
   };
 
   return (
     <header className="cyber-header relative z-20 shrink-0 overflow-visible">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full"
-        aria-hidden="true"
-      />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_25%,rgba(0,245,255,0.16),transparent_34%),linear-gradient(90deg,rgba(5,5,10,0.92),rgba(5,12,24,0.82))]" />
 
       <div className="relative z-10 flex h-full flex-col gap-3 px-4 py-3 xl:px-5">
         <div className="flex min-h-0 items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <motion.div
               className="cyber-brand-chip h-12 px-3"
-              whileHover={{ scale: 1.03 }}
-              transition={{ type: "spring", stiffness: 360, damping: 24 }}
+              whileHover={reduceMotion ? undefined : { scale: 1.02 }}
+              transition={{ duration: 0.16 }}
+              title={`${appInfo.name} ${appInfo.version} Build ${appInfo.build}`}
             >
               <Zap size={18} className="text-cyan-200" />
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-200">
-                  CinaVault B157
+                  CinaVault B{appInfo.build}
                 </div>
                 <div className="truncate text-sm font-black uppercase tracking-[0.16em]">
-                  Hyper-Neon Fusion
+                  {appInfo.edition} · v{appInfo.version}
                 </div>
               </div>
             </motion.div>
 
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -8, filter: "blur(8px)" }}
-                transition={{ duration: 0.22 }}
-                className="hidden min-w-0 md:block"
-              >
-                <div className="cyber-eyebrow flex items-center gap-2">
-                  <Sparkles size={12} /> Quantum Grid Active /{" "}
-                  {activeMeta.signal}
-                </div>
-                <h1 className="cyber-title truncate text-xl font-black tracking-tight">
-                  {activeMeta.label}
-                </h1>
-                <p className="truncate text-xs text-cv-subtext">
-                  {activeMeta.subtitle}
-                </p>
-              </motion.div>
-            </AnimatePresence>
+            <motion.div
+              key={activeTab}
+              initial={reduceMotion ? false : { opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.14 }}
+              className="hidden min-w-0 md:block"
+            >
+              <div className="cyber-eyebrow flex items-center gap-2">
+                <Sparkles size={12} /> Quantum Grid Active / {activeMeta.signal}
+              </div>
+              <h1 className="cyber-title truncate text-xl font-black tracking-tight">
+                {activeMeta.label}
+              </h1>
+              <p className="truncate text-xs text-cv-subtext">
+                {activeMeta.subtitle}
+              </p>
+            </motion.div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2 lg:gap-3">
-            <div className="hidden items-center gap-2 rounded-none border border-cyan-300/20 bg-black/40 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200 shadow-[0_0_18px_rgba(0,245,255,0.12)] lg:flex">
+            <div className="hidden items-center gap-2 border border-cyan-300/20 bg-black/40 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200 lg:flex">
               <Activity size={13} className="text-emerald-300" />
               Nominal
             </div>
@@ -283,7 +220,7 @@ export default function Header(): JSX.Element {
                 type="text"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="AI search core..."
+                placeholder="Search media and tools..."
                 className="cyber-search-input"
                 aria-label="Search library, plugins, and sources"
               />
@@ -299,9 +236,10 @@ export default function Header(): JSX.Element {
 
             <button
               type="button"
-              onClick={toggleFullscreen}
+              onClick={() => void toggleFullscreen()}
               className="cyber-button h-11 w-11 px-0"
               title="Toggle fullscreen"
+              aria-label="Toggle fullscreen"
             >
               <Maximize2 size={15} />
             </button>
@@ -310,10 +248,11 @@ export default function Header(): JSX.Element {
               type="button"
               onClick={() => {
                 setShowNotifications((open) => !open);
-                setLastReadMessageIndex(Math.max(0, statusMessages.length - 1));
+                setLastReadMessageIndex(statusMessages.length);
               }}
               className="cyber-button relative h-11 w-11 px-0"
               title="Show command feed"
+              aria-label="Show command feed"
             >
               <Bell size={15} />
               {unreadMessages.length > 0 && (
@@ -324,10 +263,7 @@ export default function Header(): JSX.Element {
         </div>
 
         <div className="flex items-center gap-3">
-          <nav
-            className="quantum-nav flex-1"
-            aria-label="Primary CinaVault navigation"
-          >
+          <nav className="quantum-nav flex-1" aria-label="Primary CinaVault navigation">
             {PRIMARY_TABS.map((tab) => {
               const meta = TAB_META[tab];
               const isActive = activeTab === tab;
@@ -338,6 +274,7 @@ export default function Header(): JSX.Element {
                   data-label={meta.label}
                   className={`quantum-tab ${isActive ? "is-active" : ""}`}
                   onClick={() => setActiveTab(tab)}
+                  aria-current={isActive ? "page" : undefined}
                 >
                   {meta.label}
                 </button>
@@ -357,10 +294,10 @@ export default function Header(): JSX.Element {
       <AnimatePresence>
         {showNotifications && (
           <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.18 }}
+            initial={reduceMotion ? false : { opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: reduceMotion ? 0 : 0.14 }}
             className="cyber-terminal-panel absolute right-5 top-[calc(100%+10px)] z-50 w-96 max-w-[calc(100vw-2rem)] bg-[#05050a]/95 p-0"
           >
             <div className="flex items-center justify-between border-b border-cyan-300/15 px-4 py-3">
