@@ -1,6 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 171)
-// All core operations: DB, scanning, downloads, IPTV, server management, plugins, AI, VPN, Cloud
-
+// CinaVault Premium — Tauri v2 Rust Backend (Build 169)
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
@@ -10,6 +8,7 @@ mod player;
 mod plugin_configs;
 mod plugins;
 mod scanner;
+mod casting;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
@@ -74,7 +73,7 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-            log::info!("CinaVault Premium Build 171 initialized successfully");
+            log::info!("CinaVault Premium Build 169 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -194,6 +193,11 @@ fn main() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
+            casting::discover_casting_devices,
+            casting::connect_casting_device,
+            casting::disconnect_casting_device,
+            casting::start_casting,
+            casting::update_casting_playback,
             get_app_info,
             open_external_url,
             get_system_info,
@@ -208,8 +212,8 @@ fn main() {
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.7.1",
-        "build": "171",
+        "version": "1.7.169",
+        "build": "169",
         "edition": "Premium"
     })
 }
