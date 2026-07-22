@@ -34,8 +34,14 @@ export interface CastingSession {
 const SESSION_STORAGE_KEY = "cinavault_casting_session";
 const DEVICE_STORAGE_KEY = "cinavault_casting_devices";
 
-function isTauriRuntime(): boolean {
+function isDesktopRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function assertDesktopRuntime(): void {
+  if (!isDesktopRuntime()) {
+    throw new Error("Casting is available in the installed desktop application.");
+  }
 }
 
 function normalizeDevice(device: CastingDevice): CastingDevice {
@@ -49,20 +55,22 @@ function normalizeDevice(device: CastingDevice): CastingDevice {
 
 function dedupeDevices(devices: CastingDevice[]): CastingDevice[] {
   const byId = new Map<string, CastingDevice>();
-  devices.forEach((device) => {
+  for (const device of devices) {
     const normalized = normalizeDevice(device);
-    const key = normalized.id || `${normalized.type}:${normalized.address}:${normalized.port ?? ""}`;
+    const key =
+      normalized.id ||
+      `${normalized.type}:${normalized.address ?? "unknown"}:${normalized.port ?? ""}`;
     byId.set(key, normalized);
-  });
-  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function readCachedDevices(): CastingDevice[] {
   try {
     const raw = localStorage.getItem(DEVICE_STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? dedupeDevices(parsed) : [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? dedupeDevices(parsed as CastingDevice[]) : [];
   } catch {
     return [];
   }
@@ -72,22 +80,15 @@ function cacheDevices(devices: CastingDevice[]): void {
   try {
     localStorage.setItem(DEVICE_STORAGE_KEY, JSON.stringify(devices));
   } catch {
-    // Local cache is optional.
+    // Optional cache.
   }
 }
 
 export async function discoverCastingDevices(): Promise<CastingDevice[]> {
-  let discovered: CastingDevice[] = [];
-
-  if (isTauriRuntime()) {
-    try {
-      discovered = await invoke<CastingDevice[]>("discover_casting_devices");
-    } catch (error) {
-      console.warn("Native casting discovery is unavailable:", error);
-    }
-  }
-
-  const devices = dedupeDevices(discovered.length > 0 ? discovered : readCachedDevices());
+  if (!isDesktopRuntime()) return readCachedDevices();
+  const devices = dedupeDevices(
+    await invoke<CastingDevice[]>("discover_casting_devices"),
+  );
   cacheDevices(devices);
   return devices;
 }
@@ -95,45 +96,32 @@ export async function discoverCastingDevices(): Promise<CastingDevice[]> {
 export async function connectCastingDevice(
   device: CastingDevice,
 ): Promise<CastingDevice> {
-  let connected = normalizeDevice({ ...device, connected: true, state: "connected" });
-
-  if (isTauriRuntime()) {
-    try {
-      connected = normalizeDevice(
-        await invoke<CastingDevice>("connect_casting_device", { device }),
-      );
-    } catch (error) {
-      console.warn("Native cast connection failed; retaining UI session:", error);
-    }
-  }
-
-  const devices = dedupeDevices(
-    readCachedDevices().map((candidate) =>
-      candidate.id === connected.id
-        ? connected
-        : { ...candidate, connected: false, state: "available" },
-    ),
+  assertDesktopRuntime();
+  const connected = normalizeDevice(
+    await invoke<CastingDevice>("connect_casting_device", { device }),
   );
-  cacheDevices(devices.some((item) => item.id === connected.id) ? devices : [...devices, connected]);
+  const next = dedupeDevices([
+    ...readCachedDevices().map((candidate) => ({
+      ...candidate,
+      connected: candidate.id === connected.id,
+      state:
+        candidate.id === connected.id
+          ? ("connected" as const)
+          : ("available" as const),
+    })),
+    connected,
+  ]);
+  cacheDevices(next);
   return connected;
 }
 
 export async function disconnectCastingDevice(
   device: CastingDevice,
 ): Promise<CastingDevice> {
-  if (isTauriRuntime()) {
-    try {
-      await invoke("disconnect_casting_device", { device });
-    } catch (error) {
-      console.warn("Native cast disconnect failed:", error);
-    }
-  }
-
-  const disconnected = normalizeDevice({
-    ...device,
-    connected: false,
-    state: "available",
-  });
+  assertDesktopRuntime();
+  const disconnected = normalizeDevice(
+    await invoke<CastingDevice>("disconnect_casting_device", { device }),
+  );
   cacheDevices(
     readCachedDevices().map((candidate) =>
       candidate.id === disconnected.id ? disconnected : candidate,
@@ -144,45 +132,35 @@ export async function disconnectCastingDevice(
 }
 
 export async function startCasting(session: CastingSession): Promise<string> {
+  assertDesktopRuntime();
+  const mediaUrl = session.mediaUrl.trim();
+  if (!mediaUrl) throw new Error("Select media before starting playback.");
+
   const normalizedSession: CastingSession = {
     ...session,
+    mediaUrl,
     volume: session.volume ?? 0.8,
     currentTime: session.currentTime ?? 0,
     paused: session.paused ?? false,
   };
-
-  if (isTauriRuntime()) {
-    try {
-      const result = await invoke<string>("start_casting", {
-        session: normalizedSession,
-      });
-      saveCastingSession(normalizedSession);
-      return result;
-    } catch (error) {
-      console.warn("Native cast playback handoff failed:", error);
-    }
-  }
-
+  const result = await invoke<string>("start_casting", {
+    session: normalizedSession,
+  });
   saveCastingSession(normalizedSession);
-  return `Casting started on ${session.device.name}`;
+  return result;
 }
 
 export async function updateCastingPlayback(
   patch: Partial<Pick<CastingSession, "currentTime" | "volume" | "paused">>,
 ): Promise<CastingSession | null> {
-  const session = getCastingSession();
-  if (!session) return null;
-
-  const next = { ...session, ...patch };
-  if (isTauriRuntime()) {
-    try {
-      await invoke("update_casting_playback", { patch });
-    } catch (error) {
-      console.warn("Native cast playback update failed:", error);
-    }
-  }
-  saveCastingSession(next);
-  return next;
+  assertDesktopRuntime();
+  const current = getCastingSession();
+  if (!current) return null;
+  const updated = await invoke<CastingSession>("update_casting_playback", {
+    patch,
+  });
+  saveCastingSession(updated);
+  return updated;
 }
 
 export function getCastingSession(): CastingSession | null {
@@ -198,7 +176,7 @@ export function saveCastingSession(session: CastingSession): void {
   try {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch {
-    // Session persistence is optional.
+    // Optional persistence.
   }
 }
 
@@ -206,6 +184,6 @@ export function clearCastingSession(): void {
   try {
     localStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {
-    // Session persistence is optional.
+    // Optional persistence.
   }
 }
