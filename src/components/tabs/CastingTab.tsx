@@ -12,6 +12,7 @@ import {
   Wifi,
   X,
 } from "lucide-react";
+import { useAppStore } from "../../store/appStore";
 import {
   type CastingDevice,
   type CastingDeviceType,
@@ -31,13 +32,23 @@ const DEVICE_META: Record<CastingDeviceType, { label: string; icon: typeof Cast 
   dlna: { label: "DLNA", icon: Router },
 };
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export default function CastingTab() {
+  const { selectedMedia, addStatusMessage } = useAppStore();
   const [devices, setDevices] = useState<CastingDevice[]>([]);
   const [scanning, setScanning] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [activeDevice, setActiveDevice] = useState<CastingDevice | null>(null);
   const [session, setSession] = useState<CastingSession | null>(() => getCastingSession());
+  const [mediaUrl, setMediaUrl] = useState(selectedMedia?.file_path ?? "");
   const [message, setMessage] = useState("Ready to discover nearby devices");
+
+  useEffect(() => {
+    setMediaUrl(selectedMedia?.file_path ?? "");
+  }, [selectedMedia?.id, selectedMedia?.file_path]);
 
   const counts = useMemo(
     () =>
@@ -48,7 +59,7 @@ export default function CastingTab() {
     [devices],
   );
 
-  const scan = async () => {
+  const scan = async (): Promise<void> => {
     setScanning(true);
     setMessage("Scanning the local network…");
     try {
@@ -61,8 +72,9 @@ export default function CastingTab() {
           : "No compatible devices found. Confirm all devices use the same network.",
       );
     } catch (error) {
-      console.error("Casting discovery failed:", error);
-      setMessage("Device discovery failed. Check network permissions and try again.");
+      const detail = errorMessage(error);
+      setMessage(`Device discovery failed: ${detail}`);
+      addStatusMessage(`Casting discovery failed: ${detail}`);
     } finally {
       setScanning(false);
     }
@@ -72,7 +84,7 @@ export default function CastingTab() {
     void scan();
   }, []);
 
-  const connect = async (device: CastingDevice) => {
+  const connect = async (device: CastingDevice): Promise<void> => {
     setConnectingId(device.id);
     setMessage(`Connecting to ${device.name}…`);
     try {
@@ -86,53 +98,80 @@ export default function CastingTab() {
         })),
       );
       setMessage(`${connected.name} connected`);
+      addStatusMessage(`${connected.name} connected for casting`);
     } catch (error) {
-      console.error("Casting connection failed:", error);
-      setMessage(`Unable to connect to ${device.name}`);
+      const detail = errorMessage(error);
+      setMessage(`Unable to connect to ${device.name}: ${detail}`);
+      addStatusMessage(`Casting connection failed: ${detail}`);
     } finally {
       setConnectingId(null);
     }
   };
 
-  const disconnect = async () => {
+  const disconnect = async (): Promise<void> => {
     if (!activeDevice) return;
     const current = activeDevice;
-    await disconnectCastingDevice(current);
-    setActiveDevice(null);
-    setSession(null);
-    setDevices((items) =>
-      items.map((item) =>
-        item.id === current.id ? { ...item, connected: false, state: "available" } : item,
-      ),
-    );
-    setMessage(`${current.name} disconnected`);
-  };
-
-  const togglePlayback = async () => {
-    if (!activeDevice) return;
-
-    if (!session) {
-      const next: CastingSession = {
-        device: activeDevice,
-        mediaUrl: "",
-        title: "CinaVault playback session",
-        paused: false,
-        volume: 0.8,
-        currentTime: 0,
-      };
-      await startCasting(next);
-      setSession(next);
-      setMessage(`Playback session started on ${activeDevice.name}`);
-      return;
+    try {
+      await disconnectCastingDevice(current);
+      setActiveDevice(null);
+      setSession(null);
+      setDevices((items) =>
+        items.map((item) =>
+          item.id === current.id
+            ? { ...item, connected: false, state: "available" }
+            : item,
+        ),
+      );
+      setMessage(`${current.name} disconnected`);
+      addStatusMessage(`${current.name} disconnected`);
+    } catch (error) {
+      const detail = errorMessage(error);
+      setMessage(`Disconnect failed: ${detail}`);
+      addStatusMessage(`Casting disconnect failed: ${detail}`);
     }
-
-    const updated = await updateCastingPlayback({ paused: !session.paused });
-    setSession(updated);
   };
 
-  const changeVolume = async (volume: number) => {
-    const updated = await updateCastingPlayback({ volume });
-    if (updated) setSession(updated);
+  const togglePlayback = async (): Promise<void> => {
+    if (!activeDevice) return;
+    try {
+      if (!session) {
+        const source = mediaUrl.trim();
+        if (!source) {
+          setMessage("Select library media or enter a reachable media URL.");
+          return;
+        }
+        const next: CastingSession = {
+          device: activeDevice,
+          mediaUrl: source,
+          title: selectedMedia?.title || "CinaVault playback session",
+          contentType: "video/mp4",
+          paused: false,
+          volume: 0.8,
+          currentTime: 0,
+        };
+        const result = await startCasting(next);
+        setSession(next);
+        setMessage(result);
+        addStatusMessage(result);
+        return;
+      }
+
+      const updated = await updateCastingPlayback({ paused: !session.paused });
+      if (updated) setSession(updated);
+    } catch (error) {
+      const detail = errorMessage(error);
+      setMessage(`Playback failed: ${detail}`);
+      addStatusMessage(`Casting playback failed: ${detail}`);
+    }
+  };
+
+  const changeVolume = async (volume: number): Promise<void> => {
+    try {
+      const updated = await updateCastingPlayback({ volume });
+      if (updated) setSession(updated);
+    } catch (error) {
+      setMessage(`Volume update failed: ${errorMessage(error)}`);
+    }
   };
 
   return (
@@ -233,12 +272,23 @@ export default function CastingTab() {
           )}
         </div>
 
+        <label className="mt-5 block text-xs font-bold uppercase tracking-[0.18em] text-cv-subtext">
+          Media source
+          <input
+            value={mediaUrl}
+            onChange={(event) => setMediaUrl(event.target.value)}
+            placeholder="Select library media or enter a reachable URL"
+            className="mt-2 h-12 w-full rounded-2xl border border-white/10 bg-black/30 px-4 text-sm text-cv-text outline-none focus:border-cyan-200/50"
+          />
+        </label>
+
         <div className="mt-5 grid gap-4 lg:grid-cols-[auto_1fr_240px] lg:items-center">
           <button
             type="button"
-            disabled={!activeDevice}
+            disabled={!activeDevice || (!session && !mediaUrl.trim())}
             onClick={() => void togglePlayback()}
             className="grid h-14 w-14 place-items-center rounded-full border border-cyan-100/30 bg-cyan-100/[0.12] disabled:opacity-35"
+            aria-label={session?.paused ? "Resume casting" : "Start or pause casting"}
           >
             {session?.paused ? <Play size={22} /> : <Pause size={22} />}
           </button>
@@ -247,7 +297,7 @@ export default function CastingTab() {
               <div className="h-full w-[28%] rounded-full bg-cyan-100" />
             </div>
             <div className="mt-2 flex justify-between text-xs text-cv-subtext">
-              <span>{session?.title || "Select media to begin casting"}</span>
+              <span>{session?.title || selectedMedia?.title || "Select media to begin casting"}</span>
               <span>{activeDevice ? "Ready" : "Offline"}</span>
             </div>
           </div>
