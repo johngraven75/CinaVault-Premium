@@ -3,6 +3,7 @@ name: CinaVault ReImagined Windows v0.0.1
 on:
   push:
     branches:
+      - main
       - feat/cinavault-reimagined-v0.0.1
     paths:
       - 'apps/cinavault-reimagined/**'
