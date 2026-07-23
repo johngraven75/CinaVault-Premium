@@ -1,4 +1,4 @@
-name: Build 171 Automation
+name: Auto Build, Test, Cleanup — Build 171 Automation
 
 on:
   push:
