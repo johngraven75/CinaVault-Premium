@@ -11,6 +11,10 @@ on:
     branches: [main]
     paths:
       - 'apps/cinavault-reimagined/**'
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'tests/**'
+      - 'docs/CARRY_FORWARD.md'
       - '.github/workflows/cinavault-reimagined-windows.yml'
   workflow_dispatch:
 
@@ -23,9 +27,9 @@ concurrency:
 
 jobs:
   validate-and-build-windows:
-    name: Validate and build Windows installers
+    name: Validate parity and build Windows installers
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: apps/cinavault-reimagined
@@ -38,8 +42,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: apps/cinavault-reimagined/package.json
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -55,6 +57,14 @@ jobs:
         shell: pwsh
         run: npm install --no-audit --no-fund
 
+      - name: Enforce complete legacy feature parity
+        run: npm test
+
+      - name: Run existing carry-forward governance
+        working-directory: .
+        shell: pwsh
+        run: node tests/carryForwardVerification.test.mjs
+
       - name: TypeScript validation
         run: npm run typecheck
 
@@ -63,7 +73,7 @@ jobs:
 
       - name: Rust validation
         working-directory: apps/cinavault-reimagined/src-tauri
-        run: cargo check --locked=false
+        run: cargo check
 
       - name: Build MSI and NSIS installers
         run: npm run desktop:build
@@ -80,8 +90,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload build diagnostics on failure
-        if: failure()
+      - name: Upload generated lockfiles and diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: CinaVault-ReImagined-v0.0.1-build-diagnostics
