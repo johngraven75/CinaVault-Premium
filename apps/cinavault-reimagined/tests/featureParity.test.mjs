@@ -11,7 +11,7 @@ const requiredLegacyCapabilities = [
   ['Media scanner', 'src-tauri/src/scanner.rs', ['scan_sources', 'scan_library']],
   ['Media playback', 'src-tauri/src/player.rs', ['play_media']],
   ['Download manager', 'src-tauri/src/downloads.rs', ['start_download']],
-  ['IPTV and Live TV', 'src-tauri/src/iptv.rs', ['get_iptv_channels']],
+  ['IPTV and Live TV', 'src-tauri/src/iptv.rs', ['get_live_channels', 'get_iptv_channels']],
   ['Jellyfin fallback', 'src-tauri/src/jellyfin.rs', ['jellyfin']],
   ['VPN integration', 'src-tauri/src/vpn.rs', ['vpn']],
   ['Chapter detection', 'src-tauri/src/chapters.rs', ['detect_chapters']],
