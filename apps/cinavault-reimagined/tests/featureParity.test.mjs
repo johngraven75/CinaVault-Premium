@@ -14,7 +14,7 @@ const requiredLegacyCapabilities = [
   ['IPTV and Live TV', 'src-tauri/src/iptv.rs', ['get_live_channels', 'get_iptv_channels']],
   ['Jellyfin fallback', 'src-tauri/src/jellyfin.rs', ['jellyfin']],
   ['VPN integration', 'src-tauri/src/vpn.rs', ['vpn']],
-  ['Chapter detection', 'src-tauri/src/chapters.rs', ['detect_chapters']],
+  ['Chapter detection', 'src-tauri/src/chapters.rs', ['generate_chapter_thumbs', 'detect_chapters']],
   ['Duplicate detection', 'src-tauri/src/duplicates.rs', ['find_duplicates']],
   ['Task progress', 'src-tauri/src/task_progress.rs', ['TaskProgress']],
   ['Google Cast', 'src/services/googleCast.ts', ['CastSession']],
