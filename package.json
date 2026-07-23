@@ -1,7 +1,7 @@
 {
   "name": "cinavault-premium",
   "private": true,
-  "version": "1.7.1",
+  "version": "1.7.169",
   "description": "CinaVault Premium — A full-featured Media Server",
   "type": "module",
   "scripts": {
@@ -15,7 +15,7 @@
     "test:all": "node --test tests/carryForwardVerification.test.mjs",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
     "test:governance": "node --test tests/carryForwardVerification.test.mjs",
-    "test:build171": "node --test tests/carryForwardVerification.test.mjs"
+    "test:build169": "node --test tests/carryForwardVerification.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
