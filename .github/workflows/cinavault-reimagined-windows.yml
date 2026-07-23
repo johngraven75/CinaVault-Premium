@@ -38,6 +38,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prepare diagnostics directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path test-results | Out-Null
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -55,28 +59,33 @@ jobs:
 
       - name: Install frontend dependencies
         shell: pwsh
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund 2>&1 | Tee-Object -FilePath test-results/npm-install.log
 
       - name: Enforce complete legacy feature parity
-        run: npm test
+        shell: pwsh
+        run: npm test 2>&1 | Tee-Object -FilePath test-results/feature-parity.log
 
       - name: Run existing carry-forward governance
-        working-directory: .
+        working-directory: ${{ github.workspace }}
         shell: pwsh
-        run: node tests/carryForwardVerification.test.mjs
+        run: node tests/carryForwardVerification.test.mjs 2>&1 | Tee-Object -FilePath apps/cinavault-reimagined/test-results/carry-forward.log
 
       - name: TypeScript validation
-        run: npm run typecheck
+        shell: pwsh
+        run: npm run typecheck 2>&1 | Tee-Object -FilePath test-results/typecheck.log
 
       - name: Production frontend build
-        run: npm run build
+        shell: pwsh
+        run: npm run build 2>&1 | Tee-Object -FilePath test-results/frontend-build.log
 
       - name: Rust validation
-        working-directory: apps/cinavault-reimagined/src-tauri
-        run: cargo check
+        working-directory: ${{ github.workspace }}/apps/cinavault-reimagined/src-tauri
+        shell: pwsh
+        run: cargo check 2>&1 | Tee-Object -FilePath ../test-results/cargo-check.log
 
       - name: Build MSI and NSIS installers
-        run: npm run desktop:build
+        shell: pwsh
+        run: npm run desktop:build 2>&1 | Tee-Object -FilePath test-results/desktop-build.log
         env:
           CI: true
 
@@ -90,13 +99,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload generated lockfiles and diagnostics
+      - name: Upload test results and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: CinaVault-ReImagined-v0.0.1-build-diagnostics
           path: |
+            apps/cinavault-reimagined/test-results/**
             apps/cinavault-reimagined/package-lock.json
             apps/cinavault-reimagined/src-tauri/Cargo.lock
-          if-no-files-found: ignore
+          if-no-files-found: warn
           retention-days: 7
