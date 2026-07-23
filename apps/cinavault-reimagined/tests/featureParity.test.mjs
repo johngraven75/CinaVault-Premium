@@ -18,7 +18,7 @@ const requiredLegacyCapabilities = [
   ['Duplicate detection', 'src-tauri/src/duplicates.rs', ['find_duplicates']],
   ['Task progress', 'src-tauri/src/task_progress.rs', ['TaskProgress']],
   ['Google Cast', 'src/services/googleCast.ts', ['castToGoogleDevice', 'CastSession']],
-  ['Metadata extensions', 'src-tauri/src/metadata_ext.rs', ['metadata_ext']],
+  ['Metadata extensions', 'src-tauri/src/metadata_ext.rs', ['get_metadata_providers', 'metadata_ext']],
   ['PGMA bridge', 'src-tauri/src/pgma_bridge.rs', ['pgma_bridge']],
   ['Adult provider', 'src-tauri/src/adult_site_provider.rs', ['adult_site_provider']],
   ['AI media agent', 'src/services/aiMediaAgent.ts', ['aiMediaAgent']],
