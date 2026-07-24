@@ -1,0 +1,233 @@
+name: Build Sequencer and Enforcement
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if another build is running'
+        required: false
+        type: boolean
+        default: false
+      target_branch:
+        description: 'Target branch for build'
+        required: false
+        type: string
+        default: 'main'
+  push:
+    branches:
+      - 'release/v*'
+      - 'main'
+    paths:
+      - 'package.json'
+      - 'src-tauri/tauri.conf.json'
+      - 'src-tauri/Cargo.toml'
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  RUST_BACKTRACE: '1'
+
+jobs:
+  check-build-status:
+    name: Check Build Status
+    runs-on: ubuntu-latest
+    outputs:
+      can_proceed: ${{ steps.status.outputs.can_proceed }}
+      running_builds: ${{ steps.status.outputs.running_builds }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for running builds
+        id: status
+        run: |
+          # Check for running workflows
+          running=$(gh run list --workflow="app-start-release.yml" --status=running --limit 1 --json databaseId || echo "0")
+          running_count=$(echo "$running" | jq 'length')
+          
+          if [ "$running_count" -gt 0 ] && [ "${{ github.event.inputs.force_build }}" != "true" ]; then
+            echo "can_proceed=false" >> $GITHUB_OUTPUT
+            echo "running_builds=$running_count" >> $GITHUB_OUTPUT
+            echo "❌ Build already in progress. Use force_build=true to override."
+            exit 1
+          else
+            echo "can_proceed=true" >> $GITHUB_OUTPUT
+            echo "running_builds=0" >> $GITHUB_OUTPUT
+            echo "✅ No conflicting builds. Proceeding with build."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  validate-versions:
+    name: Validate and Correct Versions
+    runs-on: ubuntu-latest
+    needs: check-build-status
+    if: needs.check-build-status.outputs.can_proceed == 'true'
+    outputs:
+      version_corrected: ${{ steps.version.outputs.version_corrected }}
+      final_version: ${{ steps.version.outputs.final_version }}
+      final_build: ${{ steps.version.outputs.final_build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Validate and correct versions
+        id: version
+        run: |
+          npm_version=$(node -p "require('./package.json').version")
+          tauri_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo_version=$(grep -E '^version = ' src-tauri/Cargo.toml | head -1 | sed 's/version = "//' | sed 's/"//')
+          
+          echo "npm version: $npm_version"
+          echo "tauri version: $tauri_version"
+          echo "cargo version: $cargo_version"
+          
+          # Extract build number from version
+          build_number=$(echo "$npm_version" | sed 's/.*\.//')
+          
+          if [ "$npm_version" != "$tauri_version" ]; then
+            echo "Version mismatch detected. Correcting..."
+            # Update tauri.conf.json
+            node -e "const fs = require('fs'); const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8')); conf.version = '$npm_version'; fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2));"
+            echo "version_corrected=true" >> $GITHUB_OUTPUT
+          else
+            echo "version_corrected=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "final_version=$npm_version" >> $GITHUB_OUTPUT
+          echo "final_build=$build_number" >> $GITHUB_OUTPUT
+          
+          # Commit version corrections if needed
+          if [ "$version_corrected" = "true" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/tauri.conf.json
+            git commit -m "chore: correct version mismatch in tauri.conf.json"
+            git push
+          fi
+
+  trigger-sequential-build:
+    name: Trigger Sequential Build
+    runs-on: ubuntu-latest
+    needs: [check-build-status, validate-versions]
+    if: needs.check-build-status.outputs.can_proceed == 'true'
+    steps:
+      - name: Trigger app-start-release workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const targetBranch = '${{ github.event.inputs.target_branch || 'main' }}';
+            
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'app-start-release.yml',
+              ref: targetBranch,
+              inputs: {
+                version: '${{ needs.validate-versions.outputs.final_version }}',
+                build_number: '${{ needs.validate-versions.outputs.final_build }}',
+                prerelease: 'false',
+                draft: 'false',
+                target_branch: targetBranch
+              }
+            });
+      - name: Monitor build completion
+        run: |
+          echo "Build triggered. Monitoring for completion..."
+          sleep 30
+          
+          # Wait for build to complete (simplified - in production would poll)
+          max_wait=3600  # 1 hour max wait
+          elapsed=0
+          
+          while [ $elapsed -lt $max_wait ]; do
+            status=$(gh run list --workflow="app-start-release.yml" --limit 1 --json status,conclusion --jq '.[0] | .status + " " + .conclusion')
+            
+            if echo "$status" | grep -q "completed"; then
+              if echo "$status" | grep -q "success"; then
+                echo "✅ Build completed successfully"
+                exit 0
+              else
+                echo "❌ Build failed with conclusion: $status"
+                exit 1
+              fi
+            fi
+            
+            sleep 30
+            elapsed=$((elapsed + 30))
+            echo "Waiting for build... ($elapsed/$max_wait seconds)"
+          done
+          
+          echo "⏱️ Build timeout exceeded"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  handle-build-failure:
+    name: Handle Build Failure
+    runs-on: ubuntu-latest
+    needs: [check-build-status, validate-versions, trigger-sequential-build]
+    if: failure() && needs.check-build-status.outputs.can_proceed == 'true'
+    steps:
+      - name: Create failure issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Build Failure - Build ${{ needs.validate-versions.outputs.final_build }}`,
+              body: `## Build Failure Detected
+              
+              **Version:** ${{ needs.validate-versions.outputs.final_version }}
+              **Build:** ${{ needs.validate-versions.outputs.final_build }}
+              **Workflow Run:** ${{ github.run_number }}
+              **Triggered by:** ${{ github.actor }}
+              
+              The automated build has failed. This issue requires immediate attention to:
+              1. Investigate the failure cause
+              2. Fix the underlying issue
+              3. Rerun the build until successful
+              4. Ensure release artifacts are published
+              
+              ## Required Actions
+              - [ ] Review build logs
+              - [ ] Identify failure cause
+              - [ ] Implement fix
+              - [ ] Rerun build workflow
+              - [ ] Verify successful release
+              
+              ## Build Enforcement Rules
+              - All builds must be sequential
+              - Failed builds must be fixed and rerun until successful
+              - Release must include artifacts, build notes, and test results
+              `,
+              labels: ['build-failure', 'urgent', 'automation']
+            });
+            
+            console.log(`Created issue #${issue.data.number}`);
+
+  enforce-sequential-policy:
+    name: Enforce Sequential Build Policy
+    runs-on: ubuntu-latest
+    needs: [check-build-status, validate-versions, trigger-sequential-build, handle-build-failure]
+    if: always()
+    steps:
+      - name: Policy enforcement summary
+        run: |
+          echo "## Sequential Build Policy Enforcement" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Policy:** All builds must be sequential" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Enforcement Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Status Check: ${{ needs.check-build-status.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Version Validation: ${{ needs.validate-versions.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Trigger: ${{ needs.trigger-sequential-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Failure Handling: ${{ needs.handle-build-failure.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Version Information" >> $GITHUB_STEP_SUMMARY
+          echo "- Final Version: ${{ needs.validate-versions.outputs.final_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Number: ${{ needs.validate-versions.outputs.final_build }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Version Corrected: ${{ needs.validate-versions.outputs.version_corrected }}" >> $GITHUB_STEP_SUMMARY

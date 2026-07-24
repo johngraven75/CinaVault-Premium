@@ -1,0 +1,271 @@
+name: Branch Isolation Enforcer
+
+on:
+  pull_request:
+    branches:
+      - 'release/v*'
+      - 'main'
+      - 'develop'
+  workflow_dispatch:
+    inputs:
+      check_branch:
+        description: 'Branch to check for isolation compliance'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  ENFORCE_ISOLATION: true
+
+jobs:
+  detect-branch-type:
+    name: Detect Branch Type
+    runs-on: ubuntu-latest
+    outputs:
+      branch_type: ${{ steps.detect.outputs.branch_type }}
+      target_branch_type: ${{ steps.detect.outputs.target_branch_type }}
+      is_cross_branch: ${{ steps.detect.outputs.is_cross_branch }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect branch types
+        id: detect
+        run: |
+          SOURCE_BRANCH="${{ github.event.pull_request.head.ref || github.event.inputs.check_branch }}"
+          TARGET_BRANCH="${{ github.event.pull_request.base.ref || 'main' }}"
+          
+          # Detect source branch type
+          if [[ "$SOURCE_BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            SOURCE_TYPE="version"
+            SOURCE_VERSION=$(echo "$SOURCE_BRANCH" | sed 's/release\/v//')
+          elif [[ "$SOURCE_BRANCH" =~ ^feature/v[0-9]+\.[0-9]+\.[0-9]+/ ]]; then
+            SOURCE_TYPE="feature"
+            SOURCE_VERSION=$(echo "$SOURCE_BRANCH" | sed 's/feature\/v\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/')
+          elif [[ "$SOURCE_BRANCH" =~ ^hotfix/v[0-9]+\.[0-9]+\.[0-9]+/ ]]; then
+            SOURCE_TYPE="hotfix"
+            SOURCE_VERSION=$(echo "$SOURCE_BRANCH" | sed 's/hotfix\/v\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/')
+          elif [ "$SOURCE_BRANCH" = "develop" ]; then
+            SOURCE_TYPE="develop"
+            SOURCE_VERSION="dev"
+          elif [ "$SOURCE_BRANCH" = "main" ]; then
+            SOURCE_TYPE="main"
+            SOURCE_VERSION="main"
+          else
+            SOURCE_TYPE="other"
+            SOURCE_VERSION="unknown"
+          fi
+          
+          # Detect target branch type
+          if [[ "$TARGET_BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TARGET_TYPE="version"
+            TARGET_VERSION=$(echo "$TARGET_BRANCH" | sed 's/release\/v//')
+          elif [ "$TARGET_BRANCH" = "develop" ]; then
+            TARGET_TYPE="develop"
+            TARGET_VERSION="dev"
+          elif [ "$TARGET_BRANCH" = "main" ]; then
+            TARGET_TYPE="main"
+            TARGET_VERSION="main"
+          else
+            TARGET_TYPE="other"
+            TARGET_VERSION="unknown"
+          fi
+          
+          # Check if this is a cross-branch merge
+          IS_CROSS="false"
+          if [ "$SOURCE_TYPE" = "version" ] && [ "$TARGET_TYPE" = "version" ]; then
+            if [ "$SOURCE_VERSION" != "$TARGET_VERSION" ]; then
+              IS_CROSS="true"
+            fi
+          fi
+          
+          echo "branch_type=$SOURCE_TYPE" >> $GITHUB_OUTPUT
+          echo "target_branch_type=$TARGET_TYPE" >> $GITHUB_OUTPUT
+          echo "is_cross_branch=$IS_CROSS" >> $GITHUB_OUTPUT
+          
+          echo "Source: $SOURCE_BRANCH ($SOURCE_TYPE v$SOURCE_VERSION)"
+          echo "Target: $TARGET_BRANCH ($TARGET_TYPE v$TARGET_VERSION)"
+          echo "Cross-branch: $IS_CROSS"
+
+  validate-merge-policy:
+    name: Validate Merge Policy
+    runs-on: ubuntu-latest
+    needs: detect-branch-type
+    outputs:
+      merge_allowed: ${{ steps.validate.outputs.merge_allowed }}
+      block_reason: ${{ steps.validate.outputs.block_reason }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate merge policy
+        id: validate
+        run: |
+          SOURCE_TYPE="${{ needs.detect-branch-type.outputs.branch_type }}"
+          TARGET_TYPE="${{ needs.detect-branch-type.outputs.target_branch_type }}"
+          IS_CROSS="${{ needs.detect-branch-type.outputs.is_cross_branch }}"
+          
+          MERGE_ALLOWED="true"
+          BLOCK_REASON=""
+          
+          # Policy: Block cross-version merges
+          if [ "$IS_CROSS" = "true" ]; then
+            MERGE_ALLOWED="false"
+            BLOCK_REASON="Cross-version merges are not allowed. Each version branch must remain isolated."
+          fi
+          
+          # Policy: Only allow feature/hotfix → version branch of same version
+          if [ "$SOURCE_TYPE" = "feature" ] || [ "$SOURCE_TYPE" = "hotfix" ]; then
+            if [ "$TARGET_TYPE" != "version" ]; then
+              MERGE_ALLOWED="false"
+              BLOCK_REASON="Feature and hotfix branches can only merge into version branches."
+            fi
+          fi
+          
+          # Policy: Only allow develop → main
+          if [ "$SOURCE_TYPE" = "develop" ] && [ "$TARGET_TYPE" != "main" ]; then
+            MERGE_ALLOWED="false"
+            BLOCK_REASON="Develop branch can only merge into main branch."
+          fi
+          
+          # Policy: Block direct merges to version branches from develop
+          if [ "$SOURCE_TYPE" = "develop" ] && [ "$TARGET_TYPE" = "version" ]; then
+            MERGE_ALLOWED="false"
+            BLOCK_REASON="Direct merges from develop to version branches are not allowed. Create a feature branch first."
+          fi
+          
+          # Policy: Block merges from main to version branches
+          if [ "$SOURCE_TYPE" = "main" ] && [ "$TARGET_TYPE" = "version" ]; then
+            MERGE_ALLOWED="false"
+            BLOCK_REASON="Merges from main to version branches are not allowed. Use cherry-pick if needed."
+          fi
+          
+          echo "merge_allowed=$MERGE_ALLOWED" >> $GITHUB_OUTPUT
+          echo "block_reason=$BLOCK_REASON" >> $GITHUB_OUTPUT
+          
+          if [ "$MERGE_ALLOWED" = "false" ]; then
+            echo "❌ Merge blocked: $BLOCK_REASON"
+          else
+            echo "✅ Merge allowed"
+          fi
+
+  check-code-intermingling:
+    name: Check Code Intermingling
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, validate-merge-policy]
+    if: needs.validate-merge-policy.outputs.merge_allowed == 'true'
+    outputs:
+      intermingling_detected: ${{ steps.check.outputs.intermingling_detected }}
+      intermingling_details: ${{ steps.check.outputs.intermingling_details }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for code intermingling
+        id: check
+        run: |
+          SOURCE_BRANCH="${{ github.event.pull_request.head.ref || github.event.inputs.check_branch }}"
+          TARGET_BRANCH="${{ github.event.pull_request.base.ref || 'main' }}"
+          
+          INTERMINGLING_DETECTED="false"
+          INTERMINGLING_DETAILS=""
+          
+          # Check for files that shouldn't be in this branch
+          if [[ "$SOURCE_BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Version branches should only contain version-specific code
+            if git diff --name-only origin/${TARGET_BRANCH}...HEAD | grep -q "^src/"; then
+              INTERMINGLING_DETECTED="true"
+              INTERMINGLING_DETAILS="Source code changes detected in version branch. Version branches should only receive changes via feature branches."
+            fi
+          fi
+          
+          # Check for dependency changes that indicate cross-branch contamination
+          if git diff --name-only origin/${TARGET_BRANCH}...HEAD | grep -q "package-lock.json"; then
+            if [ "$INTERMINGLING_DETECTED" = "false" ]; then
+              INTERMINGLING_DETECTED="true"
+              INTERMINGLING_DETAILS="Dependency lock file changes detected. This may indicate cross-branch dependency contamination."
+            fi
+          fi
+          
+          # Check for workflow changes that could affect other branches
+          if git diff --name-only origin/${TARGET_BRANCH}...HEAD | grep -q ".github/workflows/"; then
+            if [ "$INTERMINGLING_DETECTED" = "false" ]; then
+              INTERMINGLING_DETECTED="true"
+              INTERMINGLING_DETAILS="Workflow changes detected. Workflow changes should be coordinated across branches."
+            fi
+          fi
+          
+          echo "intermingling_detected=$INTERMINGLING_DETECTED" >> $GITHUB_OUTPUT
+          echo "intermingling_details=$INTERMINGLING_DETAILS" >> $GITHUB_OUTPUT
+          
+          if [ "$INTERMINGLING_DETECTED" = "true" ]; then
+            echo "⚠️ Code intermingling detected: $INTERMINGLING_DETAILS"
+          else
+            echo "✅ No code intermingling detected"
+          fi
+
+  enforce-isolation:
+    name: Enforce Branch Isolation
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, validate-merge-policy, check-code-intermingling]
+    if: always()
+    steps:
+      - name: Block forbidden merges
+        if: needs.validate-merge-policy.outputs.merge_allowed == 'false'
+        run: |
+          echo "❌ MERGE BLOCKED"
+          echo "Reason: ${{ needs.validate-merge-policy.outputs.block_reason }}"
+          echo ""
+          echo "This merge violates the branch isolation policy."
+          echo "Please review the branch isolation strategy documentation."
+          exit 1
+      - name: Warn about code intermingling
+        if: needs.check-code-intermingling.outputs.intermingling_detected == 'true'
+        run: |
+          echo "⚠️ CODE INTERMINGLING DETECTED"
+          echo "Details: ${{ needs.check-code-intermingling.outputs.intermingling_details }}"
+          echo ""
+          echo "This may indicate unintended code sharing between branches."
+          echo "Please review the changes carefully."
+      - name: Approve compliant merges
+        if: needs.validate-merge-policy.outputs.merge_allowed == 'true' && needs.check-code-intermingling.outputs.intermingling_detected == 'false'
+        run: |
+          echo "✅ BRANCH ISOLATION COMPLIANT"
+          echo "This merge follows the branch isolation policy."
+          echo "No code intermingling detected."
+
+  report-isolation-status:
+    name: Report Isolation Status
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, validate-merge-policy, check-code-intermingling, enforce-isolation]
+    if: always()
+    steps:
+      - name: Generate isolation report
+        run: |
+          echo "## Branch Isolation Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Source Branch:** ${{ github.event.pull_request.head.ref || github.event.inputs.check_branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Target Branch:** ${{ github.event.pull_request.base.ref || 'main' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Branch Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Source Type: ${{ needs.detect-branch-type.outputs.branch_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Target Type: ${{ needs.detect-branch-type.outputs.target_branch_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Cross-Branch: ${{ needs.detect-branch-type.outputs.is_cross_branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Merge Policy" >> $GITHUB_STEP_SUMMARY
+          echo "- Merge Allowed: ${{ needs.validate-merge-policy.outputs.merge_allowed }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.validate-merge-policy.outputs.merge_allowed }}" = "false" ]; then
+            echo "- Block Reason: ${{ needs.validate-merge-policy.outputs.block_reason }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Code Intermingling Check" >> $GITHUB_STEP_SUMMARY
+          echo "- Intermingling Detected: ${{ needs.check-code-intermingling.outputs.intermingling_detected }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.check-code-intermingling.outputs.intermingling_detected }}" = "true" ]; then
+            echo "- Details: ${{ needs.check-code-intermingling.outputs.intermingling_details }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Final Status" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.validate-merge-policy.outputs.merge_allowed }}" = "true" ] && [ "${{ needs.check-code-intermingling.outputs.intermingling_detected }}" = "false" ]; then
+            echo "✅ **COMPLIANT** - This merge follows branch isolation policy" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **NON-COMPLIANT** - This merge violates branch isolation policy" >> $GITHUB_STEP_SUMMARY
+          fi

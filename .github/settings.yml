@@ -1,0 +1,148 @@
+# Repository-wide Automation Settings
+# This file documents the automation configuration for CinaVault-Premium
+
+## Automation Schedule
+
+### Daily Automations
+- **Metadata Enhancement**: Every 6 hours (metadata-enhancement-workflow.yml)
+- **Automated Testing**: Every 4 hours (automated-testing.yml)
+
+### Weekly Automations  
+- **Dependency Updates**: Every Monday at 2 AM UTC (dependency-updates.yml)
+- **Dependabot**: Every Monday at 9 AM UTC (dependabot.yml)
+- **Documentation Generation**: Every Sunday at midnight UTC (documentation-generation.yml)
+
+### Event-Driven Automations
+- **Release Publishing**: On push to main with version changes (app-start-release.yml)
+- **Security Scanning**: On push and schedule (apisec-scan.yml)
+- **Library Maintenance**: On schedule (library-maintenance.yml)
+
+## Automation Features
+
+### Continuous Integration
+- TypeScript validation on every push
+- Rust compilation checks
+- Automated testing suite
+- Security vulnerability scanning
+
+### Continuous Deployment
+- Automated Windows installer builds
+- GitHub release creation
+- Artifact checksum generation
+- Release notes generation
+
+### Dependency Management
+- Automated npm dependency updates
+- Automated Cargo dependency updates
+- GitHub Actions updates
+- Security audit reports
+- Pull request creation for updates
+
+### Documentation
+- API documentation generation
+- Architecture diagram creation
+- User guide generation
+- Changelog maintenance
+- GitHub Pages deployment
+
+### Quality Assurance
+- Unit tests (TypeScript and Rust)
+- Integration tests
+- End-to-end tests
+- Visual regression tests
+- Performance benchmarks
+- Coverage reporting
+
+## Configuration Files
+
+### GitHub Actions Workflows
+- `app-start-release.yml` - Release automation
+- `publish.yml` - Release publishing
+- `metadata-enhancement-workflow.yml` - Metadata enhancement
+- `dependency-updates.yml` - Dependency updates
+- `automated-testing.yml` - Testing suite
+- `documentation-generation.yml` - Documentation generation
+- `windows-installer.yml` - Windows installer builds
+- `build-164-release.yml` - Legacy build workflow
+- `apisec-scan.yml` - Security scanning
+- `library-maintenance.yml` - Library maintenance
+- `maintenance.yml` - General maintenance
+- `stale.yml` - Issue/PR management
+- `summary.yml` - Build summaries
+
+### Dependency Management
+- `dependabot.yml` - Dependabot configuration
+- `package.json` - npm dependencies
+- `src-tauri/Cargo.toml` - Rust dependencies
+
+### Documentation
+- `README.md` - Project documentation
+- `docs/METADATA_PROVIDER_RESTORATION_ARCHITECTURE.md` - Architecture docs
+- `.github/workflows/README.md` - Workflow documentation
+
+## Required Secrets
+
+For full automation functionality, configure these GitHub secrets:
+
+### Build & Release
+- `GH_TOKEN` - GitHub token for release operations (automatically provided)
+
+### Optional External Services
+- `TAURI_SIGNING_PRIVATE_KEY` - Code signing key (if signing installers)
+- `NOTIFICATION_WEBHOOK` - For build notifications (optional)
+
+## Branch Protection Rules
+
+Recommended branch protection for `main`:
+- Require pull request reviews
+- Require status checks to pass
+- Require branches to be up to date
+- Enable required status checks:
+  - TypeScript validation
+  - Rust compilation
+  - Test suite
+  - Security scan
+
+## Automation Permissions
+
+All workflows are configured with minimal required permissions:
+- `contents: read/write` - For repository operations
+- `actions: read` - For workflow interactions
+- `pages: write` - For documentation deployment
+- `id-token: write` - For GitHub Pages deployment
+- `pull-requests: write` - For automated PR creation
+
+## Monitoring & Alerts
+
+### Workflow Status
+- All workflows generate status summaries
+- Failed workflows create GitHub notifications
+- Artifacts retained for 7-30 days depending on type
+
+### Security
+- Automated security audits run weekly
+- Vulnerability reports generated and uploaded
+- Dependabot alerts enabled for dependencies
+
+## Maintenance
+
+### Updating Automation
+1. Modify workflow files in `.github/workflows/`
+2. Test changes in feature branch
+3. Update this documentation accordingly
+4. Monitor workflow runs for issues
+
+### Disabling Automation
+To disable specific automation:
+- Comment out or remove trigger sections in workflow files
+- Update schedule cron expressions
+- Modify `if` conditions in job definitions
+
+## Best Practices
+
+1. **Test Locally First**: Use local build scripts before triggering workflows
+2. **Monitor Resource Usage**: Check workflow run times and resource consumption
+3. **Review PRs**: Review automated dependency update PRs before merging
+4. **Keep Documentation Updated**: Maintain this file with automation changes
+5. **Security First**: Regularly review security audit reports
+6. **Backup Critical Data**: Ensure important artifacts are backed up

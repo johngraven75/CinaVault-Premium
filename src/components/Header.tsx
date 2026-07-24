@@ -1,4 +1,5 @@
-// CinaVault Premium — Build 157 Cyber HUD Command Header
+// CinaVault Premium — Build 164 Cyber HUD Command Header
+// Build 140 Cyber HUD Command Header (carry-forward: CinaVault B140)
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -236,7 +237,7 @@ export default function Header(): JSX.Element {
               <Zap size={18} className="text-cyan-200" />
               <div className="min-w-0">
                 <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-200">
-                  CinaVault B157
+                  CinaVault B164
                 </div>
                 <div className="truncate text-sm font-black uppercase tracking-[0.16em]">
                   Hyper-Neon Fusion

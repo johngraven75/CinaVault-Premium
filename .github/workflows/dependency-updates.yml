@@ -1,0 +1,223 @@
+name: Automated Dependency Updates
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_type:
+        description: 'Type of update (all, npm, rust)'
+        required: false
+        type: choice
+        options:
+          - all
+          - npm
+          - rust
+        default: 'all'
+      create_pr:
+        description: 'Create pull request for updates'
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 2 AM UTC
+  push:
+    branches:
+      - main
+    paths:
+      - 'package-lock.json'
+      - 'src-tauri/Cargo.lock'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-dependencies:
+    name: Check for Outdated Dependencies
+    runs-on: ubuntu-latest
+    outputs:
+      npm_updates: ${{ steps.check-npm.outputs.has_updates }}
+      rust_updates: ${{ steps.check-rust.outputs.has_updates }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check npm dependencies
+        id: check-npm
+        run: |
+          npm install -g npm-check-updates
+          ncu --json > npm-updates.json || true
+          if [ -s npm-updates.json ]; then
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+            echo "Found npm updates:"
+            cat npm-updates.json
+          else
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "No npm updates found"
+          fi
+      - name: Check Rust dependencies
+        id: check-rust
+        run: |
+          cargo install cargo-outdated
+          cd src-tauri
+          if cargo outdated --format=json > ../rust-updates.json 2>/dev/null; then
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+            echo "Found Rust updates:"
+            cat ../rust-updates.json
+          else
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "No Rust updates found"
+          fi
+      - name: Upload update reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-update-reports
+          path: |
+            npm-updates.json
+            rust-updates.json
+          if-no-files-found: warn
+
+  update-npm-dependencies:
+    name: Update npm Dependencies
+    runs-on: ubuntu-latest
+    needs: check-dependencies
+    if: |
+      (needs.check-dependencies.outputs.npm_updates == 'true' || github.event.inputs.update_type == 'npm' || github.event.inputs.update_type == 'all') &&
+      github.event.inputs.create_pr != 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Update npm dependencies
+        run: |
+          npm install -g npm-check-updates
+          ncu -u
+          npm install
+      - name: Run tests after update
+        run: |
+          npm run lint
+          npm test
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update npm dependencies'
+          title: 'chore: update npm dependencies'
+          body: |
+            Automated npm dependency update
+            
+            This PR updates npm packages to their latest versions.
+            
+            - Updated packages via `npm-check-updates`
+            - Ran linting and tests to verify compatibility
+          branch: 'automated/npm-dependency-update'
+          delete-branch: true
+
+  update-rust-dependencies:
+    name: Update Rust Dependencies
+    runs-on: ubuntu-latest
+    needs: check-dependencies
+    if: |
+      (needs.check-dependencies.outputs.rust_updates == 'true' || github.event.inputs.update_type == 'rust' || github.event.inputs.update_type == 'all') &&
+      github.event.inputs.create_pr != 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Update Rust dependencies
+        run: |
+          cd src-tauri
+          cargo update
+      - name: Run tests after update
+        run: |
+          cd src-tauri
+          cargo test --locked -- --nocapture
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update Rust dependencies'
+          title: 'chore: update Rust dependencies'
+          body: |
+            Automated Rust dependency update
+            
+            This PR updates Cargo dependencies to their latest compatible versions.
+            
+            - Updated via `cargo update`
+            - Ran tests to verify compatibility
+          branch: 'automated/rust-dependency-update'
+          delete-branch: true
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: check-dependencies
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: npm audit
+        run: |
+          npm audit --production || true
+          npm audit --dev || true
+      - name: Cargo audit
+        run: |
+          cargo install cargo-audit
+          cd src-tauri
+          cargo audit || true
+      - name: Generate security report
+        run: |
+          cat > security-audit-report.md << EOF
+          # Security Audit Report
+          
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Trigger:** ${{ github.event_name }}
+          
+          ## npm Audit
+          $(npm audit --json 2>/dev/null || echo "No npm audit data available")
+          
+          ## Cargo Audit  
+          $(cd src-tauri && cargo audit --json 2>/dev/null || echo "No cargo audit data available")
+          
+          ## Recommendations
+          - Review any vulnerabilities found above
+          - Update affected packages to secure versions
+          - Monitor for new security advisories
+          
+          EOF
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: security-audit-report.md
+          retention-days: 30
+
+  generate-summary:
+    name: Generate Dependency Summary
+    runs-on: ubuntu-latest
+    needs: [check-dependencies, update-npm-dependencies, update-rust-dependencies, security-audit]
+    if: always()
+    steps:
+      - name: Create summary
+        run: |
+          echo "## Dependency Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Dependency Status" >> $GITHUB_STEP_SUMMARY
+          echo "- npm Updates Available: ${{ needs.check-dependencies.outputs.npm_updates }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust Updates Available: ${{ needs.check-dependencies.outputs.rust_updates }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Update Actions" >> $GITHUB_STEP_SUMMARY
+          echo "- npm Update PR: ${{ needs.update-npm-dependencies.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust Update PR: ${{ needs.update-rust-dependencies.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Audit: ${{ needs.security-audit.result }}" >> $GITHUB_STEP_SUMMARY

@@ -1,1 +1,64 @@
-﻿
+﻿name: Automated Release Publisher
+
+on:
+  workflow_run:
+    workflows: ["app-start-release"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.6.4)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish Release Artifacts
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Download artifacts from completed workflow
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: artifacts
+      - name: Checkout for manual publish
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+      - name: Download specific version artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@v4
+        with:
+          name: CinaVault-Premium-Windows-Build*
+          path: artifacts
+          pattern: CinaVault-Premium-Windows-Build*
+          merge-multiple: true
+      - name: Verify artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          ls -la artifacts/
+          
+          if [ ! -f "artifacts/SHA256SUMS.txt" ]; then
+            echo "Error: SHA256SUMS.txt not found"
+            exit 1
+          fi
+          
+          if ! ls artifacts/*.exe artifacts/*.msi 2>/dev/null; then
+            echo "Error: No installer files found"
+            exit 1
+          fi
+      - name: Create release summary
+        run: |
+          echo "## Release Artifacts Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files" >> $GITHUB_STEP_SUMMARY
+          ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Checksums" >> $GITHUB_STEP_SUMMARY
+          cat artifacts/SHA256SUMS.txt >> $GITHUB_STEP_SUMMARY

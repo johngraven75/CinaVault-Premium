@@ -58,25 +58,25 @@ const IPTVPlayer: React.FC<{ streamUrl: string }> = ({ streamUrl }) => {
       setCurrentTime(video.currentTime);
       setDuration(video.duration);
     };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => setIsPlaying(false);
+    const onError = () => setError("Error loading video stream");
 
     video.addEventListener("timeupdate", updateTime);
-    video.addEventListener("play", () => setIsPlaying(true));
-    video.addEventListener("pause", () => setIsPlaying(false));
-    video.addEventListener("ended", () => setIsPlaying(false));
-    video.addEventListener("error", () => {
-      setError("Error loading video stream");
-    });
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("ended", onEnded);
+    video.addEventListener("error", onError);
 
     return () => {
       video.removeEventListener("timeupdate", updateTime);
-      video.removeEventListener("play", () => setIsPlaying(true));
-      video.removeEventListener("pause", () => setIsPlaying(false));
-      video.removeEventListener("ended", () => setIsPlaying(false));
-      video.removeEventListener("error", () => {
-        setError("Error loading video stream");
-      });
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("ended", onEnded);
+      video.removeEventListener("error", onError);
     };
-  }, []);
+  }, [streamUrl]);
 
   useEffect(() => {
     if (videoRef.current) {

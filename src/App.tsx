@@ -175,6 +175,29 @@ function readLocalPersistedState(): Record<string, string> {
   }
 }
 
+async function loadPersistedState(): Promise<Record<string, string>> {
+  try {
+    const backend = await invoke<Record<string, string>>("get_all_settings");
+    if (
+      backend &&
+      typeof backend === "object" &&
+      !Array.isArray(backend) &&
+      Object.keys(backend).length > 0
+    ) {
+      try {
+        localStorage.setItem("cinavault_state", JSON.stringify(backend));
+      } catch {
+        // localStorage is optional cache
+      }
+      return backend;
+    }
+  } catch {
+    // Tauri backend unavailable — fall back to browser storage
+  }
+
+  return readLocalPersistedState();
+}
+
 async function saveAllSettingsToBackend(
   state: Record<string, string>,
 ): Promise<void> {
@@ -196,6 +219,12 @@ export default function App(): JSX.Element {
     activeTab,
     currentTheme,
     sidebarCollapsed,
+    libraryView,
+    settings,
+    featureSettings,
+    metadataProviders,
+    scheduledTasks,
+    cloudServices,
     addStatusMessage,
     getPersistedState,
     restorePersistedState,
@@ -228,10 +257,12 @@ export default function App(): JSX.Element {
 
     const initializeApplication = async (): Promise<void> => {
       try {
-        restorePersistedState(readLocalPersistedState());
+        // Build 140 carry-forward: restorePersistedState(readLocalPersistedState())
+        const persisted = await loadPersistedState();
         if (cancelled) return;
+        restorePersistedState(persisted);
 
-        applyTheme(currentTheme);
+        applyTheme(useAppStore.getState().currentTheme);
         await pluginEngine.initialize();
 
         const appWindow = getCurrentWindow();
@@ -247,7 +278,11 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [restorePersistedState, currentTheme, addStatusMessage]);
+  }, [restorePersistedState, addStatusMessage]);
+
+  useEffect(() => {
+    applyTheme(currentTheme);
+  }, [currentTheme]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -255,7 +290,18 @@ export default function App(): JSX.Element {
     }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [activeTab, currentTheme, sidebarCollapsed, saveState]);
+  }, [
+    activeTab,
+    currentTheme,
+    sidebarCollapsed,
+    libraryView,
+    settings,
+    featureSettings,
+    metadataProviders,
+    scheduledTasks,
+    cloudServices,
+    saveState,
+  ]);
 
   const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>): void => {
     if (!(event.target instanceof Element)) return;

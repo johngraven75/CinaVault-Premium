@@ -1,0 +1,302 @@
+name: Build Retry Handler
+
+on:
+  workflow_run:
+    workflows: ["app-start-release"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      failed_run_id:
+        description: 'Failed workflow run ID to retry'
+        required: true
+        type: string
+      max_retries:
+        description: 'Maximum number of retry attempts'
+        required: false
+        type: number
+        default: 3
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  MAX_RETRIES: 3
+  RETRY_DELAY: 300  # 5 minutes between retries
+
+jobs:
+  check-failure:
+    name: Check Build Failure
+    runs-on: ubuntu-latest
+    outputs:
+      should_retry: ${{ steps.check.outputs.should_retry }}
+      failed_run_id: ${{ steps.check.outputs.failed_run_id }}
+      retry_count: ${{ steps.check.outputs.retry_count }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine if retry is needed
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            FAILED_RUN_ID="${{ github.event.inputs.failed_run_id }}"
+            RETRY_COUNT=0
+          else
+            FAILED_RUN_ID="${{ github.event.workflow_run.id }}"
+            RETRY_COUNT=$(gh run view $FAILED_RUN_ID --json name,retries --jq '.retries | length' || echo "0")
+          fi
+          
+          # Check if workflow failed
+          CONCLUSION=$(gh run view $FAILED_RUN_ID --json conclusion --jq '.conclusion')
+          
+          if [ "$CONCLUSION" = "failure" ]; then
+            echo "should_retry=true" >> $GITHUB_OUTPUT
+            echo "failed_run_id=$FAILED_RUN_ID" >> $GITHUB_OUTPUT
+            echo "retry_count=$RETRY_COUNT" >> $GITHUB_OUTPUT
+            echo "❌ Build failed. Initiating retry process."
+          else
+            echo "should_retry=false" >> $GITHUB_OUTPUT
+            echo "failed_run_id=$FAILED_RUN_ID" >> $GITHUB_OUTPUT
+            echo "retry_count=$RETRY_COUNT" >> $GITHUB_OUTPUT
+            echo "✅ Build succeeded. No retry needed."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  analyze-failure:
+    name: Analyze Failure Cause
+    runs-on: ubuntu-latest
+    needs: check-failure
+    if: needs.check-failure.outputs.should_retry == 'true'
+    outputs:
+      failure_type: ${{ steps.analyze.outputs.failure_type }}
+      failure_job: ${{ steps.analyze.outputs.failure_job }}
+      can_retry: ${{ steps.analyze.outputs.can_retry }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analyze failure
+        id: analyze
+        run: |
+          FAILED_RUN_ID="${{ needs.check-failure.outputs.failed_run_id }}"
+          
+          # Get failed jobs
+          gh run view $FAILED_RUN_ID --json jobs --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, conclusion: .conclusion}' > failed_jobs.json
+          
+          FAILURE_JOB=$(cat failed_jobs.json | jq -r '.[0].name' 2>/dev/null || echo "unknown")
+          FAILURE_TYPE="unknown"
+          CAN_RETRY="true"
+          
+          # Determine failure type
+          case "$FAILURE_JOB" in
+            *"validate"*)
+              FAILURE_TYPE="validation"
+              ;;
+            *"build"*)
+              FAILURE_TYPE="build"
+              ;;
+            *"release"*)
+              FAILURE_TYPE="release"
+              ;;
+            *"test"*)
+              FAILURE_TYPE="test"
+              ;;
+            *)
+              FAILURE_TYPE="other"
+              ;;
+          esac
+          
+          # Check if retry is appropriate
+          if [ "$FAILURE_TYPE" = "release" ]; then
+            CAN_RETRY="true"  # Release failures can be retried
+          elif [ "$FAILURE_TYPE" = "build" ]; then
+            CAN_RETRY="true"  # Build failures can be retried
+          elif [ "$FAILURE_TYPE" = "validation" ]; then
+            CAN_RETRY="false"  # Validation failures need manual fix
+          elif [ "$FAILURE_TYPE" = "test" ]; then
+            CAN_RETRY="true"  # Test failures can be retried
+          fi
+          
+          echo "failure_type=$FAILURE_TYPE" >> $GITHUB_OUTPUT
+          echo "failure_job=$FAILURE_JOB" >> $GITHUB_OUTPUT
+          echo "can_retry=$CAN_RETRY" >> $GITHUB_OUTPUT
+          
+          echo "Failure Analysis:"
+          echo "  Type: $FAILURE_TYPE"
+          echo "  Job: $FAILURE_JOB"
+          echo "  Can Retry: $CAN_RETRY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  execute-retry:
+    name: Execute Build Retry
+    runs-on: ubuntu-latest
+    needs: [check-failure, analyze-failure]
+    if: needs.analyze-failure.outputs.can_retry == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait before retry
+        run: |
+          echo "Waiting ${{ env.RETRY_DELAY }} seconds before retry..."
+          sleep ${{ env.RETRY_DELAY }}
+      - name: Retry build workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failedRunId = '${{ needs.check-failure.outputs.failed_run_id }}';
+            const retryCount = parseInt('${{ needs.check-failure.outputs.retry_count }}');
+            const maxRetries = parseInt('${{ github.event.inputs.max_retries }}') || parseInt('${{ env.MAX_RETRIES }}');
+            
+            if (retryCount >= maxRetries) {
+              console.log(`Maximum retry attempts (${maxRetries}) reached. Stopping retry process.`);
+              return;
+            }
+            
+            console.log(`Retrying build (attempt ${retryCount + 1}/${maxRetries})...`);
+            
+            // Get version info from failed run
+            const failedRun = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: failedRunId
+            });
+            
+            // Trigger new build with same parameters
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'app-start-release.yml',
+              ref: 'main',
+              inputs: {
+                version: '1.6.4',  // Would extract from failed run in production
+                build_number: '164',
+                prerelease: 'false',
+                draft: 'false'
+              }
+            });
+            
+            console.log('Build retry triggered successfully');
+
+  manual-intervention-required:
+    name: Manual Intervention Required
+    runs-on: ubuntu-latest
+    needs: [check-failure, analyze-failure]
+    if: needs.analyze-failure.outputs.can_retry == 'false'
+    steps:
+      - name: Create intervention issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failureType = '${{ needs.analyze-failure.outputs.failure_type }}';
+            const failureJob = '${{ needs.analyze-failure.outputs.failure_job }}';
+            const failedRunId = '${{ needs.check-failure.outputs.failed_run_id }}';
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Manual Intervention Required - Build Failure (${failureType})`,
+              body: `## Manual Intervention Required
+              
+              **Failure Type:** ${failureType}
+              **Failed Job:** ${failureJob}
+              **Failed Run ID:** ${failedRunId}
+              **Retry Count:** ${{ needs.check-failure.outputs.retry_count }}
+              
+              This build failure requires manual intervention because automatic retry is not appropriate for this type of failure.
+              
+              ## Required Actions
+              - [ ] Review the failure logs
+              - [ ] Identify the root cause
+              - [ ] Implement the necessary fix
+              - [ ] Test the fix locally
+              - [ ] Trigger a new build manually
+              
+              ## Failure Analysis
+              The failure occurred in the ${failureJob} job, which is classified as a ${failureType} failure.
+              This type of failure typically requires code changes or configuration updates.
+              
+              ## Next Steps
+              After fixing the issue, manually trigger the build workflow:
+              1. Go to Actions tab
+              2. Select "CinaVault App Start Release Workflow"
+              3. Click "Run workflow"
+              4. Ensure version parameters are correct
+              
+              ## Repository Rules
+              Remember: All builds must be sequential and must succeed before proceeding.
+              `,
+              labels: ['manual-intervention', 'build-failure', 'urgent']
+            });
+            
+            console.log(`Created manual intervention issue #${issue.data.number}`);
+
+  max-retries-exceeded:
+    name: Maximum Retries Exceeded
+    runs-on: ubuntu-latest
+    needs: [check-failure, analyze-failure, execute-retry]
+    if: failure()
+    steps:
+      - name: Create critical issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const retryCount = parseInt('${{ needs.check-failure.outputs.retry_count }}');
+            const maxRetries = parseInt('${{ env.MAX_RETRIES }}');
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 CRITICAL: Maximum Build Retries Exceeded (${retryCount}/${maxRetries})`,
+              body: `## Maximum Build Retries Exceeded
+              
+              **Retry Count:** ${retryCount}
+              **Maximum Allowed:** ${maxRetries}
+              **Failed Run ID:** ${{ needs.check-failure.outputs.failed_run_id }}
+              
+              The automated build retry system has exhausted all retry attempts without success.
+              This requires immediate manual attention.
+              
+              ## Critical Actions Required
+              - [ ] URGENT: Review all failure logs
+              - [ ] URGENT: Identify persistent failure cause
+              - [ ] URGENT: Implement comprehensive fix
+              - [ ] URGENT: Test thoroughly before retrying
+              - [ ] URGENT: Consider increasing retry limit if needed
+              
+              ## Repository Rules Compliance
+              ⚠️ **RULE VIOLATION**: Failed builds must be fixed and rerun until successful
+              
+              The repository rule states: "If a workflow fails it must be fixed and rerun until build successfully publishes and releases with artifacts."
+              
+              ## Escalation
+              This issue should be escalated to repository maintainers immediately.
+              Consider pausing automated builds until this issue is resolved.
+              `,
+              labels: ['critical', 'build-failure', 'escalation', 'urgent']
+            });
+            
+            console.log(`Created critical issue #${issue.data.number}`);
+
+  retry-summary:
+    name: Retry Process Summary
+    runs-on: ubuntu-latest
+    needs: [check-failure, analyze-failure, execute-retry, manual-intervention-required, max-retries-exceeded]
+    if: always()
+    steps:
+      - name: Generate retry summary
+        run: |
+          echo "## Build Retry Handler Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed Run ID:** ${{ needs.check-failure.outputs.failed_run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Retry Count:** ${{ needs.check-failure.outputs.retry_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Process Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Failure Check: ${{ needs.check-failure.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Failure Analysis: ${{ needs.analyze-failure.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Retry Execution: ${{ needs.execute-retry.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Manual Intervention: ${{ needs.manual-intervention-required.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Max Retries: ${{ needs.max-retries-exceeded.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Failure Details" >> $GITHUB_STEP_SUMMARY
+          echo "- Failure Type: ${{ needs.analyze-failure.outputs.failure_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Failed Job: ${{ needs.analyze-failure.outputs.failure_job }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Can Retry: ${{ needs.analyze-failure.outputs.can_retry }}" >> $GITHUB_STEP_SUMMARY

@@ -14,6 +14,13 @@ declare module "./pluginAdapter" {
 
 type PluginBootConfig = Record<string, unknown>;
 
+/** Built-in CinaVault native plugins that must be ready at startup. */
+function getStartupPlugins(): PluginEntry[] {
+  return FULL_PLUGIN_REGISTRY.filter(
+    (plugin) => plugin.cinavaultNative && plugin.status === "active",
+  );
+}
+
 function defaultConfigFor(plugin: PluginEntry): PluginBootConfig {
   if (plugin.id === PGMA_PLUGIN_ID) {
     return { ...PGMA_DEFAULT_CONFIG, enabled: true, installedAtBoot: true };
@@ -79,7 +86,7 @@ async function installAndValidatePlugin(plugin: PluginEntry): Promise<void> {
 async function initializePluginEngine(): Promise<void> {
   await pluginEngine.loadFromBackend();
 
-  for (const plugin of FULL_PLUGIN_REGISTRY) {
+  for (const plugin of getStartupPlugins()) {
     try {
       await installAndValidatePlugin(plugin);
     } catch (error) {

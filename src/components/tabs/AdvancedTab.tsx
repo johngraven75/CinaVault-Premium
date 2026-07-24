@@ -116,12 +116,18 @@ export default function AdvancedTab() {
   };
 
   const handleToggle = async (key: string) => {
+    const nextEnabled = !(featureSettings[key]?.enabled ?? false);
     toggleFeature(key);
-    const enabled = !(featureSettings[key]?.enabled || false);
-    addStatusMessage(`Feature ${key}: ${enabled ? "enabled" : "disabled"}`);
+    addStatusMessage(`Feature ${key}: ${nextEnabled ? "enabled" : "disabled"}`);
     try {
-      await invoke("set_feature_setting", { key, enabled, config: "{}" });
-    } catch {}
+      await invoke("set_feature_setting", {
+        key,
+        enabled: nextEnabled,
+        config: "{}",
+      });
+    } catch (error) {
+      console.warn(`Failed to persist feature setting ${key}:`, error);
+    }
   };
 
   const addRequest = () => {

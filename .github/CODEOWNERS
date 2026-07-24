@@ -1,0 +1,65 @@
+# Codeowners file for CinaVault-Premium Repository
+# This file defines ownership rules for branch isolation and code review
+
+# Global maintainers - have access to all branches
+* @johngraven75
+
+# Main branch - only maintainers can approve
+/ @johngraven75
+
+# Develop branch - maintainers and contributors
+develop* @johngraven75
+
+# Version branches - version-specific maintainers
+release/v1.6.4/** @johngraven75
+release/v1.6.5/** @johngraven75
+
+# Feature branches - maintainers and contributors
+feature/v1.6.4/** @johngraven75
+feature/v1.6.5/** @johngraven75
+
+# Hotfix branches - maintainers only (fast-track)
+hotfix/v1.6.4/** @johngraven75
+hotfix/v1.6.5/** @johngraven75
+
+# Critical files - require maintainer approval regardless of branch
+package.json @johngraven75
+src-tauri/tauri.conf.json @johngraven75
+src-tauri/Cargo.toml @johngraven75
+.github/workflows/*.yml @johngraven75
+
+# Version-specific configuration - version branch maintainers only
+src-tauri/tauri.conf.json @johngraven75
+package.json @johngraven75
+
+# Documentation - maintainers and contributors
+docs/** @johngraven75
+*.md @johngraven75
+
+# Build scripts - maintainers only
+scripts/** @johngraven75
+*.sh @johngraven75
+*.ps1 @johngraven75
+
+# Source code - maintainers and contributors
+src/** @johngraven75
+src-tauri/** @johngraven75
+
+# Test files - contributors can modify
+tests/** @johngraven75
+**/*.test.mjs @johngraven75
+**/*.test.ts @johngraven75
+
+# Configuration files - maintainers only
+*.config.* @johngraven75
+tsconfig*.json @johngraven75
+vite.config.* @johngraven75
+tailwind.config.* @johngraven75
+postcss.config.* @johngraven75
+
+# Dependency files - maintainers only
+package-lock.json @johngraven75
+src-tauri/Cargo.lock @johngraven75
+
+# GitHub configuration - maintainers only
+.github/** @johngraven75

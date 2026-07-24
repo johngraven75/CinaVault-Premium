@@ -185,8 +185,9 @@ export class PluginAdapterEngine {
     } catch (err) {
       if (shouldLogInvokeFailure()) {
         console.warn(`Plugin install failed: ${plugin.id}`, err);
+        return false;
       }
-      // Fallback: register as installed locally (UI-only mode)
+      // Fallback: register as installed locally (browser dev mode only)
       const installed: InstalledPlugin = {
         id: plugin.id,
         name: plugin.name,
@@ -212,13 +213,14 @@ export class PluginAdapterEngine {
 
   // ── Uninstall a plugin ──
   async uninstallPlugin(pluginId: string): Promise<boolean> {
-    if (pluginId === PGMA_PLUGIN_ID) {
-      await this.setPluginEnabled(pluginId, true);
-      return true;
-    }
     try {
       await invoke("uninstall_plugin", { pluginId });
-    } catch {}
+    } catch (err) {
+      if (shouldLogInvokeFailure()) {
+        console.warn(`Plugin uninstall failed: ${pluginId}`, err);
+        return false;
+      }
+    }
     this.installed.delete(pluginId);
     return true;
   }

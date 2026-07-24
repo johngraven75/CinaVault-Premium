@@ -1,0 +1,346 @@
+name: Automated Testing Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: false
+        type: choice
+        options:
+          - all
+          - unit
+          - integration
+          - e2e
+          - visual
+        default: 'all'
+      coverage:
+        description: 'Generate coverage report'
+        required: false
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  schedule:
+    - cron: '0 */4 * * *'  # Every 4 hours
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RUST_BACKTRACE: '1'
+
+jobs:
+  setup:
+    name: Setup Testing Environment
+    runs-on: ubuntu-latest
+    outputs:
+      run_unit: ${{ steps.filter.outputs.run_unit }}
+      run_integration: ${{ steps.filter.outputs.run_integration }}
+      run_e2e: ${{ steps.filter.outputs.run_e2e }}
+      run_visual: ${{ steps.filter.outputs.run_visual }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine test scope
+        id: filter
+        run: |
+          if [ "${{ github.event.inputs.test_type }}" = "unit" ] || [ "${{ github.event.inputs.test_type }}" = "all" ] || [ -z "${{ github.event.inputs.test_type }}" ]; then
+            echo "run_unit=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_unit=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ "${{ github.event.inputs.test_type }}" = "integration" ] || [ "${{ github.event.inputs.test_type }}" = "all" ] || [ -z "${{ github.event.inputs.test_type }}" ]; then
+            echo "run_integration=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_integration=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ "${{ github.event.inputs.test_type }}" = "e2e" ] || [ "${{ github.event.inputs.test_type }}" = "all" ] || [ -z "${{ github.event.inputs.test_type }}" ]; then
+            echo "run_e2e=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_e2e=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ "${{ github.event.inputs.test_type }}" = "visual" ] || [ "${{ github.event.inputs.test_type }}" = "all" ] || [ -z "${{ github.event.inputs.test_type }}" ]; then
+            echo "run_visual=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_visual=false" >> $GITHUB_OUTPUT
+          fi
+
+  typescript-unit-tests:
+    name: TypeScript Unit Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.run_unit == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript compilation check
+        run: npm run lint
+      - name: Run TypeScript unit tests
+        run: npm test
+      - name: Generate coverage report
+        if: github.event.inputs.coverage != 'false'
+        run: |
+          npm install -g c8
+          c8 --reporter=json --reporter=text npm test
+      - name: Upload coverage reports
+        if: github.event.inputs.coverage != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-coverage
+          path: coverage/
+          retention-days: 7
+
+  rust-unit-tests:
+    name: Rust Unit Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.run_unit == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Run Rust unit tests
+        run: |
+          cd src-tauri
+          cargo test --lib -- --nocapture
+      - name: Run Rust doc tests
+        run: |
+          cd src-tauri
+          cargo test --doc -- --nocapture
+      - name: Generate coverage report
+        if: github.event.inputs.coverage != 'false'
+        run: |
+          cargo install cargo-tarpaulin
+          cd src-tauri
+          cargo tarpaulin --out Xml --output-dir ../coverage
+      - name: Upload coverage reports
+        if: github.event.inputs.coverage != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: coverage/
+          retention-days: 7
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: windows-latest
+    needs: setup
+    if: needs.setup.outputs.run_integration == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install dependencies
+        run: npm ci
+      - name: Build application
+        run: |
+          npm run build
+          cargo build --manifest-path src-tauri/Cargo.toml
+      - name: Run integration tests
+        run: |
+          cd src-tauri
+          cargo test --test '*' -- --nocapture
+      - name: Test metadata integration
+        run: |
+          cd src-tauri
+          cargo test metadata_ext::tests -- --nocapture
+      - name: Test database integration
+        run: |
+          cd src-tauri
+          cargo test db::tests -- --nocapture
+
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: windows-latest
+    needs: setup
+    if: needs.setup.outputs.run_e2e == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Build application
+        run: |
+          npm run build
+          cargo build --manifest-path src-tauri/Cargo.toml --release
+      - name: Run E2E tests
+        run: npx playwright test
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: playwright-report/
+          retention-days: 7
+
+  visual-tests:
+    name: Visual Regression Tests
+    runs-on: windows-latest
+    needs: setup
+    if: needs.setup.outputs.run_visual == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install dependencies
+        run: npm ci
+      - name: Run visual tests
+        run: node --test tests/visual/*.test.mjs
+      - name: Upload visual test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-test-results
+          path: test-results/
+          retention-days: 7
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: github.event.inputs.test_type == 'all' || github.event.inputs.test_type == ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: npm ci
+      - name: Build application
+        run: |
+          npm run build
+          cargo build --manifest-path src-tauri/Cargo.toml --release
+      - name: Run performance benchmarks
+        run: |
+          cd src-tauri
+          cargo test --release bench:: -- --nocapture
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: src-tauri/target/release/bench-results/
+          retention-days: 7
+
+  generate-test-report:
+    name: Generate Test Report
+    runs-on: ubuntu-latest
+    needs: [setup, typescript-unit-tests, rust-unit-tests, integration-tests, e2e-tests, visual-tests, performance-tests]
+    if: always()
+    steps:
+      - name: Generate comprehensive test report
+        run: |
+          cat > test-report.md << EOF
+          # Automated Test Report
+          
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Workflow Run:** ${{ github.run_number }}
+          **Trigger:** ${{ github.event_name }}
+          **Test Type:** ${{ github.event.inputs.test_type || 'all' }}
+          
+          ## Test Results Summary
+          
+          ### TypeScript Unit Tests
+          - Status: ${{ needs.typescript-unit-tests.result }}
+          - Coverage: ${{ github.event.inputs.coverage != 'false' && 'Generated' || 'Skipped' }}
+          
+          ### Rust Unit Tests
+          - Status: ${{ needs.rust-unit-tests.result }}
+          - Coverage: ${{ github.event.inputs.coverage != 'false' && 'Generated' || 'Skipped' }}
+          
+          ### Integration Tests
+          - Status: ${{ needs.integration-tests.result }}
+          
+          ### End-to-End Tests
+          - Status: ${{ needs.e2e-tests.result }}
+          
+          ### Visual Tests
+          - Status: ${{ needs.visual-tests.result }}
+          
+          ### Performance Tests
+          - Status: ${{ needs.performance-tests.result }}
+          
+          ## Overall Status
+          $(if [ "${{ needs.typescript-unit-tests.result }}" = "success" ] && [ "${{ needs.rust-unit-tests.result }}" = "success" ] && [ "${{ needs.integration-tests.result }}" = "success" ]; then echo "✅ All tests passed"; else echo "❌ Some tests failed"; fi)
+          
+          ## Artifacts
+          - TypeScript Coverage: Available for 7 days
+          - Rust Coverage: Available for 7 days
+          - Playwright Results: Available for 7 days
+          - Visual Test Results: Available for 7 days
+          - Performance Results: Available for 7 days
+          
+          EOF
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-report.md
+          retention-days: 30
+
+  notify-test-results:
+    name: Notify Test Results
+    runs-on: ubuntu-latest
+    needs: [setup, typescript-unit-tests, rust-unit-tests, integration-tests, e2e-tests, visual-tests, performance-tests, generate-test-report]
+    if: always()
+    steps:
+      - name: Create test summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Type:** ${{ github.event.inputs.test_type || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Suite Results" >> $GITHUB_STEP_SUMMARY
+          echo "- TypeScript Unit: ${{ needs.typescript-unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust Unit: ${{ needs.rust-unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- E2E: ${{ needs.e2e-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Visual: ${{ needs.visual-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance: ${{ needs.performance-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage Reports" >> $GITHUB_STEP_SUMMARY
+          echo "- TypeScript Coverage: ${{ github.event.inputs.coverage != 'false' && 'Generated' || 'Skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Rust Coverage: ${{ github.event.inputs.coverage != 'false' && 'Generated' || 'Skipped' }}" >> $GITHUB_STEP_SUMMARY

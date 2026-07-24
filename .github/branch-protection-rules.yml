@@ -1,0 +1,120 @@
+# Branch Protection Rules Configuration
+# This file defines the branch protection rules for CinaVault-Premium repository
+
+# Main Branch Protection
+main:
+  required_status_checks:
+    strict: true
+    contexts:
+      - "Validate Environment and Versions"
+      - "Validate Code Quality"
+      - "Build Windows Installers"
+  enforce_admins: true
+  required_pull_request_reviews:
+    required_approving_review_count: 2
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: true
+  restrictions:
+    apps: []
+    users: []
+    teams:
+      - maintainers
+  allow_force_pushes: false
+  allow_deletions: false
+  required_linear_history: true
+
+# Develop Branch Protection
+develop:
+  required_status_checks:
+    strict: true
+    contexts:
+      - "TypeScript validation"
+      - "Run governance tests"
+      - "Rust compilation check"
+  enforce_admins: false
+  required_pull_request_reviews:
+    required_approving_review_count: 1
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: false
+  restrictions:
+    apps: []
+    users: []
+    teams:
+      - maintainers
+      - contributors
+  allow_force_pushes: true
+  allow_deletions: false
+  required_linear_history: false
+
+# Version Branch Protection Pattern (release/vX.Y.Z)
+release-branches:
+  pattern: "release/v*"
+  required_status_checks:
+    strict: true
+    contexts:
+      - "Validate Environment and Versions"
+      - "Build Windows Installers"
+  enforce_admins: true
+  required_pull_request_reviews:
+    required_approving_review_count: 1
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: true
+  restrictions:
+    apps: []
+    users: []
+    teams:
+      - maintainers
+  allow_force_pushes: false
+  allow_deletions: false
+  required_linear_history: true
+  # Version-specific restrictions
+  block_cross_branch_merges: true
+  allowed_upstream_branches:
+    - "develop"  # Only allow merges from develop during initial creation
+
+# Feature Branch Protection Pattern (feature/vX.Y.Z/*)
+feature-branches:
+  pattern: "feature/v*"
+  required_status_checks:
+    strict: false
+    contexts:
+      - "TypeScript validation"
+      - "Run governance tests"
+  enforce_admins: false
+  required_pull_request_reviews:
+    required_approving_review_count: 1
+    dismiss_stale_reviews: false
+    require_code_owner_reviews: false
+  restrictions:
+    apps: []
+    users: []
+    teams:
+      - maintainers
+      - contributors
+  allow_force_pushes: true
+  allow_deletions: true
+  required_linear_history: false
+
+# Hotfix Branch Protection Pattern (hotfix/vX.Y.Z/*)
+hotfix-branches:
+  pattern: "hotfix/v*"
+  required_status_checks:
+    strict: true
+    contexts:
+      - "Validate Environment and Versions"
+      - "Build Windows Installers"
+  enforce_admins: false
+  required_pull_request_reviews:
+    required_approving_review_count: 1
+    dismiss_stale_reviews: false
+    require_code_owner_reviews: true
+  restrictions:
+    apps: []
+    users: []
+    teams:
+      - maintainers
+  allow_force_pushes: true
+  allow_deletions: true
+  required_linear_history: false
+  # Hotfix-specific: fast-track to version branch
+  fast_track_review: true

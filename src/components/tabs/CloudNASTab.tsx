@@ -286,9 +286,15 @@ export default function CloudNASTab() {
           lastSync: new Date().toISOString(),
         });
         addStatusMessage("Google Drive: Browser auth launched");
-      } catch {
+      } catch (fallbackError) {
         setCloudService("gdrive", { status: "error" });
-        addStatusMessage(`Google Drive: Failed — ${err.message}`);
+        const message =
+          fallbackError instanceof Error
+            ? fallbackError.message
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        addStatusMessage(`Google Drive: Failed — ${message}`);
       }
     }
   }, [setCloudService, addStatusMessage]);
@@ -314,7 +320,12 @@ export default function CloudNASTab() {
     async (id: CloudId) => {
       try {
         await invoke("cloud_disconnect", { provider: id });
-      } catch {}
+      } catch (error) {
+        addStatusMessage(
+          `${id === "gdrive" ? "Google Drive" : id === "onedrive" ? "OneDrive" : "Dropbox"}: Disconnect failed — ${error}`,
+        );
+        return;
+      }
       setCloudService(id, {
         status: "disconnected",
         account: undefined,
@@ -332,7 +343,10 @@ export default function CloudNASTab() {
       addStatusMessage(`Syncing ${id}...`);
       try {
         await invoke("cloud_sync", { provider: id });
-      } catch {}
+      } catch (error) {
+        addStatusMessage(`${id}: Sync failed — ${error}`);
+        return;
+      }
       setCloudService(id, { lastSync: new Date().toISOString() });
       addStatusMessage(`${id}: Sync complete`);
     },
@@ -344,7 +358,10 @@ export default function CloudNASTab() {
       addStatusMessage(`Browsing ${id} media library...`);
       try {
         await invoke("cloud_browse", { provider: id });
-      } catch {}
+        addStatusMessage(`${id}: Browse opened`);
+      } catch (error) {
+        addStatusMessage(`${id}: Browse failed — ${error}`);
+      }
     },
     [addStatusMessage],
   );

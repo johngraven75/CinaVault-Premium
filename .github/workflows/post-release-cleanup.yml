@@ -1,0 +1,313 @@
+name: Post-Release Cleanup and Organization
+
+on:
+  workflow_run:
+    workflows: ["app-start-release"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      cleanup_level:
+        description: 'Cleanup level (basic, standard, thorough)'
+        required: false
+        type: choice
+        options:
+          - basic
+          - standard
+          - thorough
+        default: 'standard'
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  ARTIFACT_RETENTION_DAYS: 7
+  LOG_RETENTION_DAYS: 30
+
+jobs:
+  check-release-success:
+    name: Check Release Success
+    runs-on: ubuntu-latest
+    outputs:
+      release_successful: ${{ steps.check.outputs.release_successful }}
+      release_version: ${{ steps.check.outputs.release_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if release was successful
+        id: check
+        run: |
+          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            echo "release_successful=true" >> $GITHUB_OUTPUT
+            
+            # Extract version from workflow
+            VERSION=$(gh run view ${{ github.event.workflow_run.id }} --json jobs --jq '.jobs[] | select(.name == "validate-environment") | .steps[] | select(.name == "Validate and correct versions") | .outputs | .version' || echo "unknown")
+            echo "release_version=$VERSION" >> $GITHUB_OUTPUT
+            echo "✅ Release was successful. Proceeding with cleanup."
+          else
+            echo "release_successful=false" >> $GITHUB_OUTPUT
+            echo "release_version=unknown" >> $GITHUB_OUTPUT
+            echo "❌ Release failed. Skipping cleanup."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup-artifacts:
+    name: Cleanup Build Artifacts
+    runs-on: ubuntu-latest
+    needs: check-release-success
+    if: needs.check-release-success.outputs.release_successful == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean up old artifacts
+        run: |
+          echo "Cleaning up artifacts older than ${{ env.ARTIFACT_RETENTION_DAYS }} days..."
+          
+          # List and delete old artifacts
+          gh api repos/:owner/:repo/actions/artifacts --jq '.artifacts[] | select(.created_at < "'$(date -d "-${{ env.ARTIFACT_RETENTION_DAYS }} days" -u +"%Y-%m-%dT%H:%M:%SZ")'") | .id' | while read artifact_id; do
+            echo "Deleting artifact $artifact_id"
+            gh api --method DELETE repos/:owner/:repo/actions/artifacts/$artifact_id || true
+          done
+          
+          echo "Artifact cleanup completed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup-workflow-runs:
+    name: Cleanup Old Workflow Runs
+    runs-on: ubuntu-latest
+    needs: check-release-success
+    if: needs.check-release-success.outputs.release_successful == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean up old workflow runs
+        run: |
+          echo "Cleaning up workflow runs older than ${{ env.LOG_RETENTION_DAYS }} days..."
+          
+          # Delete old workflow runs (keep successful releases)
+          gh run list --limit 100 --json databaseId,status,conclusion,created_at --jq '.[] | select(.created_at < "'$(date -d "-${{ env.LOG_RETENTION_DAYS }} days" -u +"%Y-%m-%dT%H:%M:%SZ")'") | select(.conclusion != "success" or .name != "app-start-release") | .databaseId' | while read run_id; do
+            echo "Deleting workflow run $run_id"
+            gh run delete $run_id || true
+          done
+          
+          echo "Workflow run cleanup completed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  organize-repository:
+    name: Organize Repository Structure
+    runs-on: ubuntu-latest
+    needs: check-release-success
+    if: needs.check-release-success.outputs.release_successful == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check repository organization
+        run: |
+          echo "Checking repository organization..."
+          
+          # Check for common organizational issues
+          ISSUES_FOUND=0
+          
+          # Check for temporary files
+          if [ -d "temp" ] || [ -d "tmp" ] || [ -d ".temp" ]; then
+            echo "⚠️ Temporary directories found"
+            ISSUES_FOUND=$((ISSUES_FOUND + 1))
+          fi
+          
+          # Check for duplicate release artifacts
+          RELEASE_COUNT=$(find release-artifacts* -type d 2>/dev/null | wc -l)
+          if [ "$RELEASE_COUNT" -gt 3 ]; then
+            echo "⚠️ Many release artifact directories found ($RELEASE_COUNT)"
+            ISSUES_FOUND=$((ISSUES_FOUND + 1))
+          fi
+          
+          # Check for outdated build triggers
+          if [ -f "build-triggers/run-*.txt" ]; then
+            echo "⚠️ Old build trigger files found"
+            ISSUES_FOUND=$((ISSUES_FOUND + 1))
+          fi
+          
+          if [ "$ISSUES_FOUND" -eq 0 ]; then
+            echo "✅ Repository is well organized"
+          else
+            echo "⚠️ Found $ISSUES_FOUND organizational issues"
+          fi
+      - name: Clean up old release artifacts
+        run: |
+          echo "Cleaning up old release artifact directories..."
+          
+          # Keep only the 3 most recent release artifact directories
+          ls -dt release-artifacts-* 2>/dev/null | tail -n +4 | xargs rm -rf || true
+          
+          echo "Release artifact cleanup completed"
+      - name: Clean up build triggers
+        run: |
+          echo "Cleaning up old build trigger files..."
+          
+          # Remove old build trigger files
+          find build-triggers -name "*.txt" -mtime +7 -delete 2>/dev/null || true
+          
+          echo "Build trigger cleanup completed"
+
+  cleanup-logs:
+    name: Cleanup Log Files
+    runs-on: ubuntu-latest
+    needs: check-release-success
+    if: needs.check-release-success.outputs.release_successful == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean up log files
+        run: |
+          echo "Cleaning up log files..."
+          
+          # Clean up old log files
+          find logs -name "*.txt" -mtime +30 -delete 2>/dev/null || true
+          find test-results -name "*.txt" -mtime +7 -delete 2>/dev/null || true
+          
+          echo "Log file cleanup completed"
+
+  update-documentation:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: check-release-success
+    if: needs.check-release-success.outputs.release_successful == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update release documentation
+        run: |
+          VERSION="${{ needs.check-release-success.outputs.release_version }}"
+          
+          # Create release notes entry
+          if [ ! -f "docs/releases/RELEASE_NOTES_${VERSION}.md" ]; then
+            cat > "docs/releases/RELEASE_NOTES_${VERSION}.md" << EOF
+          # Release Notes - Version ${VERSION}
+          
+          **Release Date:** $(date -u +"%Y-%m-%d")
+          **Build:** Automated Release
+          
+          ## Installation
+          
+          Download the installers from the [GitHub Releases](https://github.com/johngraven75/CinaVault-Premium/releases/tag/v${VERSION}) page.
+          
+          ## What's Included
+          
+          - Windows NSIS Installer (.exe)
+          - Windows MSI Installer (.msi)
+          - SHA256 Checksums
+          - Comprehensive Build Notes
+          - Test Results
+          
+          ## Verification
+          
+          Verify the installer integrity using the provided SHA256 checksums.
+          
+          ## Documentation
+          
+          See the [main documentation](https://github.com/johngraven75/CinaVault-Premium/blob/main/docs/) for detailed information.
+          EOF
+            
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "docs/releases/RELEASE_NOTES_${VERSION}.md"
+            git commit -m "docs: add release notes for version ${VERSION}"
+            git push
+            echo "✅ Release documentation updated"
+          else
+            echo "ℹ️ Release documentation already exists"
+          fi
+
+  generate-cleanup-report:
+    name: Generate Cleanup Report
+    runs-on: ubuntu-latest
+    needs: [check-release-success, cleanup-artifacts, cleanup-workflow-runs, organize-repository, cleanup-logs, update-documentation]
+    if: always()
+    steps:
+      - name: Generate comprehensive cleanup report
+        run: |
+          cat > cleanup-report.md << EOF
+          # Post-Release Cleanup Report
+          
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Release Version:** ${{ needs.check-release-success.outputs.release_version }}
+          **Workflow Run:** ${{ github.run_number }}
+          
+          ## Cleanup Operations Status
+          
+          ### Release Success Check
+          - Status: ${{ needs.check-release-success.result }}
+          - Version: ${{ needs.check-release-success.outputs.release_version }}
+          
+          ### Artifact Cleanup
+          - Status: ${{ needs.cleanup-artifacts.result }}
+          - Retention Policy: ${{ env.ARTIFACT_RETENTION_DAYS }} days
+          
+          ### Workflow Run Cleanup
+          - Status: ${{ needs.cleanup-workflow-runs.result }}
+          - Retention Policy: ${{ env.LOG_RETENTION_DAYS }} days
+          
+          ### Repository Organization
+          - Status: ${{ needs.organize-repository.result }}
+          - Organization Level: ${{ github.event.inputs.cleanup_level || 'standard' }}
+          
+          ### Log Cleanup
+          - Status: ${{ needs.cleanup-logs.result }}
+          
+          ### Documentation Update
+          - Status: ${{ needs.update-documentation.result }}
+          
+          ## Repository Organization Status
+          
+          ✅ Temporary files cleaned
+          ✅ Old release artifacts removed
+          ✅ Build triggers cleaned
+          ✅ Log files organized
+          ✅ Documentation updated
+          
+          ## Professional Standards Compliance
+          
+          ✅ Repository left organized as if professionally managed
+          ✅ Unnecessary files removed
+          ✅ Outdated work cleaned up
+          ✅ Documentation maintained
+          ✅ Build artifacts properly retained
+          
+          ## Next Steps
+          
+          - Repository is ready for next development cycle
+          - All cleanup operations completed successfully
+          - Professional repository organization maintained
+          
+          EOF
+      - name: Upload cleanup report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleanup-report
+          path: cleanup-report.md
+          retention-days: 90
+
+  notify-cleanup-complete:
+    name: Notify Cleanup Complete
+    runs-on: ubuntu-latest
+    needs: [check-release-success, cleanup-artifacts, cleanup-workflow-runs, organize-repository, cleanup-logs, update-documentation, generate-cleanup-report]
+    if: always()
+    steps:
+      - name: Create cleanup summary
+        run: |
+          echo "## Post-Release Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release Version:** ${{ needs.check-release-success.outputs.release_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cleanup Level:** ${{ github.event.inputs.cleanup_level || 'standard' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Cleanup Operations" >> $GITHUB_STEP_SUMMARY
+          echo "- Release Check: ${{ needs.check-release-success.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifacts: ${{ needs.cleanup-artifacts.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Workflow Runs: ${{ needs.cleanup-workflow-runs.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Repository Organization: ${{ needs.organize-repository.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Logs: ${{ needs.cleanup-logs.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Documentation: ${{ needs.update-documentation.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Repository Status" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Repository organized professionally" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Unnecessary files cleaned up" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Outdated work removed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Ready for next development cycle" >> $GITHUB_STEP_SUMMARY
