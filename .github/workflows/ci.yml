@@ -70,6 +70,14 @@ jobs:
             libgtk-3-dev \
             libglib2.0-dev
 
+      - name: Prepare cross-platform bundle resources
+        shell: bash
+        run: |
+          mkdir -p tools/wireguard
+          if [ ! -f tools/wireguard/wireguard.exe ]; then
+            printf 'CI placeholder for Windows bundle resource\n' > tools/wireguard/wireguard.exe
+          fi
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
