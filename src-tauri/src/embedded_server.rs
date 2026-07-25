@@ -6,8 +6,9 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path as FilePath, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::{oneshot, RwLock};
@@ -15,6 +16,7 @@ use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 
 const DEFAULT_PORT: u16 = 32400;
+const REMOTE_MEDIA_KEY_DOMAIN: &[u8] = b"cinavault-build-170-remote-media-v1";
 
 #[derive(Clone)]
 struct HttpState {
@@ -59,6 +61,8 @@ struct ServerStatus {
     local_url: String,
     remote_ready: bool,
     authentication: &'static str,
+    remote_transport: &'static str,
+    local_paths_exposed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,6 +74,34 @@ struct ServerInfo {
     build: &'static str,
     account_email: String,
     permissions: Vec<String>,
+    remote_transport: &'static str,
+    media_identifiers: &'static str,
+    local_paths_exposed: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteMediaItem {
+    media_key: String,
+    title: String,
+    media_type: String,
+    year: Option<i32>,
+    rating: Option<f64>,
+    overview: Option<String>,
+    genre: Option<String>,
+    duration: Option<i64>,
+    file_size: Option<i64>,
+    resolution: Option<String>,
+    codec: Option<String>,
+    verified: bool,
+    watched: bool,
+    favorite: bool,
+    date_added: String,
+    last_played: Option<String>,
+    tmdb_id: Option<String>,
+    imdb_id: Option<String>,
+    artwork_url: Option<String>,
+    stream_url: String,
 }
 
 fn open_database(path: &str) -> Result<Database, (StatusCode, String)> {
@@ -81,11 +113,61 @@ fn open_database(path: &str) -> Result<Database, (StatusCode, String)> {
     })
 }
 
-fn media_item_by_id(database: &Database, id: i64) -> Result<Option<MediaItem>, String> {
+fn media_key(item: &MediaItem) -> Option<String> {
+    let id = item.id?;
+    let mut hasher = Sha256::new();
+    hasher.update(REMOTE_MEDIA_KEY_DOMAIN);
+    hasher.update(id.to_le_bytes());
+    hasher.update(item.file_path.as_bytes());
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
+}
+
+fn find_item_by_key(database: &Database, key: &str) -> Result<Option<MediaItem>, String> {
     database
         .get_media_items_data(None, None, None)
-        .map(|items| items.into_iter().find(|item| item.id == Some(id)))
         .map_err(|error| error.to_string())
+        .map(|items| {
+            items
+                .into_iter()
+                .find(|item| media_key(item).as_deref() == Some(key))
+        })
+}
+
+fn remote_media_item(item: MediaItem) -> Option<RemoteMediaItem> {
+    let key = media_key(&item)?;
+    let has_artwork = item
+        .poster_path
+        .as_deref()
+        .or(item.backdrop_path.as_deref())
+        .is_some_and(|value| !value.trim().is_empty());
+    Some(RemoteMediaItem {
+        media_key: key.clone(),
+        title: item.title,
+        media_type: item.media_type,
+        year: item.year,
+        rating: item.rating,
+        overview: item.overview,
+        genre: item.genre,
+        duration: item.duration,
+        file_size: item.file_size,
+        resolution: item.resolution,
+        codec: item.codec,
+        verified: item.verified,
+        watched: item.watched,
+        favorite: item.favorite,
+        date_added: item.date_added,
+        last_played: item.last_played,
+        tmdb_id: item.tmdb_id,
+        imdb_id: item.imdb_id,
+        artwork_url: has_artwork.then(|| format!("/api/artwork/{key}")),
+        stream_url: format!("/api/stream/{key}"),
+    })
 }
 
 async fn register_session(
@@ -158,12 +240,33 @@ async fn authenticated_principal(
     Ok(principal)
 }
 
+fn hardened_response_headers(response: &mut Response<Body>) {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store, max-age=0"),
+    );
+    response.headers_mut().insert(
+        header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+    response.headers_mut().insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    response.headers_mut().insert(
+        header::HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+}
+
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "ok",
         "product": "CinaVault Embedded Media Server",
         "version": "1.7.170",
-        "build": "170"
+        "build": "170",
+        "remoteTransport": "HTTPS relay required by default",
+        "localPathsExposed": false
     }))
 }
 
@@ -179,35 +282,41 @@ async fn server_info(
         build: "170",
         account_email: principal.email,
         permissions: principal.permissions,
+        remote_transport: "HTTPS relay",
+        media_identifiers: "opaque SHA-256 media keys",
+        local_paths_exposed: false,
     }))
 }
 
 async fn library(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
-) -> Result<Json<Vec<MediaItem>>, (StatusCode, String)> {
+) -> Result<Json<Vec<RemoteMediaItem>>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "library:read").await?;
     let database = open_database(&state.database_path)?;
-    database
+    let items = database
         .get_media_items_data(None, None, None)
-        .map(Json)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    Ok(Json(
+        items.into_iter().filter_map(remote_media_item).collect(),
+    ))
 }
 
 async fn library_item(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
-    Path(id): Path<i64>,
-) -> Result<Json<MediaItem>, (StatusCode, String)> {
+    Path(media_key): Path<String>,
+) -> Result<Json<RemoteMediaItem>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "library:read").await?;
     let database = open_database(&state.database_path)?;
-    media_item_by_id(&database, id)
+    find_item_by_key(&database, &media_key)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+        .and_then(remote_media_item)
         .map(Json)
         .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))
 }
 
-fn content_type(path: &std::path::Path) -> &'static str {
+fn content_type(path: &FilePath) -> &'static str {
     match path
         .extension()
         .and_then(|value| value.to_str())
@@ -223,6 +332,10 @@ fn content_type(path: &std::path::Path) -> &'static str {
         "m4a" => "audio/mp4",
         "flac" => "audio/flac",
         "wav" => "audio/wav",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
         _ => "application/octet-stream",
     }
 }
@@ -240,14 +353,68 @@ fn requested_range(headers: &HeaderMap, size: u64) -> Option<(u64, u64)> {
     (start <= end && end < size).then_some((start, end))
 }
 
+async fn artwork_media(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Path(media_key): Path<String>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "library:read").await?;
+    let database = open_database(&state.database_path)?;
+    let item = find_item_by_key(&database, &media_key)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+        .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))?;
+    let artwork = item
+        .poster_path
+        .or(item.backdrop_path)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or((StatusCode::NOT_FOUND, "Artwork not available".into()))?;
+
+    let (bytes, mime) = if artwork.starts_with("https://") {
+        let response = reqwest::Client::new()
+            .get(&artwork)
+            .timeout(std::time::Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?
+            .error_for_status()
+            .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?;
+        let mime = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("image/jpeg")
+            .to_string();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?;
+        (bytes.to_vec(), mime)
+    } else {
+        let path = PathBuf::from(&artwork);
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
+        (bytes, content_type(&path).to_string())
+    };
+
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&mime)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?,
+    );
+    hardened_response_headers(&mut response);
+    Ok(response)
+}
+
 async fn stream_media(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
-    Path(id): Path<i64>,
+    Path(media_key): Path<String>,
 ) -> Result<Response<Body>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "stream:play").await?;
     let database = open_database(&state.database_path)?;
-    let item = media_item_by_id(&database, id)
+    let item = find_item_by_key(&database, &media_key)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
         .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))?;
 
@@ -295,6 +462,7 @@ async fn stream_media(
                 .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?,
         );
     }
+    hardened_response_headers(&mut response);
     Ok(response)
 }
 
@@ -305,8 +473,9 @@ fn router(state: Arc<HttpState>) -> Router {
         .route("/api/auth/access-key", post(login_access_key))
         .route("/api/server/info", get(server_info))
         .route("/api/library", get(library))
-        .route("/api/library/{id}", get(library_item))
-        .route("/api/stream/{id}", get(stream_media))
+        .route("/api/library/{media_key}", get(library_item))
+        .route("/api/artwork/{media_key}", get(artwork_media))
+        .route("/api/stream/{media_key}", get(stream_media))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -327,7 +496,9 @@ pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Valu
                 "port": active.port,
                 "localUrl": format!("http://127.0.0.1:{}", active.port),
                 "remoteReady": false,
-                "authentication": "CinaVault account session"
+                "authentication": "CinaVault account session",
+                "remoteTransport": "HTTPS relay required by default",
+                "localPathsExposed": false
             }));
         }
     }
@@ -368,7 +539,9 @@ pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Valu
         "port": port,
         "localUrl": format!("http://127.0.0.1:{port}"),
         "remoteReady": false,
-        "authentication": "CinaVault account session"
+        "authentication": "CinaVault account session",
+        "remoteTransport": "HTTPS relay required by default",
+        "localPathsExposed": false
     }))
 }
 
@@ -394,6 +567,8 @@ pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
             local_url: format!("http://127.0.0.1:{}", active.port),
             remote_ready: false,
             authentication: "CinaVault account session",
+            remote_transport: "HTTPS relay required by default",
+            local_paths_exposed: false,
         }
     } else {
         ServerStatus {
@@ -402,6 +577,8 @@ pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
             local_url: format!("http://127.0.0.1:{DEFAULT_PORT}"),
             remote_ready: false,
             authentication: "CinaVault account session",
+            remote_transport: "HTTPS relay required by default",
+            local_paths_exposed: false,
         }
     };
     serde_json::to_value(status).map_err(|error| error.to_string())
