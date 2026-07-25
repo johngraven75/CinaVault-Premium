@@ -8,6 +8,7 @@ import "./styles/build170-library.css";
 import "./styles/metadata-actions.css";
 import "./styles/kodi-skin.css";
 import "./styles/ui-stability.css";
+import "./styles/command-palette-stability.css";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -32,7 +33,7 @@ function recordGlobalError(kind: string, value: unknown): void {
     kind,
     message: describeUnknownError(value),
     occurredAt: new Date().toISOString(),
-    build: "v2 Build 1.02",
+    build: "v2 Build 1.03",
   };
   console.error("CinaVault global interface error:", record);
   try {
@@ -50,7 +51,7 @@ window.addEventListener("unhandledrejection", (event) => {
   recordGlobalError("unhandledrejection", event.reason);
 });
 
-document.documentElement.dataset.cinavaultBuild = "v2-build-1-02";
+document.documentElement.dataset.cinavaultBuild = "v2-build-1-03";
 
 function StartupViewport(): React.JSX.Element {
   return (
@@ -145,7 +146,7 @@ void import("./App")
     root.render(
       <div className="cv-runtime-fallback" role="alert">
         <section className="cv-runtime-fallback-card">
-          <div className="cv-runtime-fallback-kicker">v2 Build 1.02 recovery</div>
+          <div className="cv-runtime-fallback-kicker">v2 Build 1.03 recovery</div>
           <h1>CinaVault could not load the interface</h1>
           <p>
             Restart the application. The startup error was recorded locally for
