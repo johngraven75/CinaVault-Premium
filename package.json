@@ -11,14 +11,15 @@
     "tauri": "tauri",
     "lint": "tsc --noEmit",
     "type-check": "tsc --strict --noEmit",
-    "test": "node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs",
-    "test:all": "node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs",
+    "test": "node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs",
+    "test:all": "node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
     "test:governance": "node --test tests/carryForwardVerification.test.mjs",
     "test:build169": "node --test tests/carryForwardVerification.test.mjs",
     "test:build170": "node --test tests/build170RemoteConnectivity.test.mjs",
     "test:v2-build-1-02": "node --test tests/v2Build102UiStability.test.mjs",
-    "test:v2-build-1-03": "node --test tests/v2Build103CommandPaletteStability.test.mjs"
+    "test:v2-build-1-03": "node --test tests/v2Build103CommandPaletteStability.test.mjs",
+    "test:platform-parity": "node --test tests/platformParityContract.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
