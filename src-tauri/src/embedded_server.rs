@@ -162,7 +162,8 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "ok",
         "product": "CinaVault Embedded Media Server",
-        "build": "169"
+        "version": "1.7.170",
+        "build": "170"
     }))
 }
 
@@ -174,8 +175,8 @@ async fn server_info(
     Ok(Json(ServerInfo {
         name: "CinaVault Premium",
         product: "CinaVault Embedded Media Server",
-        version: env!("CARGO_PKG_VERSION"),
-        build: "169",
+        version: "1.7.170",
+        build: "170",
         account_email: principal.email,
         permissions: principal.permissions,
     }))
@@ -325,7 +326,7 @@ pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Valu
                 "running": true,
                 "port": active.port,
                 "localUrl": format!("http://127.0.0.1:{}", active.port),
-                "remoteReady": true,
+                "remoteReady": false,
                 "authentication": "CinaVault account session"
             }));
         }
@@ -366,7 +367,7 @@ pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Valu
         "running": true,
         "port": port,
         "localUrl": format!("http://127.0.0.1:{port}"),
-        "remoteReady": true,
+        "remoteReady": false,
         "authentication": "CinaVault account session"
     }))
 }
@@ -391,7 +392,7 @@ pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
             running: true,
             port: active.port,
             local_url: format!("http://127.0.0.1:{}", active.port),
-            remote_ready: true,
+            remote_ready: false,
             authentication: "CinaVault account session",
         }
     } else {
@@ -399,7 +400,7 @@ pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
             running: false,
             port: DEFAULT_PORT,
             local_url: format!("http://127.0.0.1:{DEFAULT_PORT}"),
-            remote_ready: true,
+            remote_ready: false,
             authentication: "CinaVault account session",
         }
     };
