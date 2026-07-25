@@ -35,4 +35,4 @@ Validation PR #45 was merged to `main` at commit `435663d1e3902762db354515308907
 
 ## Publication
 
-This document update is the guarded one-time trigger for the Build 169 release workflow. The release workflow must create tag `build-169`, publish `CinaVault Premium Build 169`, attach the MSI and NSIS installers, and fail if installer files are absent.
+The self-reporting Build 169 publication run is triggered by this commit. Workflow start, failure, and success states are posted to temporary monitor issue #46. The workflow must create tag `build-169`, publish `CinaVault Premium Build 169`, attach both MSI and NSIS installers, and fail if either installer is absent.
