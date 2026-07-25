@@ -8,7 +8,6 @@ const replacements = new Map([
   ["Build 140 Futuristic Sidebar Navigation", "NAV_ITEMS"],
   ["sidebar-active-panel", "media-center-active-nav"],
   ["sidebar-active-rail", "media-center-active-rail"],
-  ["Automated Daily Maintenance", "Repository Maintenance"],
 ]);
 
 for (const [legacyToken, currentToken] of replacements) {
