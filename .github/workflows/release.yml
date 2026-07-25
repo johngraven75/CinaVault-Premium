@@ -13,6 +13,8 @@ on:
         type: boolean
         default: false
   push:
+    branches:
+      - main
     tags:
       - "build-*"
       - "v*"
@@ -27,8 +29,9 @@ concurrency:
 jobs:
   validate:
     name: Regression Gate
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release build-169]')
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,7 +58,7 @@ jobs:
     name: Windows MSI and NSIS
     needs: validate
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,6 +80,50 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare required Windows resources
+        shell: pwsh
+        run: |
+          choco install wireguard -y --no-progress
+          $wireGuardCandidates = @(
+            'C:\Program Files\WireGuard\wireguard.exe',
+            'C:\Program Files (x86)\WireGuard\wireguard.exe'
+          )
+          $wireGuardSource = $wireGuardCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $wireGuardSource) {
+            $wireGuardSource = Get-ChildItem 'C:\Program Files*' -Filter wireguard.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $wireGuardSource) { throw 'A genuine WireGuard executable could not be located after installation.' }
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/wireguard | Out-Null
+          Copy-Item $wireGuardSource src-tauri/tools/wireguard/wireguard.exe -Force
+
+          Add-Type -AssemblyName System.Drawing
+          Get-ChildItem src-tauri/icons -Filter *.png | ForEach-Object {
+            $sourcePath = $_.FullName
+            $temporaryPath = "$sourcePath.rgba.png"
+            $sourceImage = [System.Drawing.Image]::FromFile($sourcePath)
+            try {
+              $bitmap = New-Object System.Drawing.Bitmap($sourceImage.Width, $sourceImage.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+              try {
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try {
+                  $graphics.DrawImage($sourceImage, 0, 0, $sourceImage.Width, $sourceImage.Height)
+                } finally {
+                  $graphics.Dispose()
+                }
+                $bitmap.Save($temporaryPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              } finally {
+                $bitmap.Dispose()
+              }
+            } finally {
+              $sourceImage.Dispose()
+            }
+            Move-Item $temporaryPath $sourcePath -Force
+          }
+
+      - name: Native Rust validation
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
       - name: Build Tauri installers
         run: npm run tauri build
 
@@ -94,7 +141,7 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: cinavault-windows-installers-${{ github.sha }}
+          name: cinavault-build-169-windows-installers-${{ github.sha }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 30
@@ -106,8 +153,11 @@ jobs:
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
             "tag=${{ inputs.release_tag }}" >> $env:GITHUB_OUTPUT
             "prerelease=${{ inputs.prerelease }}" >> $env:GITHUB_OUTPUT
-          } else {
+          } elseif ('${{ github.ref }}'.StartsWith('refs/tags/')) {
             "tag=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+            "prerelease=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "tag=build-169" >> $env:GITHUB_OUTPUT
             "prerelease=false" >> $env:GITHUB_OUTPUT
           }
 
@@ -115,7 +165,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
-          name: CinaVault Premium ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: CinaVault Premium Build 169
           prerelease: ${{ steps.release.outputs.prerelease }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: release-assets/*
