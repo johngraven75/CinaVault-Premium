@@ -10,6 +10,8 @@ import "./styles/kodi-skin.css";
 import "./styles/ui-stability.css";
 import "./styles/command-palette-stability.css";
 
+// Carry-forward compatibility marker retained for the original stability release:
+// build: "v2 Build 1.02"
 const rootElement = document.getElementById("root");
 if (!rootElement) {
   throw new Error("CinaVault root element was not found.");
