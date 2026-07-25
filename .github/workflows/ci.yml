@@ -73,9 +73,12 @@ jobs:
       - name: Prepare cross-platform bundle resources
         shell: bash
         run: |
-          mkdir -p tools/wireguard
+          mkdir -p tools/wireguard src-tauri/tools/wireguard
           if [ ! -f tools/wireguard/wireguard.exe ]; then
             printf 'CI placeholder for Windows bundle resource\n' > tools/wireguard/wireguard.exe
+          fi
+          if [ ! -f src-tauri/tools/wireguard/wireguard.exe ]; then
+            printf 'CI placeholder for Windows bundle resource\n' > src-tauri/tools/wireguard/wireguard.exe
           fi
 
       - name: Setup Rust
