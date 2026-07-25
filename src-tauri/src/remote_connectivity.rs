@@ -165,9 +165,14 @@ async fn renew_mapping(method: String, port: u16, mut shutdown: oneshot::Receive
 
 fn parse_quick_tunnel_url(line: &str) -> Option<String> {
     line.split_whitespace()
-        .map(|value| value.trim_matches(|character: char| {
-            matches!(character, '|' | ',' | ';' | '(' | ')' | '[' | ']' | '"' | '\'')
-        }))
+        .map(|value| {
+            value.trim_matches(|character: char| {
+                matches!(
+                    character,
+                    '|' | ',' | ';' | '(' | ')' | '[' | ']' | '"' | '\''
+                )
+            })
+        })
         .find(|value| value.starts_with("https://") && value.contains(".trycloudflare.com"))
         .map(ToString::to_string)
 }
@@ -259,10 +264,7 @@ async fn start_cloud_relay(port: u16) -> Result<(Child, String, String), String>
 async fn stop_runtime() -> Result<(), String> {
     let (mut tunnel, mapping_shutdown) = {
         let mut guard = runtime().lock().map_err(|error| error.to_string())?;
-        (
-            guard.tunnel.take(),
-            guard.mapping_shutdown.take(),
-        )
+        (guard.tunnel.take(), guard.mapping_shutdown.take())
     };
     if let Some(shutdown) = mapping_shutdown {
         let _ = shutdown.send(());
@@ -281,10 +283,14 @@ pub async fn start_remote_connectivity(
     port: Option<u16>,
     prefer_relay: Option<bool>,
     allow_relay: Option<bool>,
+    enable_upnp: Option<bool>,
+    enable_nat_pmp: Option<bool>,
 ) -> Result<RemoteConnectivityStatus, String> {
     let port = port.unwrap_or(DEFAULT_PORT);
     let prefer_relay = prefer_relay.unwrap_or(false);
     let allow_relay = allow_relay.unwrap_or(true);
+    let enable_upnp = enable_upnp.unwrap_or(true);
+    let enable_nat_pmp = enable_nat_pmp.unwrap_or(true);
     stop_runtime().await?;
 
     let mut status = RemoteConnectivityStatus {
@@ -292,35 +298,49 @@ pub async fn start_remote_connectivity(
         port,
         ..RemoteConnectivityStatus::default()
     };
-    let mut mapping_error: Option<String> = None;
+    let mut mapping_errors = Vec::<String>::new();
 
     if !prefer_relay {
-        match map_upnp(port).await {
-            Ok(public_ip) => {
-                status.direct_available = true;
-                status.direct_method = Some("UPnP".into());
-                status.public_ip = Some(public_ip.clone());
-                status.direct_url = Some(format!("http://{public_ip}:{port}"));
-            }
-            Err(upnp_error) => match map_nat_pmp(port).await {
-                Ok(()) => {
-                    let public_ip = discover_public_ip().await;
+        if enable_upnp {
+            match map_upnp(port).await {
+                Ok(public_ip) => {
                     status.direct_available = true;
-                    status.direct_method = Some("NAT-PMP".into());
-                    status.public_ip = public_ip.clone();
-                    status.direct_url = public_ip.map(|value| format!("http://{value}:{port}"));
+                    status.direct_method = Some("UPnP".into());
+                    status.public_ip = Some(public_ip.clone());
+                    status.direct_url = Some(format!("http://{public_ip}:{port}"));
                 }
-                Err(nat_pmp_error) => {
-                    mapping_error = Some(format!(
-                        "UPnP unavailable ({upnp_error}); NAT-PMP unavailable ({nat_pmp_error})"
-                    ));
+                Err(error) => mapping_errors.push(format!("UPnP unavailable ({error})")),
+            }
+        } else {
+            mapping_errors.push("UPnP disabled".into());
+        }
+
+        if !status.direct_available {
+            if enable_nat_pmp {
+                match map_nat_pmp(port).await {
+                    Ok(()) => {
+                        let public_ip = discover_public_ip().await;
+                        status.direct_available = true;
+                        status.direct_method = Some("NAT-PMP".into());
+                        status.public_ip = public_ip.clone();
+                        status.direct_url =
+                            public_ip.map(|value| format!("http://{value}:{port}"));
+                    }
+                    Err(error) => {
+                        mapping_errors.push(format!("NAT-PMP unavailable ({error})"))
+                    }
                 }
-            },
+            } else {
+                mapping_errors.push("NAT-PMP disabled".into());
+            }
         }
     }
 
     if status.direct_available {
-        let method = status.direct_method.clone().unwrap_or_else(|| "UPnP".into());
+        let method = status
+            .direct_method
+            .clone()
+            .unwrap_or_else(|| "UPnP".into());
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         tauri::async_runtime::spawn(renew_mapping(method, port, shutdown_rx));
         runtime()
@@ -341,20 +361,33 @@ pub async fn start_remote_connectivity(
                     .tunnel = Some(child);
             }
             Err(error) => {
-                status.last_error = Some(match mapping_error {
-                    Some(mapping_error) => format!("{mapping_error}; relay unavailable ({error})"),
+                let direct_error = if mapping_errors.is_empty() {
+                    None
+                } else {
+                    Some(mapping_errors.join("; "))
+                };
+                status.last_error = Some(match direct_error {
+                    Some(direct_error) => {
+                        format!("{direct_error}; relay unavailable ({error})")
+                    }
                     None => format!("Cloud relay unavailable: {error}"),
                 });
             }
         }
-    } else if mapping_error.is_some() {
-        status.last_error = mapping_error;
+    } else if !mapping_errors.is_empty() && !status.direct_available {
+        status.last_error = Some(mapping_errors.join("; "));
     }
 
     status.preferred_url = if prefer_relay {
-        status.relay_url.clone().or_else(|| status.direct_url.clone())
+        status
+            .relay_url
+            .clone()
+            .or_else(|| status.direct_url.clone())
     } else {
-        status.direct_url.clone().or_else(|| status.relay_url.clone())
+        status
+            .direct_url
+            .clone()
+            .or_else(|| status.relay_url.clone())
     };
 
     if !status.direct_available && !status.relay_active {
