@@ -97,6 +97,8 @@ fn main() {
                             Some(32400),
                             Some(false),
                             Some(true),
+                            Some(true),
+                            Some(true),
                         )
                         .await
                         {
