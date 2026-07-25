@@ -12,7 +12,7 @@ function read(relativePath) {
     existsSync(absolutePath),
     `Required Build 170 file is missing: ${relativePath}`,
   );
-  return readFileSync(absolutePath, "utf8");
+  return readFileSync(absolutePath, "utf8").replace(/\r\n/g, "\n");
 }
 
 function requireTokens(source, tokens, label) {
