@@ -1,4 +1,4 @@
-name: Build 170 Publish
+name: CinaVault Premium v2 Build 2 Publish
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: build-170-release
+  group: cinavault-v2-build-2-release
   cancel-in-progress: false
 
 env:
@@ -19,11 +19,11 @@ env:
 
 jobs:
   authorize:
-    name: Authorize Build 170 release
+    name: Authorize v2 Build 2 release
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.issue.number == 49 &&
-       github.event.comment.body == '/release build-170' &&
+       github.event.comment.body == '/release v2-build-2' &&
        github.event.comment.author_association == 'OWNER')
     runs-on: ubuntu-latest
     outputs:
@@ -42,11 +42,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: Number(process.env.RELEASE_MONITOR_ISSUE),
-              body: `Build 170 release run started: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nCommit: ${context.sha}`
+              body: `CinaVault Premium v2 Build 2 release run started: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nInternal build: 170\nCommit: ${context.sha}`
             });
 
   validate:
-    name: Build 170 regression gate
+    name: v2 Build 2 regression gate
     needs: authorize
     if: needs.authorize.outputs.allowed == 'true'
     runs-on: windows-latest
@@ -76,7 +76,7 @@ jobs:
         run: npm run build
 
   windows-installers:
-    name: Build 170 MSI and NSIS
+    name: v2 Build 2 MSI and NSIS
     needs: validate
     runs-on: windows-latest
     timeout-minutes: 100
@@ -174,15 +174,17 @@ jobs:
           $installers = Get-ChildItem release-assets -File
           $msi = $installers | Where-Object { $_.Extension -eq '.msi' } | Select-Object -First 1
           $nsis = $installers | Where-Object { $_.Extension -eq '.exe' } | Select-Object -First 1
-          if (-not $msi) { throw 'The Build 170 MSI installer was not produced.' }
-          if (-not $nsis) { throw 'The Build 170 NSIS installer was not produced.' }
+          if (-not $msi) { throw 'The v2 Build 2 MSI installer was not produced.' }
+          if (-not $nsis) { throw 'The v2 Build 2 NSIS installer was not produced.' }
           if ($msi.Length -lt 1000000) { throw 'The MSI installer is unexpectedly small.' }
           if ($nsis.Length -lt 1000000) { throw 'The NSIS installer is unexpectedly small.' }
 
           $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
-            '# CinaVault Premium Build 170',
+            '# CinaVault Premium v2 Build 2',
+            '',
+            'Internal build number: 170',
             '',
             "MSI: $($msi.Name)",
             "MSI bytes: $($msi.Length)",
@@ -194,29 +196,29 @@ jobs:
             '',
             "cloudflared bytes: $env:cloudflared_size",
             "cloudflared SHA-256: $env:cloudflared_sha256"
-          ) | Set-Content release-assets/BUILD-170-CHECKSUMS.txt
+          ) | Set-Content release-assets/V2-BUILD-2-CHECKSUMS.txt
 
-      - name: Upload Build 170 installers
+      - name: Upload v2 Build 2 installers
         uses: actions/upload-artifact@v4
         with:
-          name: cinavault-build-170-windows-installers-${{ github.sha }}
+          name: cinavault-v2-build-2-windows-${{ github.sha }}
           path: release-assets/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
-      - name: Publish Build 170 GitHub release
+      - name: Publish CinaVault Premium v2 Build 2
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-170
+          tag_name: v2-build-2
           target_commitish: ${{ github.sha }}
-          name: CinaVault Premium Build 170
+          name: CinaVault Premium v2 Build 2
           prerelease: false
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-assets/*
 
   report-success:
-    name: Report Build 170 success
+    name: Report v2 Build 2 success
     needs: windows-installers
     runs-on: ubuntu-latest
     steps:
@@ -228,11 +230,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: Number(process.env.RELEASE_MONITOR_ISSUE),
-              body: `Build 170 release workflow succeeded.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nRelease: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/releases/tag/build-170`
+              body: `CinaVault Premium v2 Build 2 release workflow succeeded.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nRelease: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/releases/tag/v2-build-2`
             });
 
   report-failure:
-    name: Report Build 170 failure
+    name: Report v2 Build 2 failure
     needs:
       - authorize
       - validate
@@ -248,5 +250,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: Number(process.env.RELEASE_MONITOR_ISSUE),
-              body: `Build 170 release workflow failed.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nCommit: ${context.sha}`
+              body: `CinaVault Premium v2 Build 2 release workflow failed.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nCommit: ${context.sha}`
             });
