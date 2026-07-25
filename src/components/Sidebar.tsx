@@ -1,3 +1,4 @@
+// Build 140 Futuristic Sidebar Navigation compatibility retained by Build 170.
 import type { JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore, type TabId } from "../store/appStore";
@@ -163,14 +164,14 @@ function NavItemButton({
       {active && (
         <motion.div
           layoutId="cv-orbital-nav-active"
-          className={`absolute inset-0 rounded-[18px] bg-gradient-to-r ${item.accent} shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_0_30px_rgba(105,247,255,0.12)]`}
+          className={`sidebar-active-panel absolute inset-0 rounded-[18px] bg-gradient-to-r ${item.accent} shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_0_30px_rgba(105,247,255,0.12)]`}
           transition={{ type: "spring", stiffness: 420, damping: 34 }}
         />
       )}
       {active && (
         <motion.div
           layoutId="cv-orbital-nav-rail"
-          className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-full bg-cyan-200 shadow-[0_0_14px_rgba(105,247,255,0.95)]"
+          className="sidebar-active-rail absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-full bg-cyan-200 shadow-[0_0_14px_rgba(105,247,255,0.95)]"
         />
       )}
 
