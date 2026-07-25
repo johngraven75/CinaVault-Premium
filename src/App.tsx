@@ -1,25 +1,20 @@
-// Build 140 Futuristic Application Shell
 import CastButton from "./components/CastButton";
 import "./styles/poster-card-standard.css";
-import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
-import { getPreferredMediaServer } from "./services/serverProvider";
-import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
 import "./styles/media-row-poster-final-fix.css";
-import {
-  ensurePermanentMediaPluginsAtStartup,
-  initializePermanentMediaPluginsAtStartup,
-} from "./services/startupMediaPluginService";
-// CinaVault Premium — Build 155 Media Center Application Shell
-import { useEffect, useCallback, useMemo, useRef } from "react";
+import "./styles/media-card-hard-fix.css";
+import "./styles/media-card-final-standard.css";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { motion, AnimatePresence } from "framer-motion";
-import { useAppStore, TabId } from "./store/appStore";
+import { AnimatePresence, motion } from "framer-motion";
+import { BrainCircuit, Layers3, RadioTower, Sparkles } from "lucide-react";
+import { useAppStore, type TabId } from "./store/appStore";
 import { applyTheme } from "./themes";
 import "./data/pluginAdapterInitialize";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
+import ExperienceBackdrop from "./components/experience/ExperienceBackdrop";
 import HomeTab from "./components/tabs/HomeTab";
 import MediaSourcesTab from "./components/tabs/MediaSourcesTab";
 import DownloadsTab from "./components/tabs/DownloadsTab";
@@ -37,8 +32,14 @@ import {
   getWheelDeltaPixels,
   getWheelScrolledTop,
 } from "./utils/pageWheelScroll";
-import "./styles/media-card-hard-fix.css";
-import "./styles/media-card-final-standard.css";
+import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
+import { startAiMediaAutopilot } from "./services/aiMediaAutopilot";
+import { getPreferredMediaServer } from "./services/serverProvider";
+import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
+import {
+  ensurePermanentMediaPluginsAtStartup,
+  initializePermanentMediaPluginsAtStartup,
+} from "./services/startupMediaPluginService";
 
 const TAB_COMPONENTS: Record<TabId, FC> = {
   home: HomeTab,
@@ -57,76 +58,116 @@ const TAB_COMPONENTS: Record<TabId, FC> = {
 
 const TAB_TITLES: Record<
   TabId,
-  { eyebrow: string; title: string; subtitle: string }
+  { eyebrow: string; title: string; subtitle: string; mode: string }
 > = {
   home: {
-    eyebrow: "Media Center",
-    title: "Home",
+    eyebrow: "Cinematic Library",
+    title: "The Vault",
     subtitle:
-      "Featured library shelves, recent additions, and playback entry points.",
+      "An AI-organized media universe with compact visual shelves, instant playback, living artwork, and automatic repair.",
+    mode: "Experience",
   },
   sources: {
-    eyebrow: "Library",
-    title: "Media Sources",
-    subtitle: "Add, scan, repair, and verify source folders.",
+    eyebrow: "Autonomous Ingestion",
+    title: "Source Constellation",
+    subtitle:
+      "Connect local folders, drives, cloud storage, and network libraries. New sources scan and enrich automatically.",
+    mode: "Ingest",
   },
   downloads: {
-    eyebrow: "Queue",
-    title: "Downloads",
-    subtitle: "Track incoming media and library acquisition tasks.",
+    eyebrow: "Acquisition Stream",
+    title: "Incoming Media",
+    subtitle:
+      "Observe downloads, imports, and automated handoff into the managed library pipeline.",
+    mode: "Queue",
   },
   livetv: {
-    eyebrow: "Channels",
-    title: "Live TV",
-    subtitle: "Live streams, guide data, and viewing controls.",
+    eyebrow: "Broadcast Fabric",
+    title: "Live Signal",
+    subtitle:
+      "Navigate channels, guide intelligence, and live streams through a unified cinematic interface.",
+    mode: "Broadcast",
   },
   server: {
-    eyebrow: "Core",
-    title: "Server",
-    subtitle: "CinaVault server status, services, and media delivery controls.",
+    eyebrow: "Embedded Media Core",
+    title: "Server Nexus",
+    subtitle:
+      "Control the zero-setup media server, runtime services, streaming health, and connected clients.",
+    mode: "Core",
   },
   security: {
-    eyebrow: "Guard",
-    title: "Security",
-    subtitle: "Protect access, credentials, and runtime configuration.",
+    eyebrow: "Trusted Compute",
+    title: "Security Matrix",
+    subtitle:
+      "Manage identity, encryption, VPN protection, threat scanning, and privacy boundaries.",
+    mode: "Guard",
   },
   remote: {
-    eyebrow: "Access",
-    title: "Remote Access",
-    subtitle: "External connection and relay configuration.",
+    eyebrow: "Anywhere Access",
+    title: "Remote Orbit",
+    subtitle:
+      "Automatic NAT traversal, encrypted cloud relay, account sessions, and remote client reachability.",
+    mode: "Relay",
   },
   advanced: {
-    eyebrow: "Tools",
-    title: "Advanced",
-    subtitle: "Power-user repair, diagnostics, and build controls.",
+    eyebrow: "Expert Systems",
+    title: "Control Lab",
+    subtitle:
+      "Deep diagnostics, repair controls, platform tuning, and advanced operational tooling.",
+    mode: "Tune",
   },
   cloud: {
-    eyebrow: "Storage",
-    title: "Cloud & NAS",
-    subtitle: "Network storage, cloud library paths, and sync options.",
+    eyebrow: "Storage Fabric",
+    title: "Cloud Mesh",
+    subtitle:
+      "Unify NAS devices, cloud providers, sync paths, and distributed media storage.",
+    mode: "Mesh",
   },
   plugins: {
-    eyebrow: "Add-ons",
-    title: "Plugins",
-    subtitle: "Installed media helpers and permanent startup plugin coverage.",
+    eyebrow: "Capability Layer",
+    title: "Extension Forge",
+    subtitle:
+      "Manage metadata engines, compatibility bridges, playback tools, and permanent media extensions.",
+    mode: "Extend",
   },
   ai: {
-    eyebrow: "Assistant",
-    title: "AI Diagnostics",
+    eyebrow: "Autonomous Media Intelligence",
+    title: "AI Autopilot",
     subtitle:
-      "Inference, provider checks, metadata posting, and guided repairs.",
+      "Observe and guide automated scanning, identification, artwork retrieval, repair, and library optimization.",
+    mode: "Neural",
   },
   settings: {
-    eyebrow: "Config",
-    title: "Settings",
-    subtitle: "Theme, application, and persistent user preferences.",
+    eyebrow: "Experience Design",
+    title: "Personalize CinaVault",
+    subtitle:
+      "Shape appearance, behavior, automation policy, and persistent application preferences.",
+    mode: "Config",
   },
 };
 
 const TAB_MOTION = {
-  initial: { opacity: 0, y: 26, scale: 0.982, filter: "blur(10px)" },
-  animate: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" },
-  exit: { opacity: 0, y: -18, scale: 0.99, filter: "blur(10px)" },
+  initial: {
+    opacity: 0,
+    y: 34,
+    scale: 0.975,
+    rotateX: 2.2,
+    filter: "blur(12px)",
+  },
+  animate: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    rotateX: 0,
+    filter: "blur(0px)",
+  },
+  exit: {
+    opacity: 0,
+    y: -20,
+    scale: 0.988,
+    rotateX: -1.5,
+    filter: "blur(10px)",
+  },
 };
 
 function findScrollableAncestor(
@@ -157,11 +198,9 @@ function canScrollInDirection(
   if (deltaPixels > 0) {
     return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
   }
-
   if (deltaPixels < 0) {
     return element.scrollTop > 0;
   }
-
   return false;
 }
 
@@ -202,26 +241,27 @@ export default function App(): JSX.Element {
     scheduledTasks,
     cloudServices,
     libraryView,
+    mediaItems,
+    setMediaItems,
     addStatusMessage,
     getPersistedState,
     restorePersistedState,
   } = useAppStore();
 
-  const isSaving = useRef<boolean>(false);
-  const hasRestoredSettings = useRef<boolean>(false);
+  const isSaving = useRef(false);
+  const hasRestoredSettings = useRef(false);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const activeTitle = TAB_TITLES[activeTab];
   const featureCount = useMemo(() => getEnabledCinaVaultFeatures().length, []);
   const serverName = useMemo(() => getPreferredMediaServer().primary, []);
   const startupPluginsReady = initializePermanentMediaPluginsAtStartup().ready;
+  const aiAutopilotEnabled = settings.ai_media_autopilot_enabled !== "false";
 
-  const saveState = useCallback(async (): Promise<void> => {
+  const saveState = useCallback(async () => {
     if (isSaving.current || !hasRestoredSettings.current) return;
-
     isSaving.current = true;
     try {
-      const state = getPersistedState();
-      await saveAllSettingsToBackend(state);
+      await saveAllSettingsToBackend(getPersistedState());
     } catch (error) {
       console.error("Save state error:", error);
       addStatusMessage("Failed to save settings");
@@ -233,7 +273,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     let cancelled = false;
 
-    const initializeApplication = async (): Promise<void> => {
+    const initializeApplication = async () => {
       try {
         restorePersistedState(readLocalPersistedState());
         const localState = readLocalPersistedState();
@@ -243,10 +283,7 @@ export default function App(): JSX.Element {
             await invoke<Record<string, string>>("get_all_settings");
           persistedState = { ...localState, ...backendState };
         } catch (error) {
-          console.warn(
-            "Backend settings unavailable; using local state:",
-            error,
-          );
+          console.warn("Backend settings unavailable; using local state:", error);
         }
 
         restorePersistedState(persistedState);
@@ -270,7 +307,7 @@ export default function App(): JSX.Element {
         }
 
         const appWindow = getCurrentWindow();
-        await appWindow.setTitle("CinaVault Premium");
+        await appWindow.setTitle("CinaVault Premium · Build 170");
       } catch (error) {
         console.error("Initialization error:", error);
         addStatusMessage("Failed to initialize application");
@@ -278,21 +315,27 @@ export default function App(): JSX.Element {
     };
 
     void initializeApplication();
-
     return () => {
       cancelled = true;
     };
   }, [restorePersistedState, addStatusMessage]);
 
   useEffect(() => {
+    return startAiMediaAutopilot({
+      enabled: () =>
+        useAppStore.getState().settings.ai_media_autopilot_enabled !== "false",
+      addStatusMessage,
+      setMediaItems,
+      intervalMinutes: Number(settings.ai_media_autopilot_interval_minutes || 30),
+    });
+  }, [addStatusMessage, setMediaItems, settings.ai_media_autopilot_interval_minutes]);
+
+  useEffect(() => {
     applyTheme(currentTheme);
   }, [currentTheme]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void saveState();
-    }, 1000);
-
+    const timer = window.setTimeout(() => void saveState(), 1000);
     return () => window.clearTimeout(timer);
   }, [
     activeTab,
@@ -307,12 +350,10 @@ export default function App(): JSX.Element {
     saveState,
   ]);
 
-  const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>): void => {
+  const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (!(event.target instanceof Element)) return;
-
     const root = mainScrollRef.current;
     if (!root) return;
-
     const scrollable = findScrollableAncestor(event.target, root);
     const deltaPixels = getWheelDeltaPixels(
       event.deltaY,
@@ -340,26 +381,19 @@ export default function App(): JSX.Element {
   const CurrentTabComponent = TAB_COMPONENTS[activeTab];
 
   return (
-    <div className="app-shell cv-app min-h-screen flex overflow-hidden bg-[#030813] text-cv-text">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(0,170,255,0.28),transparent_34%),radial-gradient(circle_at_92%_18%,rgba(255,255,255,0.11),transparent_30%),linear-gradient(180deg,#06111f_0%,#030813_54%,#020409_100%)]" />
-      <div className="app-shell-orb app-shell-orb-a" />
-      <div className="app-shell-orb app-shell-orb-b" />
-      <div className="app-shell-orb app-shell-orb-c" />
-      <div className="app-shell-noise" />
+    <div className="app-shell cv-app min-h-screen overflow-hidden bg-[#02040a] text-cv-text">
+      <ExperienceBackdrop />
 
       <motion.div
-        className="relative z-10 flex h-screen w-full overflow-hidden p-4 gap-4"
+        className="cv-shell-frame"
         initial={{ opacity: 0, scale: 0.992 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
       >
         <Sidebar />
-
         <CastButton />
-        <div
-          data-testid="cinavault-permanent-media-plugins"
-          style={{ display: "none" }}
-        >
+
+        <div data-testid="cinavault-permanent-media-plugins" style={{ display: "none" }}>
           {startupPluginsReady
             ? "Permanent media plugins ready"
             : "Permanent media plugins not ready"}
@@ -367,10 +401,7 @@ export default function App(): JSX.Element {
         <div data-testid="cinavault-feature-suite" style={{ display: "none" }}>
           {featureCount} enabled media server features
         </div>
-        <div
-          data-testid="cinavault-proprietary-server"
-          style={{ display: "none" }}
-        >
+        <div data-testid="cinavault-proprietary-server" style={{ display: "none" }}>
           {serverName}
         </div>
         <div data-testid="cinavault-ai-media-agent" style={{ display: "none" }}>
@@ -379,58 +410,70 @@ export default function App(): JSX.Element {
             : "AI Media Agent Disabled"}
         </div>
 
-        <main className="relative flex-1 flex flex-col overflow-hidden rounded-[32px] border border-white/10 bg-[#06101d]/82 shadow-[0_30px_100px_rgba(0,0,0,0.62)] backdrop-blur-xl">
-          <div className="pointer-events-none absolute inset-0 rounded-[32px] bg-[radial-gradient(circle_at_15%_0%,rgba(255,255,255,0.17),transparent_35%),radial-gradient(circle_at_100%_18%,rgba(0,234,255,0.15),transparent_30%)]" />
-          <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
-
+        <main className="cv-command-deck">
           <Header />
 
-          <section className="relative z-10 mx-4 mt-2 overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(105deg,rgba(0,0,0,0.48),rgba(255,255,255,0.08)),radial-gradient(circle_at_86%_22%,rgba(0,234,255,0.22),transparent_28%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,8,19,0.95)_0%,rgba(3,8,19,0.68)_48%,rgba(3,8,19,0.28)_100%)]" />
-            <div className="relative z-10 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
-              <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.34em] text-cyan-200">
-                  {activeTitle.eyebrow}
+          <section className="cv-context-stage">
+            <div className="relative z-10 grid min-h-[172px] grid-cols-1 items-end gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_380px] lg:p-6">
+              <motion.div
+                key={`${activeTab}-title`}
+                initial={{ opacity: 0, x: -20, filter: "blur(8px)" }}
+                animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+                transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="cv-stage-kicker">
+                  <Sparkles size={12} /> {activeTitle.eyebrow} / {activeTitle.mode}
                 </div>
-                <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
-                  {activeTitle.title}
-                </h1>
-                <p className="mt-2 max-w-3xl text-sm text-cv-subtext md:text-base">
-                  {activeTitle.subtitle}
-                </p>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="text-2xl font-black text-cv-text">
-                    {featureCount}
+                <h1 className="cv-stage-title">{activeTitle.title}</h1>
+                <p className="cv-stage-subtitle">{activeTitle.subtitle}</p>
+              </motion.div>
+
+              <div className="cv-stage-telemetry">
+                <motion.button
+                  type="button"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new Event("cinavault:ai-autopilot-run"),
+                    )
+                  }
+                  whileHover={{ y: -3, scale: 1.015 }}
+                  whileTap={{ scale: 0.985 }}
+                  className="cv-telemetry-card text-left"
+                  title="Run AI Media Autopilot now"
+                >
+                  <BrainCircuit size={15} className="mb-2 text-fuchsia-300" />
+                  <div className="cv-telemetry-value">
+                    {aiAutopilotEnabled ? "Autonomous" : "Manual"}
                   </div>
-                  <div className="text-[9px] uppercase tracking-[0.22em] text-cv-subtext">
-                    Features
+                  <div className="cv-telemetry-label">AI media handling</div>
+                </motion.button>
+
+                <motion.div
+                  whileHover={{ y: -3 }}
+                  className="cv-telemetry-card"
+                >
+                  <Layers3 size={15} className="mb-2 text-cyan-200" />
+                  <div className="cv-telemetry-value">{mediaItems.length}</div>
+                  <div className="cv-telemetry-label">Loaded media cards</div>
+                </motion.div>
+
+                <motion.div
+                  whileHover={{ y: -3 }}
+                  className="cv-telemetry-card"
+                >
+                  <RadioTower size={15} className="mb-2 text-emerald-300" />
+                  <div className="cv-telemetry-value">
+                    {startupPluginsReady ? "Live" : "Syncing"}
                   </div>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="text-2xl font-black text-cv-text">
-                    {startupPluginsReady ? "On" : "Off"}
-                  </div>
-                  <div className="text-[9px] uppercase tracking-[0.22em] text-cv-subtext">
-                    Plugins
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="truncate text-lg font-black text-cv-text">
-                    {serverName}
-                  </div>
-                  <div className="text-[9px] uppercase tracking-[0.22em] text-cv-subtext">
-                    Server
-                  </div>
-                </div>
+                  <div className="cv-telemetry-label">Service fabric</div>
+                </motion.div>
               </div>
             </div>
           </section>
 
           <div
             ref={mainScrollRef}
-            className="app-main-scroll relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-4"
+            className="cv-workspace-scroll"
             onWheel={handleWheel}
           >
             <AnimatePresence mode="wait">
@@ -439,10 +482,10 @@ export default function App(): JSX.Element {
                 initial={TAB_MOTION.initial}
                 animate={TAB_MOTION.animate}
                 exit={TAB_MOTION.exit}
-                transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-                className="relative min-h-full rounded-[28px] border border-white/[0.08] bg-[linear-gradient(145deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-md"
+                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                className="cv-workspace-panel"
+                style={{ transformPerspective: 1200 }}
               >
-                <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-[var(--cv-accent)]/55 to-transparent" />
                 {CurrentTabComponent ? (
                   <CurrentTabComponent />
                 ) : (
