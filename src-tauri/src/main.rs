@@ -9,6 +9,7 @@ mod plugin_configs;
 mod plugins;
 mod scanner;
 mod casting;
+mod embedded_server;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
@@ -68,11 +69,20 @@ fn main() {
             }
 
             let db_path = app_dir.join("cinavault.db");
-            let database =
-                Database::new(db_path.to_str().unwrap()).expect("Failed to initialize database");
+            let db_path_string = db_path.to_string_lossy().to_string();
+            let database = Database::new(&db_path_string).expect("Failed to initialize database");
+            embedded_server::configure(db_path_string);
             app.manage(AppState {
                 db: Mutex::new(database),
             });
+
+            tauri::async_runtime::spawn(async {
+                match embedded_server::start_embedded_server(Some(32400)).await {
+                    Ok(status) => log::info!("Embedded media server ready: {status}"),
+                    Err(error) => log::error!("Embedded media server failed to start: {error}"),
+                }
+            });
+
             log::info!("CinaVault Premium Build 169 initialized successfully");
             Ok(())
         })
@@ -126,6 +136,9 @@ fn main() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
+            embedded_server::start_embedded_server,
+            embedded_server::stop_embedded_server,
+            embedded_server::get_embedded_server_status,
             plugins::get_plugin_repos,
             plugins::add_plugin_repo,
             plugins::remove_plugin_repo,
@@ -212,9 +225,11 @@ fn main() {
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.7.169",
+        "version": "1.7.1",
         "build": "169",
-        "edition": "Premium"
+        "edition": "Premium",
+        "embeddedServer": true,
+        "defaultServerPort": 32400
     })
 }
 

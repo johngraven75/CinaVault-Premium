@@ -1,0 +1,407 @@
+use crate::db::{Database, MediaItem, RemoteAccessPrincipal};
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::sync::{oneshot, RwLock};
+use tokio_util::io::ReaderStream;
+use tower_http::cors::{Any, CorsLayer};
+
+const DEFAULT_PORT: u16 = 32400;
+
+#[derive(Clone)]
+struct HttpState {
+    database_path: String,
+    sessions: Arc<RwLock<HashMap<String, RemoteAccessPrincipal>>>,
+}
+
+struct ServerRuntime {
+    port: u16,
+    shutdown: oneshot::Sender<()>,
+}
+
+static DATABASE_PATH: OnceLock<String> = OnceLock::new();
+static SERVER_RUNTIME: OnceLock<Mutex<Option<ServerRuntime>>> = OnceLock::new();
+
+fn runtime() -> &'static Mutex<Option<ServerRuntime>> {
+    SERVER_RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
+pub fn configure(database_path: String) {
+    let _ = DATABASE_PATH.set(database_path);
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PasswordLogin {
+    email: String,
+    password: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccessKeyLogin {
+    access_key: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerStatus {
+    running: bool,
+    port: u16,
+    local_url: String,
+    remote_ready: bool,
+    authentication: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerInfo {
+    name: &'static str,
+    product: &'static str,
+    version: &'static str,
+    build: &'static str,
+    account_email: String,
+    permissions: Vec<String>,
+}
+
+fn open_database(path: &str) -> Result<Database, (StatusCode, String)> {
+    Database::new(path).map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database unavailable: {error}"),
+        )
+    })
+}
+
+fn media_item_by_id(database: &Database, id: i64) -> Result<Option<MediaItem>, String> {
+    database
+        .get_media_items_data(None, None, None)
+        .map(|items| items.into_iter().find(|item| item.id == Some(id)))
+        .map_err(|error| error.to_string())
+}
+
+async fn register_session(
+    state: &HttpState,
+    principal: RemoteAccessPrincipal,
+) -> Json<RemoteAccessPrincipal> {
+    state
+        .sessions
+        .write()
+        .await
+        .insert(principal.session_token.clone(), principal.clone());
+    Json(principal)
+}
+
+async fn login_password(
+    State(state): State<Arc<HttpState>>,
+    Json(payload): Json<PasswordLogin>,
+) -> Result<Json<RemoteAccessPrincipal>, (StatusCode, String)> {
+    let database = open_database(&state.database_path)?;
+    match database
+        .authenticate_remote_password(&payload.email, &payload.password)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+    {
+        Some(principal) => Ok(register_session(&state, principal).await),
+        None => Err((StatusCode::UNAUTHORIZED, "Invalid account credentials".into())),
+    }
+}
+
+async fn login_access_key(
+    State(state): State<Arc<HttpState>>,
+    Json(payload): Json<AccessKeyLogin>,
+) -> Result<Json<RemoteAccessPrincipal>, (StatusCode, String)> {
+    let database = open_database(&state.database_path)?;
+    match database
+        .authenticate_remote_access_key(&payload.access_key)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+    {
+        Some(principal) => Ok(register_session(&state, principal).await),
+        None => Err((StatusCode::UNAUTHORIZED, "Invalid account access key".into())),
+    }
+}
+
+async fn authenticated_principal(
+    state: &HttpState,
+    headers: &HeaderMap,
+    permission: &str,
+) -> Result<RemoteAccessPrincipal, (StatusCode, String)> {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or((StatusCode::UNAUTHORIZED, "Bearer token required".into()))?;
+
+    let principal = state
+        .sessions
+        .read()
+        .await
+        .get(token)
+        .cloned()
+        .ok_or((StatusCode::UNAUTHORIZED, "Session is invalid or expired".into()))?;
+
+    if !principal.permissions.iter().any(|value| value == permission) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Account lacks required permission".into(),
+        ));
+    }
+    Ok(principal)
+}
+
+async fn health() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "status": "ok",
+        "product": "CinaVault Embedded Media Server",
+        "build": "169"
+    }))
+}
+
+async fn server_info(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<Json<ServerInfo>, (StatusCode, String)> {
+    let principal = authenticated_principal(&state, &headers, "server:read").await?;
+    Ok(Json(ServerInfo {
+        name: "CinaVault Premium",
+        product: "CinaVault Embedded Media Server",
+        version: env!("CARGO_PKG_VERSION"),
+        build: "169",
+        account_email: principal.email,
+        permissions: principal.permissions,
+    }))
+}
+
+async fn library(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<MediaItem>>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "library:read").await?;
+    let database = open_database(&state.database_path)?;
+    database
+        .get_media_items_data(None, None, None)
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+async fn library_item(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Json<MediaItem>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "library:read").await?;
+    let database = open_database(&state.database_path)?;
+    media_item_by_id(&database, id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))
+}
+
+fn content_type(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "mp4" | "m4v" => "video/mp4",
+        "mkv" => "video/x-matroska",
+        "webm" => "video/webm",
+        "avi" => "video/x-msvideo",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "flac" => "audio/flac",
+        "wav" => "audio/wav",
+        _ => "application/octet-stream",
+    }
+}
+
+fn requested_range(headers: &HeaderMap, size: u64) -> Option<(u64, u64)> {
+    let value = headers.get(header::RANGE)?.to_str().ok()?;
+    let range = value.strip_prefix("bytes=")?.split(',').next()?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.parse::<u64>().ok()?;
+    let end = if end.trim().is_empty() {
+        size.saturating_sub(1)
+    } else {
+        end.parse::<u64>().ok()?.min(size.saturating_sub(1))
+    };
+    (start <= end && end < size).then_some((start, end))
+}
+
+async fn stream_media(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "stream:play").await?;
+    let database = open_database(&state.database_path)?;
+    let item = media_item_by_id(&database, id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+        .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))?;
+
+    let path = PathBuf::from(item.file_path);
+    let mut file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
+    let size = file
+        .metadata()
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .len();
+
+    if size == 0 {
+        return Err((StatusCode::RANGE_NOT_SATISFIABLE, "Media file is empty".into()));
+    }
+
+    let (status, start, end) = requested_range(&headers, size)
+        .map(|(start, end)| (StatusCode::PARTIAL_CONTENT, start, end))
+        .unwrap_or((StatusCode::OK, 0, size.saturating_sub(1)));
+    let length = end.saturating_sub(start).saturating_add(1);
+    file.seek(std::io::SeekFrom::Start(start))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+
+    let stream = ReaderStream::new(file.take(length));
+    let mut response = Response::new(Body::from_stream(stream));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(content_type(&path)),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&length.to_string())
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?,
+    );
+    response
+        .headers_mut()
+        .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    if status == StatusCode::PARTIAL_CONTENT {
+        response.headers_mut().insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {start}-{end}/{size}"))
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?,
+        );
+    }
+    Ok(response)
+}
+
+fn router(state: Arc<HttpState>) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/api/auth/password", post(login_password))
+        .route("/api/auth/access-key", post(login_access_key))
+        .route("/api/server/info", get(server_info))
+        .route("/api/library", get(library))
+        .route("/api/library/{id}", get(library_item))
+        .route("/api/stream/{id}", get(stream_media))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::RANGE])
+                .allow_methods(Any),
+        )
+        .with_state(state)
+}
+
+#[tauri::command]
+pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Value, String> {
+    let port = port.unwrap_or(DEFAULT_PORT);
+    {
+        let guard = runtime().lock().map_err(|error| error.to_string())?;
+        if let Some(active) = guard.as_ref() {
+            return Ok(serde_json::json!({
+                "running": true,
+                "port": active.port,
+                "localUrl": format!("http://127.0.0.1:{}", active.port),
+                "remoteReady": true,
+                "authentication": "CinaVault account session"
+            }));
+        }
+    }
+
+    let database_path = DATABASE_PATH
+        .get()
+        .cloned()
+        .ok_or("Embedded server database is not configured")?;
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
+        .await
+        .map_err(|error| format!("Unable to bind embedded server on port {port}: {error}"))?;
+    let state = Arc::new(HttpState {
+        database_path,
+        sessions: Arc::new(RwLock::new(HashMap::new())),
+    });
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    *runtime().lock().map_err(|error| error.to_string())? = Some(ServerRuntime {
+        port,
+        shutdown: shutdown_tx,
+    });
+
+    tauri::async_runtime::spawn(async move {
+        let result = axum::serve(listener, router(state))
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await;
+        if let Err(error) = result {
+            log::error!("Embedded media server stopped unexpectedly: {error}");
+        }
+        if let Ok(mut guard) = runtime().lock() {
+            *guard = None;
+        }
+    });
+
+    Ok(serde_json::json!({
+        "running": true,
+        "port": port,
+        "localUrl": format!("http://127.0.0.1:{port}"),
+        "remoteReady": true,
+        "authentication": "CinaVault account session"
+    }))
+}
+
+#[tauri::command]
+pub async fn stop_embedded_server() -> Result<serde_json::Value, String> {
+    let active = runtime()
+        .lock()
+        .map_err(|error| error.to_string())?
+        .take();
+    if let Some(active) = active {
+        let _ = active.shutdown.send(());
+    }
+    Ok(serde_json::json!({ "running": false }))
+}
+
+#[tauri::command]
+pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
+    let guard = runtime().lock().map_err(|error| error.to_string())?;
+    let status = if let Some(active) = guard.as_ref() {
+        ServerStatus {
+            running: true,
+            port: active.port,
+            local_url: format!("http://127.0.0.1:{}", active.port),
+            remote_ready: true,
+            authentication: "CinaVault account session",
+        }
+    } else {
+        ServerStatus {
+            running: false,
+            port: DEFAULT_PORT,
+            local_url: format!("http://127.0.0.1:{DEFAULT_PORT}"),
+            remote_ready: true,
+            authentication: "CinaVault account session",
+        }
+    };
+    serde_json::to_value(status).map_err(|error| error.to_string())
+}

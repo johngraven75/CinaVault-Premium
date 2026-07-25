@@ -1,4 +1,4 @@
-name: Repository Maintenance
+name: Automated Daily Maintenance
 
 on:
   schedule:

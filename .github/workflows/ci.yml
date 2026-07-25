@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - build-169-casting
+      - build-169-validation
   workflow_dispatch:
 
 permissions:
@@ -21,7 +22,7 @@ jobs:
   validate:
     name: Type, Test, and Build
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,49 +33,66 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        id: install
-        continue-on-error: true
+      - name: Install frontend dependencies
         shell: bash
         run: |
           set -o pipefail
           npm ci 2>&1 | tee install.log
 
       - name: TypeScript validation
-        id: types
-        if: steps.install.outcome == 'success'
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           npm run lint 2>&1 | tee types.log
 
       - name: Carry-forward regression tests
-        id: tests
-        if: steps.install.outcome == 'success'
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           npm run test:all 2>&1 | tee tests.log
 
       - name: Production frontend build
-        id: frontend
-        if: steps.install.outcome == 'success'
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           npm run build 2>&1 | tee frontend.log
 
+      - name: Install Tauri Linux prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            imagemagick
+
+      - name: Prepare cross-platform bundle resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/wireguard src-tauri/tools/wireguard
+          if [ ! -f tools/wireguard/wireguard.exe ]; then
+            printf 'CI placeholder for Windows bundle resource\n' > tools/wireguard/wireguard.exe
+          fi
+          if [ ! -f src-tauri/tools/wireguard/wireguard.exe ]; then
+            printf 'CI placeholder for Windows bundle resource\n' > src-tauri/tools/wireguard/wireguard.exe
+          fi
+          shopt -s nullglob
+          for icon in src-tauri/icons/*.png; do
+            converted="${icon%.png}.rgba.png"
+            convert "$icon" -alpha on -define png:color-type=6 "$converted"
+            mv "$converted" "$icon"
+          done
+
       - name: Setup Rust
-        if: steps.install.outcome == 'success'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Native Rust validation
-        id: rust
-        if: steps.install.outcome == 'success'
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
@@ -100,21 +118,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          summary="Build 169 validation: install=${{ steps.install.outcome }}, types=${{ steps.types.outcome }}, tests=${{ steps.tests.outcome }}, frontend=${{ steps.frontend.outcome }}, rust=${{ steps.rust.outcome }}"
-          gh pr comment "${{ github.event.pull_request.number }}" --body "$summary"
-
-      - name: Enforce release gates
-        if: always()
-        shell: bash
-        run: |
-          test "${{ steps.install.outcome }}" = "success"
-          test "${{ steps.types.outcome }}" = "success"
-          test "${{ steps.tests.outcome }}" = "success"
-          test "${{ steps.frontend.outcome }}" = "success"
-          test "${{ steps.rust.outcome }}" = "success"
+          gh pr comment "${{ github.event.pull_request.number }}" --body "Build 169 validation completed. Review the CI job conclusion and diagnostic artifact for exact gate results."
 
       - name: Upload frontend build
-        if: steps.frontend.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: cinavault-frontend-${{ github.sha }}
