@@ -21,15 +21,35 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  RELEASE_MONITOR_ISSUE: "46"
+
 jobs:
+  announce:
+    name: Register release run
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release build-169]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post run link
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.RELEASE_MONITOR_ISSUE),
+              body: `Build 169 release run started: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nCommit: ${context.sha}`
+            });
+
   validate:
     name: Regression Gate
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release build-169]')
+    needs: announce
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -134,8 +154,15 @@ jobs:
           Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File |
             Where-Object { $_.Extension -in '.msi', '.exe' } |
             Copy-Item -Destination release-assets
-          if (-not (Get-ChildItem release-assets -File)) {
+          $installers = Get-ChildItem release-assets -File
+          if (-not $installers) {
             throw 'No MSI or NSIS installer artifacts were produced.'
+          }
+          if (-not ($installers | Where-Object { $_.Extension -eq '.msi' })) {
+            throw 'The MSI installer was not produced.'
+          }
+          if (-not ($installers | Where-Object { $_.Extension -eq '.exe' })) {
+            throw 'The NSIS installer was not produced.'
           }
 
       - name: Upload installers
@@ -171,3 +198,39 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-assets/*
+
+  report-success:
+    name: Report release success
+    needs: windows-installers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post verified release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.RELEASE_MONITOR_ISSUE),
+              body: `Build 169 release workflow succeeded.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nRelease: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/releases/tag/build-169`
+            });
+
+  report-failure:
+    name: Report release failure
+    needs:
+      - announce
+      - validate
+      - windows-installers
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failed run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.RELEASE_MONITOR_ISSUE),
+              body: `Build 169 release workflow failed.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nCommit: ${context.sha}`
+            });
