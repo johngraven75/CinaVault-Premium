@@ -7,7 +7,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -82,6 +81,13 @@ fn open_database(path: &str) -> Result<Database, (StatusCode, String)> {
     })
 }
 
+fn media_item_by_id(database: &Database, id: i64) -> Result<Option<MediaItem>, String> {
+    database
+        .get_media_items_data(None, None, None)
+        .map(|items| items.into_iter().find(|item| item.id == Some(id)))
+        .map_err(|error| error.to_string())
+}
+
 async fn register_session(
     state: &HttpState,
     principal: RemoteAccessPrincipal,
@@ -144,7 +150,10 @@ async fn authenticated_principal(
         .ok_or((StatusCode::UNAUTHORIZED, "Session is invalid or expired".into()))?;
 
     if !principal.permissions.iter().any(|value| value == permission) {
-        return Err((StatusCode::FORBIDDEN, "Account lacks required permission".into()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Account lacks required permission".into(),
+        ));
     }
     Ok(principal)
 }
@@ -179,7 +188,7 @@ async fn library(
     authenticated_principal(&state, &headers, "library:read").await?;
     let database = open_database(&state.database_path)?;
     database
-        .get_media_items_data(None)
+        .get_media_items_data(None, None, None)
         .map(Json)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
@@ -191,9 +200,8 @@ async fn library_item(
 ) -> Result<Json<MediaItem>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "library:read").await?;
     let database = open_database(&state.database_path)?;
-    database
-        .get_media_item_data(id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    media_item_by_id(&database, id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
         .map(Json)
         .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))
 }
@@ -238,9 +246,8 @@ async fn stream_media(
 ) -> Result<Response<Body>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "stream:play").await?;
     let database = open_database(&state.database_path)?;
-    let item = database
-        .get_media_item_data(id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    let item = media_item_by_id(&database, id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
         .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))?;
 
     let path = PathBuf::from(item.file_path);
@@ -252,6 +259,10 @@ async fn stream_media(
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .len();
+
+    if size == 0 {
+        return Err((StatusCode::RANGE_NOT_SATISFIABLE, "Media file is empty".into()));
+    }
 
     let (status, start, end) = requested_range(&headers, size)
         .map(|(start, end)| (StatusCode::PARTIAL_CONTENT, start, end))
@@ -270,9 +281,8 @@ async fn stream_media(
     );
     response.headers_mut().insert(
         header::CONTENT_LENGTH,
-        HeaderValue::from_str(&length.to_string()).map_err(|error| {
-            (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-        })?,
+        HeaderValue::from_str(&length.to_string())
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?,
     );
     response
         .headers_mut()
