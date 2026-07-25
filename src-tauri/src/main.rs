@@ -1,4 +1,4 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 169)
+// CinaVault Premium — Tauri v2 Rust Backend (Build 170)
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
@@ -10,6 +10,7 @@ mod plugins;
 mod scanner;
 mod casting;
 mod embedded_server;
+mod remote_connectivity;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
@@ -72,18 +73,46 @@ fn main() {
             let db_path_string = db_path.to_string_lossy().to_string();
             let database = Database::new(&db_path_string).expect("Failed to initialize database");
             embedded_server::configure(db_path_string);
+
+            let resource_dir = app
+                .path()
+                .resource_dir()
+                .unwrap_or_else(|_| app_dir.clone());
+            remote_connectivity::configure(
+                resource_dir
+                    .join("tools")
+                    .join("cloudflared")
+                    .join("cloudflared.exe"),
+            );
+
             app.manage(AppState {
                 db: Mutex::new(database),
             });
 
             tauri::async_runtime::spawn(async {
                 match embedded_server::start_embedded_server(Some(32400)).await {
-                    Ok(status) => log::info!("Embedded media server ready: {status}"),
+                    Ok(status) => {
+                        log::info!("Embedded media server ready: {status}");
+                        match remote_connectivity::start_remote_connectivity(
+                            Some(32400),
+                            Some(false),
+                            Some(true),
+                        )
+                        .await
+                        {
+                            Ok(connectivity) => {
+                                log::info!("Automatic remote connectivity ready: {connectivity:?}")
+                            }
+                            Err(error) => {
+                                log::warn!("Automatic remote connectivity unavailable: {error}")
+                            }
+                        }
+                    }
                     Err(error) => log::error!("Embedded media server failed to start: {error}"),
                 }
             });
 
-            log::info!("CinaVault Premium Build 169 initialized successfully");
+            log::info!("CinaVault Premium Build 170 initialized successfully");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -139,6 +168,9 @@ fn main() {
             embedded_server::start_embedded_server,
             embedded_server::stop_embedded_server,
             embedded_server::get_embedded_server_status,
+            remote_connectivity::start_remote_connectivity,
+            remote_connectivity::stop_remote_connectivity,
+            remote_connectivity::get_remote_connectivity_status,
             plugins::get_plugin_repos,
             plugins::add_plugin_repo,
             plugins::remove_plugin_repo,
@@ -225,11 +257,13 @@ fn main() {
 fn get_app_info() -> serde_json::Value {
     serde_json::json!({
         "name": "CinaVault Premium",
-        "version": "1.7.1",
-        "build": "169",
+        "version": "1.7.170",
+        "build": "170",
         "edition": "Premium",
         "embeddedServer": true,
-        "defaultServerPort": 32400
+        "defaultServerPort": 32400,
+        "automaticNatTraversal": true,
+        "cloudRelayFallback": true
     })
 }
 
