@@ -28,6 +28,7 @@ pub struct RemoteConnectivityStatus {
     pub relay_mode: Option<String>,
     pub relay_url: Option<String>,
     pub preferred_url: Option<String>,
+    pub encrypted_transport_required: bool,
     pub last_error: Option<String>,
 }
 
@@ -45,6 +46,7 @@ impl Default for RemoteConnectivityStatus {
             relay_mode: None,
             relay_url: None,
             preferred_url: None,
+            encrypted_transport_required: true,
             last_error: None,
         }
     }
@@ -258,6 +260,10 @@ async fn start_cloud_relay(port: u16) -> Result<(Child, String, String), String>
     .map_err(|_| "Cloud relay did not publish a URL within 30 seconds".to_string())?
     .ok_or("Cloud relay exited before publishing a URL")?;
 
+    if !url.starts_with("https://") {
+        return Err("Cloud relay returned a non-HTTPS endpoint".into());
+    }
+
     Ok((child, url, "quick".into()))
 }
 
@@ -287,7 +293,7 @@ pub async fn start_remote_connectivity(
     enable_nat_pmp: Option<bool>,
 ) -> Result<RemoteConnectivityStatus, String> {
     let port = port.unwrap_or(DEFAULT_PORT);
-    let prefer_relay = prefer_relay.unwrap_or(false);
+    let prefer_relay = prefer_relay.unwrap_or(true);
     let allow_relay = allow_relay.unwrap_or(true);
     let enable_upnp = enable_upnp.unwrap_or(true);
     let enable_nat_pmp = enable_nat_pmp.unwrap_or(true);
@@ -300,39 +306,34 @@ pub async fn start_remote_connectivity(
     };
     let mut mapping_errors = Vec::<String>::new();
 
-    if !prefer_relay {
-        if enable_upnp {
-            match map_upnp(port).await {
-                Ok(public_ip) => {
+    if enable_upnp {
+        match map_upnp(port).await {
+            Ok(public_ip) => {
+                status.direct_available = true;
+                status.direct_method = Some("UPnP".into());
+                status.public_ip = Some(public_ip.clone());
+                status.direct_url = Some(format!("http://{public_ip}:{port}"));
+            }
+            Err(error) => mapping_errors.push(format!("UPnP unavailable ({error})")),
+        }
+    } else {
+        mapping_errors.push("UPnP disabled".into());
+    }
+
+    if !status.direct_available {
+        if enable_nat_pmp {
+            match map_nat_pmp(port).await {
+                Ok(()) => {
+                    let public_ip = discover_public_ip().await;
                     status.direct_available = true;
-                    status.direct_method = Some("UPnP".into());
-                    status.public_ip = Some(public_ip.clone());
-                    status.direct_url = Some(format!("http://{public_ip}:{port}"));
+                    status.direct_method = Some("NAT-PMP".into());
+                    status.public_ip = public_ip.clone();
+                    status.direct_url = public_ip.map(|value| format!("http://{value}:{port}"));
                 }
-                Err(error) => mapping_errors.push(format!("UPnP unavailable ({error})")),
+                Err(error) => mapping_errors.push(format!("NAT-PMP unavailable ({error})")),
             }
         } else {
-            mapping_errors.push("UPnP disabled".into());
-        }
-
-        if !status.direct_available {
-            if enable_nat_pmp {
-                match map_nat_pmp(port).await {
-                    Ok(()) => {
-                        let public_ip = discover_public_ip().await;
-                        status.direct_available = true;
-                        status.direct_method = Some("NAT-PMP".into());
-                        status.public_ip = public_ip.clone();
-                        status.direct_url =
-                            public_ip.map(|value| format!("http://{value}:{port}"));
-                    }
-                    Err(error) => {
-                        mapping_errors.push(format!("NAT-PMP unavailable ({error})"))
-                    }
-                }
-            } else {
-                mapping_errors.push("NAT-PMP disabled".into());
-            }
+            mapping_errors.push("NAT-PMP disabled".into());
         }
     }
 
@@ -349,7 +350,7 @@ pub async fn start_remote_connectivity(
             .mapping_shutdown = Some(shutdown_tx);
     }
 
-    if prefer_relay || (!status.direct_available && allow_relay) {
+    if allow_relay || prefer_relay {
         match start_cloud_relay(port).await {
             Ok((child, relay_url, relay_mode)) => {
                 status.relay_active = true;
@@ -361,36 +362,28 @@ pub async fn start_remote_connectivity(
                     .tunnel = Some(child);
             }
             Err(error) => {
-                let direct_error = if mapping_errors.is_empty() {
-                    None
+                let mapping_summary = if mapping_errors.is_empty() {
+                    "Direct mapping succeeded but is withheld from clients because encrypted transport is required".to_string()
                 } else {
-                    Some(mapping_errors.join("; "))
+                    mapping_errors.join("; ")
                 };
-                status.last_error = Some(match direct_error {
-                    Some(direct_error) => {
-                        format!("{direct_error}; relay unavailable ({error})")
-                    }
-                    None => format!("Cloud relay unavailable: {error}"),
-                });
+                status.last_error = Some(format!(
+                    "{mapping_summary}; encrypted cloud relay unavailable ({error})"
+                ));
             }
         }
-    } else if !mapping_errors.is_empty() && !status.direct_available {
-        status.last_error = Some(mapping_errors.join("; "));
+    } else {
+        status.last_error = Some(
+            "Encrypted cloud relay is disabled; no public client URL will be exposed".into(),
+        );
     }
 
-    status.preferred_url = if prefer_relay {
-        status
-            .relay_url
-            .clone()
-            .or_else(|| status.direct_url.clone())
-    } else {
-        status
-            .direct_url
-            .clone()
-            .or_else(|| status.relay_url.clone())
-    };
+    status.preferred_url = status
+        .relay_url
+        .clone()
+        .filter(|value| value.starts_with("https://"));
 
-    if !status.direct_available && !status.relay_active {
+    if status.preferred_url.is_none() {
         status.running = false;
     }
 
