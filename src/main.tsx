@@ -71,6 +71,62 @@ function StartupViewport(): React.JSX.Element {
   );
 }
 
+function installNavigationWatchdog(): void {
+  void import("./store/appStore")
+    .then(({ useAppStore }) => {
+      let previousTab = useAppStore.getState().activeTab;
+      let watchdogTimer: number | null = null;
+
+      useAppStore.subscribe((state) => {
+        if (state.activeTab === previousTab) return;
+        previousTab = state.activeTab;
+        if (watchdogTimer !== null) window.clearTimeout(watchdogTimer);
+
+        watchdogTimer = window.setTimeout(() => {
+          const shell = document.querySelector<HTMLElement>(".cv-shell-frame");
+          const panel = document.querySelector<HTMLElement>(".cv-workspace-panel");
+          if (!shell) return;
+
+          if (panel) {
+            const opacity = Number.parseFloat(window.getComputedStyle(panel).opacity);
+            if (!Number.isFinite(opacity) || opacity < 0.08) {
+              recordGlobalError(
+                "navigation-watchdog-hidden-panel",
+                `Workspace panel remained hidden after opening ${previousTab}`,
+              );
+              panel.style.setProperty("opacity", "1", "important");
+              panel.style.setProperty("filter", "none", "important");
+              panel.style.setProperty("transform", "none", "important");
+            }
+            return;
+          }
+
+          recordGlobalError(
+            "navigation-watchdog-missing-panel",
+            `Workspace panel was missing after opening ${previousTab}`,
+          );
+          useAppStore.getState().setActiveTab("home");
+          useAppStore
+            .getState()
+            .addStatusMessage("Navigation recovered automatically to Library");
+
+          window.setTimeout(() => {
+            if (!document.querySelector(".cv-workspace-panel")) {
+              recordGlobalError(
+                "navigation-watchdog-reload",
+                "Workspace did not recover after returning to Library",
+              );
+              window.location.reload();
+            }
+          }, 900);
+        }, 1100);
+      });
+    })
+    .catch((error: unknown) => {
+      recordGlobalError("navigation-watchdog-install", error);
+    });
+}
+
 root.render(<StartupViewport />);
 
 void import("./App")
@@ -81,6 +137,7 @@ void import("./App")
       </RuntimeErrorBoundary>,
     );
     document.getElementById("splash")?.remove();
+    installNavigationWatchdog();
   })
   .catch((error: unknown) => {
     recordGlobalError("application-import", error);
