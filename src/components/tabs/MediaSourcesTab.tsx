@@ -1,28 +1,31 @@
-// CinaVault Premium - Media Sources Tab
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import {
   useAppStore,
   type LibraryEnrichmentResult,
+  type MediaItem,
 } from "../../store/appStore";
 import {
+  ExternalLink,
+  File,
   FolderOpen,
   HardDrive,
-  File,
+  Link,
   Plus,
-  Trash2,
   RefreshCw,
   Scan,
   Sparkles,
-  Link,
-  ExternalLink,
+  Trash2,
 } from "lucide-react";
 
 type ScanResult = {
+  status?: string;
   total_found?: number | string;
   total_added?: number | string;
+  total_updated?: number | string;
   sources_scanned?: number | string;
+  errors?: string[];
 };
 
 type SourceLike = {
@@ -37,35 +40,6 @@ type SourceLike = {
 
 const DEFAULT_METADATA_AFTER_SCAN = true;
 
-const DEMO_SOURCES: SourceLike[] = [
-  {
-    id: 1,
-    path: "C:\\Movies",
-    source_type: "folder",
-    name: "Movies Library",
-    enabled: true,
-    last_scanned: "2026-04-25",
-    item_count: 342,
-  },
-  {
-    id: 2,
-    path: "D:\\TV Shows",
-    source_type: "folder",
-    name: "TV Shows",
-    enabled: true,
-    last_scanned: "2026-04-20",
-    item_count: 1280,
-  },
-  {
-    id: 3,
-    path: "E:\\Music",
-    source_type: "drive",
-    name: "Music Drive",
-    item_count: 0,
-    enabled: true,
-  },
-];
-
 function safeNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -79,23 +53,23 @@ function formatMetadataSummary(result: LibraryEnrichmentResult): string {
   const enriched =
     result.metadata_items_enriched || result.metadata_updated || 0;
   const fields = result.metadata_fields_updated || 0;
-  const skipped =
-    (result.low_confidence_metadata_only || 0) +
-    (result.skipped_missing_files || 0);
+  const posters = result.posters_downloaded || 0;
   const warnings = result.provider_errors?.length || 0;
   return [
-    `Metadata pull complete: ${enriched} items enriched`,
-    `${fields} fields updated`,
-    `${skipped} skipped`,
+    `${enriched} items enriched`,
+    `${fields} metadata fields updated`,
+    `${posters} posters downloaded`,
     warnings ? `${warnings} provider warnings` : "no provider warnings",
   ].join(", ");
 }
 
 function sourceIcon(sourceType: string) {
-  if (sourceType === "drive")
+  if (sourceType === "drive") {
     return <HardDrive size={18} className="text-cv-accent" />;
-  if (sourceType === "file")
+  }
+  if (sourceType === "file") {
     return <File size={18} className="text-cv-accent" />;
+  }
   return <FolderOpen size={18} className="text-cv-accent" />;
 }
 
@@ -103,6 +77,7 @@ export default function MediaSourcesTab() {
   const {
     sources,
     setSources,
+    setMediaItems,
     scanning,
     setScanning,
     scanProgress,
@@ -118,55 +93,44 @@ export default function MediaSourcesTab() {
   const [webLink, setWebLink] = useState("");
   const [savingOption, setSavingOption] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
+  const [addingSource, setAddingSource] = useState(false);
+
+  const loadSources = async (): Promise<SourceLike[]> => {
+    try {
+      const loaded = await invoke<SourceLike[]>("get_sources");
+      setSources(loaded);
+      return loaded;
+    } catch (error) {
+      setSources([]);
+      addStatusMessage(`Configured sources unavailable: ${error}`);
+      return [];
+    }
+  };
+
+  const refreshLibrary = async () => {
+    const loaded = await invoke<MediaItem[]>("get_media_items", {
+      mediaType: null,
+      limit: null,
+      offset: null,
+    });
+    setMediaItems(loaded);
+    window.dispatchEvent(
+      new CustomEvent("cinavault:library-refresh", {
+        detail: { reason: "source-scan-or-metadata", count: loaded.length },
+      }),
+    );
+    addStatusMessage(`Library refreshed: ${loaded.length} media cards online`);
+  };
 
   useEffect(() => {
     void loadSources();
   }, []);
 
-  const loadSources = async () => {
-    try {
-      const loaded = await invoke<SourceLike[]>("get_sources");
-      setSources(loaded);
-    } catch {
-      setSources(DEMO_SOURCES);
-    }
-  };
-
-  const addSource = async () => {
-    const path = newSourcePath.trim();
-    if (!path) return;
-    try {
-      await invoke("add_source", {
-        path,
-        sourceType: newSourceType,
-        name: newSourceName.trim() || path.split(/[\\/]/).pop() || "New Source",
-      });
-      addStatusMessage(`Source added: ${newSourceName.trim() || path}`);
-      setNewSourcePath("");
-      setNewSourceName("");
-      await loadSources();
-    } catch (error) {
-      addStatusMessage(`Failed to add source: ${error}`);
-    }
-  };
-
-  const removeSource = async (id: number) => {
-    try {
-      await invoke("remove_source", { id });
-      addStatusMessage("Source removed");
-      await loadSources();
-    } catch (error) {
-      addStatusMessage(`Failed to remove source: ${error}`);
-    }
-  };
-
-  const isEnabled = (key: string, defaultOn = false) => {
-    return (settings[key] ?? (defaultOn ? "true" : "false")) === "true";
-  };
+  const isEnabled = (key: string, defaultOn = false) =>
+    (settings[key] ?? (defaultOn ? "true" : "false")) === "true";
 
   const shouldPullMetadataAfterScan = (scanResult: ScanResult) => {
-    const found = safeNumber(scanResult.total_found);
-    if (found <= 0) return false;
+    if (safeNumber(scanResult.total_found) <= 0) return false;
     return (
       isEnabled("library_auto_scan", DEFAULT_METADATA_AFTER_SCAN) ||
       scheduledTasks.metadata_check === "on_scan"
@@ -180,59 +144,106 @@ export default function MediaSourcesTab() {
       );
       return;
     }
-    addStatusMessage("Pulling metadata for scanned media...");
+    addStatusMessage("AI is identifying media and retrieving posters...");
     const enrichment = await invoke<LibraryEnrichmentResult>(
       "run_library_enrichment",
       { renameFiles: false },
     );
-    addStatusMessage(formatMetadataSummary(enrichment));
+    addStatusMessage(`AI enrichment complete: ${formatMetadataSummary(enrichment)}`);
+  };
+
+  const runSourcePipeline = async (sourceId: number, sourceName: string) => {
+    setScanning(true);
+    addStatusMessage(`Scanning source: ${sourceName}`);
+    try {
+      const result = await invoke<ScanResult>("scan_single_source", {
+        sourceId,
+      });
+      addStatusMessage(
+        `Source scan complete: ${safeNumber(result.total_found)} found, ${safeNumber(result.total_added)} added, ${safeNumber(result.total_updated)} refreshed`,
+      );
+      if (result.errors?.length) {
+        addStatusMessage(
+          `Source scan warnings: ${result.errors.slice(0, 3).join("; ")}`,
+        );
+      }
+      await pullMetadataAfterScan(result);
+      await Promise.all([loadSources(), refreshLibrary()]);
+      window.dispatchEvent(new Event("cinavault:source-added"));
+    } catch (error) {
+      addStatusMessage(`Source pipeline failed: ${error}`);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const addSource = async () => {
+    const path = newSourcePath.trim();
+    if (!path || addingSource) return;
+    const name =
+      newSourceName.trim() || path.split(/[\\/]/).pop() || "New Source";
+    setAddingSource(true);
+    try {
+      const sourceId = await invoke<number>("add_source", {
+        path,
+        sourceType: newSourceType,
+        name,
+      });
+      setNewSourcePath("");
+      setNewSourceName("");
+      addStatusMessage(`Source added: ${name}`);
+      await loadSources();
+      await runSourcePipeline(sourceId, name);
+    } catch (error) {
+      addStatusMessage(`Failed to add source: ${error}`);
+    } finally {
+      setAddingSource(false);
+    }
+  };
+
+  const removeSource = async (id: number) => {
+    try {
+      await invoke("remove_source", { id });
+      addStatusMessage("Source removed");
+      await loadSources();
+    } catch (error) {
+      addStatusMessage(`Failed to remove source: ${error}`);
+    }
   };
 
   const scanAll = async () => {
     if (scanning) return;
     setScanning(true);
-    addStatusMessage("Scanning all sources...");
+    addStatusMessage("Scanning all configured sources...");
     try {
       const result = await invoke<ScanResult>("scan_sources");
-      const added = safeNumber(result.total_added);
-      const scanned = safeNumber(result.sources_scanned);
       addStatusMessage(
-        `Scan complete: ${added} new items from ${scanned} sources`,
+        `Scan complete: ${safeNumber(result.total_added)} new, ${safeNumber(result.total_updated)} refreshed from ${safeNumber(result.sources_scanned)} sources`,
       );
-      await loadSources();
-      try {
-        await pullMetadataAfterScan(result);
-        await loadSources();
-      } catch (metadataError) {
-        addStatusMessage(`Metadata pull after scan failed: ${metadataError}`);
-      }
-    } catch (scanError) {
-      addStatusMessage(`Scan failed: ${scanError}`);
+      await pullMetadataAfterScan(result);
+      await Promise.all([loadSources(), refreshLibrary()]);
+    } catch (error) {
+      addStatusMessage(`Scan failed: ${error}`);
     } finally {
       setScanning(false);
     }
   };
 
   const aiDiscover = async () => {
-    if (discovering) return;
+    if (discovering || scanning) return;
     setDiscovering(true);
-    addStatusMessage(
-      "AI Source Discovery: analyzing system drives for media folders...",
-    );
+    addStatusMessage("AI Source Discovery is analyzing available drives...");
     try {
       const result = await invoke<{
-        status: string;
-        roots_checked: number;
         discovered: number;
         added: number;
         existing: number;
-        paths: string[];
-        message: string;
       }>("discover_media_sources");
       addStatusMessage(
-        `AI Source Discovery complete: ${result.discovered} folders found, ${result.added} added, ${result.existing} already configured`,
+        `Source discovery complete: ${result.discovered} found, ${result.added} added, ${result.existing} already configured`,
       );
       await loadSources();
+      if (result.added > 0) await scanAll();
     } catch (error) {
       addStatusMessage(`AI Source Discovery failed: ${error}`);
     } finally {
@@ -247,17 +258,15 @@ export default function MediaSourcesTab() {
     try {
       await invoke("set_setting", { key, value });
       if (key === "prefer_embedded_titles" && enabled) {
-        addStatusMessage("Applying embedded titles to existing library...");
         const result = await invoke<{
           checked: number;
           updated: number;
-          missing_files: number;
         }>("apply_embedded_titles");
         addStatusMessage(
           `Embedded titles applied: ${result.updated}/${result.checked} updated`,
         );
+        await refreshLibrary();
       }
-      addStatusMessage(`Library option updated: ${key} = ${value}`);
     } catch (error) {
       addStatusMessage(`Failed to save option ${key}: ${error}`);
     } finally {
@@ -267,15 +276,29 @@ export default function MediaSourcesTab() {
 
   return (
     <div className="space-y-5">
-      <div className="glass-panel p-5">
-        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Plus size={16} className="text-cv-accent" /> Add Media Source
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <section className="glass-panel p-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-bold">
+              <Plus size={16} className="text-cv-accent" /> Add, Scan, and Enrich
+            </h3>
+            <p className="mt-1 text-xs text-cv-subtext">
+              New local sources are indexed immediately and sent through AI metadata and poster automation.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("cinavault:ai-autopilot-run"))}
+            className="cv-btn cv-btn-gold text-xs"
+          >
+            <Sparkles size={13} /> Run AI Autopilot
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div className="md:col-span-2">
-            <label className="section-label">Path</label>
+            <label className="section-label">Local path</label>
             <input
-              type="text"
               value={newSourcePath}
               onChange={(event) => setNewSourcePath(event.target.value)}
               placeholder="C:\\Movies or /media/library"
@@ -283,9 +306,8 @@ export default function MediaSourcesTab() {
             />
           </div>
           <div>
-            <label className="section-label">Name</label>
+            <label className="section-label">Display name</label>
             <input
-              type="text"
               value={newSourceName}
               onChange={(event) => setNewSourceName(event.target.value)}
               placeholder="My Movies"
@@ -293,7 +315,7 @@ export default function MediaSourcesTab() {
             />
           </div>
           <div>
-            <label className="section-label">Type</label>
+            <label className="section-label">Source type</label>
             <select
               value={newSourceType}
               onChange={(event) => setNewSourceType(event.target.value)}
@@ -305,159 +327,156 @@ export default function MediaSourcesTab() {
             </select>
           </div>
         </div>
-        <div className="flex gap-2 mt-4">
-          <button onClick={addSource} className="cv-btn cv-btn-primary">
-            <FolderOpen size={14} /> Add Source
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={addSource}
+            disabled={addingSource || scanning || !newSourcePath.trim()}
+            className="cv-btn cv-btn-primary disabled:opacity-50"
+          >
+            <FolderOpen size={14} />
+            {addingSource ? "Adding and scanning..." : "Add Source"}
           </button>
           <button
             onClick={aiDiscover}
-            disabled={discovering}
+            disabled={discovering || scanning}
             className="cv-btn cv-btn-gold disabled:opacity-50"
           >
             <Sparkles size={14} className={discovering ? "animate-spin" : ""} />
-            {discovering ? "Discovering Sources..." : "AI Discover Sources"}
+            {discovering ? "Discovering..." : "Discover Sources"}
           </button>
           <button
             onClick={scanAll}
             disabled={scanning}
-            className="cv-btn cv-btn-secondary"
+            className="cv-btn cv-btn-secondary disabled:opacity-50"
           >
             <Scan size={14} className={scanning ? "animate-spin" : ""} />
-            {scanning ? "Scanning + Pulling Metadata..." : "Scan All Sources"}
+            {scanning ? "Scanning and enriching..." : "Scan Everything"}
           </button>
         </div>
-      </div>
+      </section>
 
-      <div className="glass-panel p-5">
-        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Sparkles size={16} className="text-cv-accent" /> Library Options
-          (Unified)
+      <section className="glass-panel p-5">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-bold">
+          <Sparkles size={16} className="text-cv-accent" /> AI Library Policy
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {[
             [
-              "prefer_embedded_titles",
-              "Prefer embedded titles over filenames",
-              "Use media container tags when scanning, then fall back to filenames.",
-              false,
-            ],
-            [
               "library_auto_scan",
-              "Pull metadata automatically after scans",
-              "After indexing source files, run native enrichment for titles, posters, years, ratings, genres, and IDs.",
+              "Pull metadata and posters after scans",
+              "Automatically identify new media and refresh visible cards.",
               true,
             ],
             [
-              "library_partial_scan_on_changes",
-              "Run partial scan when changes are detected",
-              "Only rescan changed folders/files for faster updates.",
+              "prefer_embedded_titles",
+              "Prefer embedded titles",
+              "Use media container title tags before filename parsing.",
               false,
             ],
             [
+              "library_partial_scan_on_changes",
+              "Rescan changed paths",
+              "Use targeted refreshes when source contents change.",
+              true,
+            ],
+            [
               "library_empty_trash_after_scan",
-              "Empty trash automatically after every scan",
-              "Remove stale media records for files no longer on disk.",
+              "Remove missing records",
+              "Clean database entries for files no longer available.",
               false,
             ],
-          ].map(([key, label, desc, defaultOn]) => (
-            <div key={String(key)} className="glass-panel-2 p-3 rounded-lg">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold">{String(label)}</div>
-                  <div className="text-[10px] text-cv-subtext mt-1">
-                    {String(desc)}
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={isEnabled(String(key), Boolean(defaultOn))}
-                  disabled={savingOption === key}
-                  onChange={(event) =>
-                    saveLibraryOption(String(key), event.target.checked)
-                  }
-                />
-              </div>
-            </div>
+          ].map(([key, label, description, defaultOn]) => (
+            <label
+              key={String(key)}
+              className="glass-panel-2 flex items-start justify-between gap-3 rounded-lg p-3"
+            >
+              <span>
+                <span className="block text-xs font-semibold">{String(label)}</span>
+                <span className="mt-1 block text-[10px] text-cv-subtext">
+                  {String(description)}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={isEnabled(String(key), Boolean(defaultOn))}
+                disabled={savingOption === key}
+                onChange={(event) =>
+                  void saveLibraryOption(String(key), event.target.checked)
+                }
+              />
+            </label>
           ))}
         </div>
-      </div>
+      </section>
 
-      <div className="glass-panel p-5">
-        <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
-          <Link size={16} className="text-cv-accent" /> Web / Playlist Download
-          Link
+      <section className="glass-panel p-5">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
+          <Link size={16} className="text-cv-accent" /> Web or Playlist Link
         </h3>
         <div className="flex gap-3">
           <input
-            type="text"
             value={webLink}
             onChange={(event) => setWebLink(event.target.value)}
-            placeholder="Paste URL to download (YouTube, etc.)"
+            placeholder="Paste a media or playlist URL"
             className="cv-input flex-1"
           />
-          <button className="cv-btn cv-btn-primary shrink-0">
+          <button
+            type="button"
+            onClick={() => addStatusMessage(`Download link staged: ${webLink}`)}
+            disabled={!webLink.trim()}
+            className="cv-btn cv-btn-primary shrink-0 disabled:opacity-50"
+          >
             <ExternalLink size={14} /> Send to Downloads
           </button>
         </div>
-      </div>
+      </section>
 
-      <div className="glass-panel rounded-xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
-          <h3 className="text-sm font-bold">
-            Configured Sources ({sources.length})
-          </h3>
-          <button
-            onClick={loadSources}
-            className="cv-btn cv-btn-secondary text-xs py-1"
-          >
+      <section className="glass-panel overflow-hidden rounded-xl">
+        <div className="flex items-center justify-between border-b border-white/5 px-5 py-3">
+          <h3 className="text-sm font-bold">Configured Sources ({sources.length})</h3>
+          <button onClick={() => void loadSources()} className="cv-btn cv-btn-secondary py-1 text-xs">
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
 
         {sources.length === 0 ? (
           <div className="p-8 text-center">
-            <FolderOpen size={40} className="mx-auto text-cv-subtext/20 mb-3" />
+            <FolderOpen size={40} className="mx-auto mb-3 text-cv-subtext/20" />
             <p className="text-sm text-cv-subtext">
-              No sources configured. Add folders or drives above.
+              No real sources are configured. Add a folder or drive above.
             </p>
           </div>
         ) : (
           <div className="divide-y divide-white/5">
             {sources.map((source, index) => (
               <motion.div
-                key={source.id || index}
+                key={source.id || `${source.path}-${index}`}
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="px-5 py-3 flex items-center gap-4 hover:bg-white/[0.03] transition-colors"
+                transition={{ delay: Math.min(index * 0.035, 0.25) }}
+                className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-white/[0.03]"
               >
-                <div className="w-10 h-10 rounded-lg bg-cv-accent/10 flex items-center justify-center shrink-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cv-accent/10">
                   {sourceIcon(source.source_type)}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">
-                    {source.name}
-                  </div>
-                  <div className="text-xs text-cv-subtext truncate">
-                    {source.path}
-                  </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{source.name}</div>
+                  <div className="truncate text-xs text-cv-subtext">{source.path}</div>
                 </div>
-                <div className="text-xs text-cv-subtext text-right shrink-0">
+                <div className="shrink-0 text-right text-xs text-cv-subtext">
                   <div>{source.item_count} items</div>
                   <div>
                     {source.last_scanned
-                      ? new Date(source.last_scanned).toLocaleDateString()
+                      ? new Date(source.last_scanned).toLocaleString()
                       : "Never scanned"}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <span
-                    className={`status-dot ${source.enabled ? "online" : "offline"}`}
-                  />
-                </div>
+                <span className={`status-dot ${source.enabled ? "online" : "offline"}`} />
                 <button
-                  onClick={() => source.id && removeSource(source.id)}
-                  className="cv-btn cv-btn-danger text-xs py-1 px-2"
+                  onClick={() => source.id && void removeSource(source.id)}
+                  className="cv-btn cv-btn-danger px-2 py-1 text-xs"
+                  title={`Remove ${source.name}`}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -465,23 +484,23 @@ export default function MediaSourcesTab() {
             ))}
           </div>
         )}
-      </div>
+      </section>
 
       {scanning && (
-        <motion.div
+        <motion.section
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           className="glass-panel p-4"
         >
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-semibold">
-              Scanning and pulling metadata...
+              AI is scanning, identifying, and posting artwork...
             </span>
             <span className="text-xs text-cv-subtext">
               {scanProgress.current} / {scanProgress.total}
             </span>
           </div>
-          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
             <motion.div
               className="h-full rounded-full"
               style={{
@@ -491,11 +510,12 @@ export default function MediaSourcesTab() {
               animate={{
                 width: scanProgress.total
                   ? `${(scanProgress.current / scanProgress.total) * 100}%`
-                  : "0%",
+                  : "15%",
               }}
+              transition={{ duration: 0.25 }}
             />
           </div>
-        </motion.div>
+        </motion.section>
       )}
     </div>
   );

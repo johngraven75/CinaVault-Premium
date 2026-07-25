@@ -7,6 +7,7 @@ on:
       - main
       - build-169-casting
       - build-169-validation
+      - build-170-remote-connectivity
   workflow_dispatch:
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
   validate:
     name: Type, Test, and Build
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 55
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,7 +46,7 @@ jobs:
           set -o pipefail
           npm run lint 2>&1 | tee types.log
 
-      - name: Carry-forward regression tests
+      - name: Carry-forward and Build 170 regression tests
         shell: bash
         run: |
           set -o pipefail
@@ -75,12 +76,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p tools/wireguard src-tauri/tools/wireguard
+          mkdir -p tools/wireguard src-tauri/tools/wireguard src-tauri/tools/cloudflared
           if [ ! -f tools/wireguard/wireguard.exe ]; then
             printf 'CI placeholder for Windows bundle resource\n' > tools/wireguard/wireguard.exe
           fi
           if [ ! -f src-tauri/tools/wireguard/wireguard.exe ]; then
             printf 'CI placeholder for Windows bundle resource\n' > src-tauri/tools/wireguard/wireguard.exe
+          fi
+          if [ ! -f src-tauri/tools/cloudflared/README.txt ]; then
+            printf 'CI placeholder directory for cloud relay resource\n' > src-tauri/tools/cloudflared/README.txt
           fi
           shopt -s nullglob
           for icon in src-tauri/icons/*.png; do
@@ -102,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-169-validation-${{ github.sha }}
+          name: build-170-validation-${{ github.sha }}
           path: |
             install.log
             types.log
@@ -118,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh pr comment "${{ github.event.pull_request.number }}" --body "Build 169 validation completed. Review the CI job conclusion and diagnostic artifact for exact gate results."
+          gh pr comment "${{ github.event.pull_request.number }}" --body "Build 170 validation completed. Review the CI job conclusion and diagnostic artifact for install, TypeScript, regression, frontend, and Rust results."
 
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
