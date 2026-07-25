@@ -68,11 +68,13 @@ jobs:
             patchelf \
             libssl-dev \
             libgtk-3-dev \
-            libglib2.0-dev
+            libglib2.0-dev \
+            imagemagick
 
       - name: Prepare cross-platform bundle resources
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p tools/wireguard src-tauri/tools/wireguard
           if [ ! -f tools/wireguard/wireguard.exe ]; then
             printf 'CI placeholder for Windows bundle resource\n' > tools/wireguard/wireguard.exe
@@ -80,6 +82,12 @@ jobs:
           if [ ! -f src-tauri/tools/wireguard/wireguard.exe ]; then
             printf 'CI placeholder for Windows bundle resource\n' > src-tauri/tools/wireguard/wireguard.exe
           fi
+          shopt -s nullglob
+          for icon in src-tauri/icons/*.png; do
+            converted="${icon%.png}.rgba.png"
+            convert "$icon" -alpha on -define png:color-type=6 "$converted"
+            mv "$converted" "$icon"
+          done
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
