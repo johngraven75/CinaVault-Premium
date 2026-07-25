@@ -12,6 +12,9 @@ on:
         required: true
         type: boolean
         default: false
+  issue_comment:
+    types:
+      - created
   push:
     branches:
       - main
@@ -24,7 +27,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-build-169
   cancel-in-progress: false
 
 env:
@@ -33,7 +36,14 @@ env:
 jobs:
   announce:
     name: Register release run
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[release build-169]')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      contains(github.event.head_commit.message, '[release build-169]') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 46 &&
+       github.event.comment.body == '/release build-169' &&
+       github.event.comment.author_association == 'OWNER')
     runs-on: ubuntu-latest
     steps:
       - name: Post run link
@@ -53,8 +63,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -80,8 +92,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -192,7 +206,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: main
           name: CinaVault Premium Build 169
           prerelease: ${{ steps.release.outputs.prerelease }}
           generate_release_notes: true
