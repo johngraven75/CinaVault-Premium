@@ -95,7 +95,7 @@ fn main() {
                         log::info!("Embedded media server ready: {status}");
                         match remote_connectivity::start_remote_connectivity(
                             Some(32400),
-                            Some(false),
+                            Some(true),
                             Some(true),
                             Some(true),
                             Some(true),
@@ -103,10 +103,10 @@ fn main() {
                         .await
                         {
                             Ok(connectivity) => {
-                                log::info!("Automatic remote connectivity ready: {connectivity:?}")
+                                log::info!("Encrypted remote connectivity ready: {connectivity:?}")
                             }
                             Err(error) => {
-                                log::warn!("Automatic remote connectivity unavailable: {error}")
+                                log::warn!("Encrypted remote connectivity unavailable: {error}")
                             }
                         }
                     }
@@ -265,7 +265,11 @@ fn get_app_info() -> serde_json::Value {
         "embeddedServer": true,
         "defaultServerPort": 32400,
         "automaticNatTraversal": true,
-        "cloudRelayFallback": true
+        "cloudRelayFallback": true,
+        "encryptedRemoteTransport": true,
+        "opaqueRemoteMediaKeys": true,
+        "aiMediaAutopilot": true,
+        "spatialExperienceShell": true
     })
 }
 
