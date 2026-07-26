@@ -25,7 +25,12 @@ mod metadata {
 mod metadata_bridge;
 mod metadata_enrichment_runtime;
 mod metadata_ext;
-mod metadata_guard;
+mod metadata_guard {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/metadata_guard_without_wrapped_commands.rs"
+    ));
+}
 mod metadata_keyless;
 mod metadata_provider_config;
 #[cfg(test)]
@@ -64,7 +69,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .setup(|app| {
+        .setup(move |app| {
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -133,8 +138,8 @@ fn main() {
 
             log::info!(
                 "{} {} initialized successfully",
-                build_identity::current().product_name,
-                build_identity::current().display_name
+                build.product_name,
+                build.display_name
             );
             Ok(())
         })
