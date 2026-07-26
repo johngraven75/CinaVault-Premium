@@ -1,0 +1,164 @@
+name: CinaVault Premium v2 Build 1.04 Windows Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cinavault-premium-v2-build-1-04-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-package:
+    name: Validate and package Premium Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Build 1.04 branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify build identity
+        shell: pwsh
+        run: |
+          $build = Get-Content build-version.json -Raw | ConvertFrom-Json
+          if ($build.displayName -ne 'v2 Build 1.04') { throw "Unexpected displayName: $($build.displayName)" }
+          if ($build.semanticVersion -ne '2.0.4') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
+          if ($build.releaseTag -ne 'v2-build-1.04') { throw "Unexpected releaseTag: $($build.releaseTag)" }
+
+      - name: Shared contract conformance gate
+        run: npm run verify:contracts
+
+      - name: Preventive risk gate
+        run: npm run scan:preventive
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Complete regression suite
+        run: >-
+          node --test
+          tests/carryForwardVerification.test.mjs
+          tests/build170RemoteConnectivity.test.mjs
+          tests/v2Build102UiStability.test.mjs
+          tests/v2Build103CommandPaletteStability.test.mjs
+          tests/platformParityContract.test.mjs
+
+      - name: Live metadata, poster, database, and card acceptance
+        run: npm run test:metadata-live
+
+      - name: Production frontend build
+        run: npm run build
+
+      - name: Rust tests and native validation
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast
+          cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Prepare genuine Windows bundle resources
+        shell: pwsh
+        run: |
+          choco install wireguard -y --no-progress
+          $wireGuardCandidates = @(
+            'C:\Program Files\WireGuard\wireguard.exe',
+            'C:\Program Files (x86)\WireGuard\wireguard.exe'
+          )
+          $wireGuardSource = $wireGuardCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $wireGuardSource) {
+            $wireGuardSource = Get-ChildItem 'C:\Program Files*' -Filter wireguard.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $wireGuardSource) { throw 'A genuine WireGuard executable could not be located.' }
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/wireguard | Out-Null
+          Copy-Item $wireGuardSource src-tauri/tools/wireguard/wireguard.exe -Force
+
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/cloudflared | Out-Null
+          $cloudflaredUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
+          Invoke-WebRequest -Uri $cloudflaredUrl -OutFile src-tauri/tools/cloudflared/cloudflared.exe
+          $cloudflared = Get-Item src-tauri/tools/cloudflared/cloudflared.exe
+          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
+
+          Add-Type -AssemblyName System.Drawing
+          Get-ChildItem src-tauri/icons -Filter *.png | ForEach-Object {
+            $sourcePath = $_.FullName
+            $temporaryPath = "$sourcePath.rgba.png"
+            $sourceImage = [System.Drawing.Image]::FromFile($sourcePath)
+            try {
+              $bitmap = New-Object System.Drawing.Bitmap($sourceImage.Width, $sourceImage.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+              try {
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try { $graphics.DrawImage($sourceImage, 0, 0, $sourceImage.Width, $sourceImage.Height) }
+                finally { $graphics.Dispose() }
+                $bitmap.Save($temporaryPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              } finally { $bitmap.Dispose() }
+            } finally { $sourceImage.Dispose() }
+            Move-Item $temporaryPath $sourcePath -Force
+          }
+
+      - name: Build Tauri installers
+        run: npm run tauri build
+
+      - name: Collect and verify Premium installers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          $bundles = Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File
+          $msiSource = $bundles | Where-Object { $_.Extension -eq '.msi' } | Select-Object -First 1
+          $nsisSource = $bundles | Where-Object { $_.Extension -eq '.exe' } | Select-Object -First 1
+          if (-not $msiSource) { throw 'The MSI installer was not produced.' }
+          if (-not $nsisSource) { throw 'The NSIS installer was not produced.' }
+
+          $msiPath = 'release-assets/CinaVault-Premium-v2-build-1-04-x64.msi'
+          $nsisPath = 'release-assets/CinaVault-Premium-v2-build-1-04-x64-setup.exe'
+          Copy-Item $msiSource.FullName $msiPath
+          Copy-Item $nsisSource.FullName $nsisPath
+
+          $msi = Get-Item $msiPath
+          $nsis = Get-Item $nsisPath
+          if ($msi.Length -lt 1000000) { throw 'The MSI installer is unexpectedly small.' }
+          if ($nsis.Length -lt 1000000) { throw 'The NSIS installer is unexpectedly small.' }
+
+          $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            '# CinaVault Premium v2 Build 1.04 Windows validation',
+            '',
+            "MSI: $($msi.Name)",
+            "MSI bytes: $($msi.Length)",
+            "MSI SHA-256: $msiHash",
+            '',
+            "NSIS: $($nsis.Name)",
+            "NSIS bytes: $($nsis.Length)",
+            "NSIS SHA-256: $nsisHash",
+            '',
+            "Commit: $env:GITHUB_SHA"
+          ) | Set-Content release-assets/CHECKSUMS.txt
+
+      - name: Upload verified Premium Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinavault-premium-v2-build-1-04-windows-${{ github.sha }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 90
