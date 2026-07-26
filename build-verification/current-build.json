@@ -10,9 +10,6 @@
     "android",
     "ios"
   ],
-  "excludedRepositories": [
-    "johngraven75/Cinavault-Reimagined"
-  ],
   "phases": {
     "repositoryAudit": {
       "status": "verified",
