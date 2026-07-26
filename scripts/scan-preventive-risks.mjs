@@ -71,20 +71,45 @@ requireMarker(
   "Sidebar build label must use the authoritative build identity",
 );
 requireMarker(
-  "src-tauri/build.rs",
-  "CINAVAULT_DISPLAY_BUILD",
-  "Rust build metadata must be generated from build-version.json",
+  "src-tauri/src/build_identity.rs",
+  'include_str!("../../build-version.json")',
+  "Rust build identity must derive from build-version.json",
 );
 requireMarker(
   "src-tauri/src/main.rs",
-  "env!(\"CINAVAULT_DISPLAY_BUILD\")",
-  "Rust app info must use generated build metadata",
+  "build_identity::get_current_build_info()",
+  "Rust app info must use the typed build identity",
 );
 requireMarker(
   ".github/workflows/release-build-170.yml",
   "npm run verify:master-release",
   "Packaging must be blocked by the master release gate",
 );
+
+const packageJson = JSON.parse(read("package.json"));
+if (packageJson.version !== build.semanticVersion) {
+  findings.push({
+    severity: "high",
+    file: "package.json",
+    reason: `Package version ${packageJson.version} does not match ${build.semanticVersion}`,
+  });
+}
+const cargoManifest = read("src-tauri/Cargo.toml");
+if (!cargoManifest.includes(`version = "${build.semanticVersion}"`)) {
+  findings.push({
+    severity: "high",
+    file: "src-tauri/Cargo.toml",
+    reason: `Cargo package version does not match ${build.semanticVersion}`,
+  });
+}
+const tauriConfiguration = JSON.parse(read("src-tauri/tauri.conf.json"));
+if (tauriConfiguration.version !== build.semanticVersion) {
+  findings.push({
+    severity: "high",
+    file: "src-tauri/tauri.conf.json",
+    reason: `Tauri bundle version ${tauriConfiguration.version} does not match ${build.semanticVersion}`,
+  });
+}
 
 const staleBuildPattern = /(?:Build 170|v2 Build 1\.0[0-3]|1\.7\.170)/;
 for (const relativePath of [
