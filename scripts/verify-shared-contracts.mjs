@@ -24,12 +24,22 @@ function sha256(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
+function canonicalTextBytes(bytes) {
+  const text = bytes.toString("utf8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return Buffer.from(text, "utf8");
+}
+
 function readFixture(name) {
   const filePath = path.join(contractRoot, "golden", name);
-  const bytes = fs.readFileSync(filePath);
+  const sourceBytes = fs.readFileSync(filePath);
+  const bytes = canonicalTextBytes(sourceBytes);
   const expected = manifest.fixtures?.[name]?.sha256;
   assert.equal(typeof expected, "string", `Missing hash for ${name}`);
-  assert.equal(sha256(bytes), expected, `Canonical fixture hash drifted: ${name}`);
+  assert.equal(
+    sha256(bytes),
+    expected,
+    `Canonical fixture hash drifted after line-ending normalization: ${name}`,
+  );
   return JSON.parse(bytes.toString("utf8"));
 }
 
