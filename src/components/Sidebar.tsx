@@ -1,3 +1,4 @@
+// Build 140 Futuristic Sidebar Navigation compatibility retained by the current manifest-driven shell.
 import type { JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { BUILD_INFO } from "../buildInfo";
