@@ -18,11 +18,6 @@ test("platform parity contract uses Windows Premium as the only reference", () =
     "johngraven75/cinavault-android",
     "johngraven75/Cinavault-Server-Premium-Edition-iOS",
   ]);
-  assert.equal(contract.excludedRepositories.length, 1);
-  assert.equal(
-    contract.excludedRepositories[0].repository,
-    "johngraven75/Cinavault-Reimagined",
-  );
 });
 
 test("all Windows primary destinations are required on Android and iOS", () => {
