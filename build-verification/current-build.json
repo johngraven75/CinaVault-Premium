@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "build": "v2 Build 1.04",
+  "internalBuild": "170",
+  "status": "in_progress",
+  "releaseAuthorized": false,
+  "referenceRepository": "johngraven75/CinaVault-Premium",
+  "platforms": [
+    "windows",
+    "android",
+    "ios"
+  ],
+  "excludedRepositories": [
+    "johngraven75/Cinavault-Reimagined"
+  ],
+  "phases": {
+    "repositoryAudit": {
+      "status": "verified",
+      "evidence": "Active Windows metadata path, database, provider configuration, artwork rendering, server API, tests, and packaging architecture inspected."
+    },
+    "rootCauseDiagnosis": {
+      "status": "verified",
+      "evidence": "Keyed-only provider execution, direct remote artwork writeback, unauthorized local artwork rendering, non-durable provider enablement, and ambiguous loaded-item totals identified."
+    },
+    "implementation": {
+      "status": "in_progress",
+      "evidence": "Durable provider registry committed; metadata, artwork cache, rendering, count, and migration repairs remain under implementation."
+    },
+    "dependencyConfiguration": {
+      "status": "in_progress",
+      "evidence": "Dependency and platform configuration validation pending completed implementation."
+    },
+    "staticReview": {
+      "status": "in_progress",
+      "evidence": "End-to-end source review continues as full files are replaced."
+    },
+    "cleanBuild": {
+      "status": "in_progress",
+      "evidence": "Clean frontend and Rust builds will run after implementation."
+    },
+    "automatedTests": {
+      "status": "in_progress",
+      "evidence": "Regression and functional metadata/poster tests are being added."
+    },
+    "runtimeUi": {
+      "status": "in_progress",
+      "evidence": "Live metadata/poster and library-card exercise required before release."
+    },
+    "persistenceMigration": {
+      "status": "in_progress",
+      "evidence": "Provider registry migration and cross-build persistence are under implementation."
+    },
+    "networkApi": {
+      "status": "in_progress",
+      "evidence": "Keyless provider success, timeout, malformed response, and artwork retrieval paths require execution."
+    },
+    "securityPrivacy": {
+      "status": "in_progress",
+      "evidence": "Credentials remain excluded from portable configuration; artwork access is being restricted to validated application-owned delivery."
+    },
+    "performanceReliability": {
+      "status": "in_progress",
+      "evidence": "Library scale, image loading, UI responsiveness, and bounded network behavior require validation."
+    },
+    "crossPlatformParity": {
+      "status": "in_progress",
+      "evidence": "Windows behavior will be carried to Android and iOS after the verified reference repair."
+    },
+    "packaging": {
+      "status": "in_progress",
+      "evidence": "MSI and NSIS builds are prohibited until functional acceptance passes."
+    },
+    "installationLaunch": {
+      "status": "in_progress",
+      "evidence": "Installer and launch validation pending verified packages."
+    },
+    "finalRegression": {
+      "status": "in_progress",
+      "evidence": "Final full verification pending."
+    }
+  },
+  "acceptanceCriteria": {
+    "liveMetadataPull": {
+      "status": "in_progress",
+      "evidence": "A current media fixture must be matched by a working live provider."
+    },
+    "metadataDatabaseWrite": {
+      "status": "in_progress",
+      "evidence": "Returned title/year/overview/rating/genre/IDs must be re-read from SQLite."
+    },
+    "posterInformation": {
+      "status": "in_progress",
+      "evidence": "Provider response must contain usable artwork information."
+    },
+    "posterBytes": {
+      "status": "in_progress",
+      "evidence": "Artwork response must produce valid bounded image bytes."
+    },
+    "secureArtworkDelivery": {
+      "status": "in_progress",
+      "evidence": "Artwork must render without arbitrary filesystem exposure."
+    },
+    "correctLibraryCard": {
+      "status": "in_progress",
+      "evidence": "The matched item's card must display the corresponding poster."
+    },
+    "uncappedLibraryTotal": {
+      "status": "in_progress",
+      "evidence": "Visible total must equal SELECT COUNT(*) for indexed media files."
+    },
+    "providerPersistence": {
+      "status": "in_progress",
+      "evidence": "All providers must remain enabled across restart, upgrade, and supported OS clients without losing credentials."
+    },
+    "windowsInstallers": {
+      "status": "in_progress",
+      "evidence": "Verified MSI and NSIS artifacts must be built after functional acceptance."
+    }
+  },
+  "externalBlockers": [],
+  "criticalDefects": [
+    "Metadata and posters do not reliably populate Windows library cards."
+  ]
+}
