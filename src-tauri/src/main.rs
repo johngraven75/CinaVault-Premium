@@ -30,6 +30,7 @@ mod media_tools;
 mod metadata_bridge;
 mod metadata_ext;
 mod metadata_guard;
+mod metadata_provider_config;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod nas_devices;
@@ -72,6 +73,16 @@ fn main() {
             let db_path = app_dir.join("cinavault.db");
             let db_path_string = db_path.to_string_lossy().to_string();
             let database = Database::new(&db_path_string).expect("Failed to initialize database");
+
+            metadata_provider_config::configure(app_dir.clone());
+            match metadata_provider_config::ensure_registry(&database) {
+                Ok(registry) => log::info!(
+                    "Metadata provider registry ready: {} providers enabled",
+                    registry.providers.len()
+                ),
+                Err(error) => log::warn!("Metadata provider registry repair failed: {error}"),
+            }
+
             embedded_server::configure(db_path_string);
 
             let resource_dir = app
@@ -88,7 +99,6 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(database),
             });
-
             tauri::async_runtime::spawn(async {
                 match embedded_server::start_embedded_server(Some(32400)).await {
                     Ok(status) => {
@@ -196,6 +206,8 @@ fn main() {
             metadata_guard::set_api_key,
             metadata_guard::get_api_keys,
             metadata_guard::get_metadata_providers,
+            metadata_provider_config::get_metadata_provider_registry,
+            metadata_provider_config::ensure_metadata_provider_registry,
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
             downloads::start_download,
