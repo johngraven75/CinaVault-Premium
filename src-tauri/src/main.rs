@@ -23,8 +23,10 @@ mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
 mod metadata_bridge;
+mod metadata_enrichment_runtime;
 mod metadata_ext;
 mod metadata_guard;
+mod metadata_keyless;
 mod metadata_provider_config;
 #[cfg(test)]
 mod metadata_posting_tests;
@@ -42,11 +44,13 @@ mod vpn;
 mod vpn_profile_store;
 
 use db::Database;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<Database>,
+    pub app_data_dir: PathBuf,
 }
 
 fn main() {
@@ -66,6 +70,7 @@ fn main() {
                 .app_data_dir()
                 .expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
+            std::fs::create_dir_all(app_dir.join("artwork")).ok();
 
             for directory in ["jellyfin", "emby", "plex", "native"] {
                 std::fs::create_dir_all(app_dir.join("plugins").join(directory)).ok();
@@ -99,6 +104,7 @@ fn main() {
 
             app.manage(AppState {
                 db: Mutex::new(database),
+                app_data_dir: app_dir.clone(),
             });
             tauri::async_runtime::spawn(async {
                 match embedded_server::start_embedded_server(Some(32400)).await {
@@ -205,7 +211,7 @@ fn main() {
             player::set_default_player,
             metadata_guard::fetch_metadata,
             metadata_guard::search_metadata,
-            metadata_guard::check_media_item_metadata,
+            metadata_enrichment_runtime::check_media_item_metadata,
             metadata_guard::get_provider_status,
             metadata_guard::test_api_key,
             metadata_guard::set_api_key,
@@ -240,7 +246,7 @@ fn main() {
             ai::get_ai_config,
             ai::set_ai_model,
             ai_automation::ai_library_manage,
-            enrichment::run_library_enrichment,
+            metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
             cloud_storage::cloud_auth_start,
