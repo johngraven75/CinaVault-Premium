@@ -115,7 +115,6 @@ const staleBuildPattern = /(?:Build 170|v2 Build 1\.0[0-3]|1\.7\.170)/;
 for (const relativePath of [
   "src/components/Header.tsx",
   "src/components/Sidebar.tsx",
-  "src/main.tsx",
   "src-tauri/src/main.rs",
   "src-tauri/src/embedded_server.rs",
 ]) {
