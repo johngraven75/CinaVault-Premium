@@ -11,12 +11,6 @@
     "johngraven75/cinavault-android",
     "johngraven75/Cinavault-Server-Premium-Edition-iOS"
   ],
-  "excludedRepositories": [
-    {
-      "repository": "johngraven75/Cinavault-Reimagined",
-      "reason": "Work in this repository is exclusive to that repository and must not be copied into or out of the Premium parity program."
-    }
-  ],
   "destinations": [
     { "id": "library", "label": "Library", "required": true },
     { "id": "sources", "label": "Media Sources", "required": true },
