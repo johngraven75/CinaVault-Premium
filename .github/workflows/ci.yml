@@ -22,9 +22,9 @@ concurrency:
 
 jobs:
   validate:
-    name: Preventive Gate, Type, Test, Frontend, and Rust
+    name: Preventive Gate, Type, Test, Frontend, Rust, and Live Metadata
     runs-on: ubuntu-24.04
-    timeout-minutes: 70
+    timeout-minutes: 80
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,6 +142,18 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast 2>&1 | tee rust-tests.log
           cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee rust.log
 
+      - name: Live metadata and poster acceptance
+        id: live_metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test \
+            --manifest-path src-tauri/Cargo.toml \
+            live_tvmaze_metadata_poster_acceptance \
+            -- --ignored --nocapture \
+            2>&1 | tee live-metadata.log
+          grep -q "test result: ok" live-metadata.log
+
       - name: Generate master CI evidence
         if: always()
         id: evidence
@@ -154,7 +166,7 @@ jobs:
           EVIDENCE_TESTS: ${{ steps.tests.outcome }}
           EVIDENCE_FRONTEND: ${{ steps.frontend.outcome }}
           EVIDENCE_RUST: ${{ steps.rust.outcome }}
-          EVIDENCE_LIVEMETADATA: not_run
+          EVIDENCE_LIVEMETADATA: ${{ steps.live_metadata.outcome }}
           EVIDENCE_PACKAGING: not_run
         shell: bash
         run: node scripts/generate-master-ci-evidence.mjs
@@ -174,6 +186,7 @@ jobs:
             frontend.log
             rust-tests.log
             rust.log
+            live-metadata.log
             master-evidence/*
             build-verification/current-build.json
             contracts/v1/contract-manifest.json
