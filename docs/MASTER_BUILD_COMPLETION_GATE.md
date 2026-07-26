@@ -51,7 +51,7 @@ A release workflow must run the master gate in release mode. Release mode fails 
 
 ## Cross-platform rule
 
-Windows Premium is the functional and visual reference unless a platform-specific implementation is required. Android and iOS must receive the same user-facing function, option, design intent, security behavior, defect repair, and regression protection. `Cinavault-Reimagined` is explicitly excluded and remains independent.
+Windows Premium is the functional and visual reference unless a platform-specific implementation is required. Android and iOS must receive the same user-facing function, option, design intent, security behavior, defect repair, and regression protection.
 
 ## Persistent-state rule
 
