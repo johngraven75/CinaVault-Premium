@@ -1,32 +1,27 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 170)
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod db;
-mod iptv;
-mod jellyfin;
-mod player;
-mod plugin_configs;
-mod plugins;
-mod scanner;
-mod casting;
-mod embedded_server;
-mod remote_connectivity;
-mod metadata {
-    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
-}
 mod adult_site_provider;
 mod ai;
 mod ai_automation;
 mod atomic_file;
+mod build_identity;
+mod casting;
 mod chapters;
 mod cloud_storage;
+mod db;
 mod downloads;
 mod duplicates;
+mod embedded_server;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
+mod iptv;
+mod jellyfin;
 mod library_artifacts;
 mod media_tools;
+mod metadata {
+    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
+}
 mod metadata_bridge;
 mod metadata_ext;
 mod metadata_guard;
@@ -35,6 +30,12 @@ mod metadata_provider_config;
 mod metadata_posting_tests;
 mod nas_devices;
 mod pgma_bridge;
+mod player;
+mod plugin_configs;
+mod plugins;
+mod remote_connectivity;
+mod scanner;
+mod shared_contracts;
 mod source_health;
 mod task_progress;
 mod vpn;
@@ -50,6 +51,7 @@ pub struct AppState {
 
 fn main() {
     env_logger::init();
+    let build = build_identity::current();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -65,9 +67,8 @@ fn main() {
                 .expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
 
-            let plugin_dirs = ["jellyfin", "emby", "plex", "native"];
-            for dir in &plugin_dirs {
-                std::fs::create_dir_all(app_dir.join("plugins").join(dir)).ok();
+            for directory in ["jellyfin", "emby", "plex", "native"] {
+                std::fs::create_dir_all(app_dir.join("plugins").join(directory)).ok();
             }
 
             let db_path = app_dir.join("cinavault.db");
@@ -124,7 +125,11 @@ fn main() {
                 }
             });
 
-            log::info!("CinaVault Premium Build 170 initialized successfully");
+            log::info!(
+                "{} {} initialized successfully",
+                build_identity::current().product_name,
+                build_identity::current().display_name
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -269,25 +274,12 @@ fn main() {
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
-    serde_json::json!({
-        "name": "CinaVault Premium",
-        "version": "1.7.170",
-        "build": "170",
-        "edition": "Premium",
-        "embeddedServer": true,
-        "defaultServerPort": 32400,
-        "automaticNatTraversal": true,
-        "cloudRelayFallback": true,
-        "encryptedRemoteTransport": true,
-        "opaqueRemoteMediaKeys": true,
-        "aiMediaAutopilot": true,
-        "spatialExperienceShell": true
-    })
+    build_identity::get_current_build_info()
 }
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    open::that(url).map_err(|e| e.to_string())
+    open::that(url).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
