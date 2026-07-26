@@ -36,13 +36,17 @@ pub fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|error| error.to_string())
 }
 
+fn portable_file_stem(file_path: &str) -> &str {
+    let file_name = file_path
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
+        .unwrap_or(file_path);
+    file_name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(file_name)
+}
+
 pub fn metadata_query(title: &str, file_path: &str) -> String {
     let title_candidate = normalize_media_name(title);
-    let file_candidate = Path::new(file_path)
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .map(normalize_media_name)
-        .unwrap_or_default();
+    let file_candidate = normalize_media_name(portable_file_stem(file_path));
 
     if title_candidate.is_empty()
         || title.eq_ignore_ascii_case("unknown")
@@ -339,7 +343,7 @@ fn strip_html(value: &str) -> String {
         .join(" ")
 }
 
-fn detect_image_type<'a>(content_type: &'a str, bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+fn detect_image_type(content_type: &str, bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return Some(("jpg", "image/jpeg"));
     }
@@ -377,6 +381,14 @@ mod tests {
         assert_eq!(
             metadata_query("Breaking.Bad.S01E01.1080p", r"C:\\TV\\Breaking.Bad.S01E01.1080p.mkv"),
             "Breaking Bad"
+        );
+    }
+
+    #[test]
+    fn unix_and_windows_paths_normalize_identically() {
+        assert_eq!(
+            metadata_query("Unknown", "/TV/Breaking.Bad.S01E01.1080p.mkv"),
+            metadata_query("Unknown", r"C:\\TV\\Breaking.Bad.S01E01.1080p.mkv")
         );
     }
 
