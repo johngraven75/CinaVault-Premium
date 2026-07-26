@@ -2,6 +2,7 @@ use std::{env, fs, path::PathBuf};
 
 fn main() {
     write_legacy_metadata_without_command_attrs();
+    write_metadata_guard_without_wrapped_command_attrs();
     write_enrichment_with_atomic_nfo();
     tauri_build::build()
 }
@@ -23,6 +24,19 @@ fn normalized_source(path: &PathBuf) -> String {
         .replace('\r', "\n")
 }
 
+fn strip_command_attribute(source: String, function_name: &str) -> (String, usize) {
+    let mut sanitized = source;
+    let mut stripped = 0usize;
+    for prefix in ["pub fn", "pub async fn"] {
+        let needle = format!("#[tauri::command]\n{prefix} {function_name}");
+        if sanitized.contains(&needle) {
+            sanitized = sanitized.replace(&needle, &format!("{prefix} {function_name}"));
+            stripped += 1;
+        }
+    }
+    (sanitized, stripped)
+}
+
 fn write_legacy_metadata_without_command_attrs() {
     println!("cargo:rerun-if-changed=src/metadata.rs");
     let (source_path, out_path) =
@@ -42,13 +56,9 @@ fn write_legacy_metadata_without_command_attrs() {
     let mut sanitized = source;
     let mut stripped = 0usize;
     for function_name in command_functions {
-        for prefix in ["pub fn", "pub async fn"] {
-            let needle = format!("#[tauri::command]\n{prefix} {function_name}");
-            if sanitized.contains(&needle) {
-                sanitized = sanitized.replace(&needle, &format!("{prefix} {function_name}"));
-                stripped += 1;
-            }
-        }
+        let result = strip_command_attribute(sanitized, function_name);
+        sanitized = result.0;
+        stripped += result.1;
     }
 
     assert_eq!(
@@ -57,6 +67,22 @@ fn write_legacy_metadata_without_command_attrs() {
         "legacy metadata command sanitization did not find every expected command"
     );
     fs::write(out_path, sanitized).expect("failed to write sanitized legacy metadata module");
+}
+
+fn write_metadata_guard_without_wrapped_command_attrs() {
+    println!("cargo:rerun-if-changed=src/metadata_guard.rs");
+    let (source_path, out_path) = manifest_and_output_paths(
+        "metadata_guard.rs",
+        "metadata_guard_without_wrapped_commands.rs",
+    );
+    let source = normalized_source(&source_path);
+    let (sanitized, stripped) = strip_command_attribute(source, "check_media_item_metadata");
+    assert_eq!(
+        stripped, 1,
+        "metadata guard sanitization expected exactly one check_media_item_metadata command"
+    );
+    fs::write(out_path, sanitized)
+        .expect("failed to write sanitized metadata guard module");
 }
 
 fn write_enrichment_with_atomic_nfo() {
@@ -73,5 +99,10 @@ fn write_enrichment_with_atomic_nfo() {
         "enrichment atomic NFO transformation expected exactly one direct NFO write"
     );
     let transformed = source.replacen(direct_write, atomic_write, 1);
-    fs::write(out_path, transformed).expect("failed to write atomic enrichment module");
+    let (sanitized, stripped) = strip_command_attribute(transformed, "run_library_enrichment");
+    assert_eq!(
+        stripped, 1,
+        "enrichment sanitization expected exactly one run_library_enrichment command"
+    );
+    fs::write(out_path, sanitized).expect("failed to write atomic enrichment module");
 }
