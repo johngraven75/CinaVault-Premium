@@ -18,6 +18,7 @@ mod enrichment {
 mod iptv;
 mod jellyfin;
 mod library_artifacts;
+mod library_count;
 mod media_tools;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -166,6 +167,7 @@ fn main() {
             db::get_recent_media,
             db::get_unverified_media,
             db::verify_media_item,
+            library_count::get_library_count,
             db::get_sources,
             db::add_source,
             db::remove_source,
