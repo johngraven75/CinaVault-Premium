@@ -46,15 +46,13 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const build = JSON.parse(fs.readFileSync('build-version.json', 'utf8'));
-          const required = ['displayName', 'semanticVersion', 'releaseTag'];
-          for (const field of required) {
+          for (const field of ['displayName', 'semanticVersion', 'releaseTag']) {
             if (!build[field]) throw new Error(`build-version.json missing ${field}`);
           }
-          const output = process.env.GITHUB_OUTPUT;
-          fs.appendFileSync(output, `display_name=${build.displayName}\n`);
-          fs.appendFileSync(output, `semantic_version=${build.semanticVersion}\n`);
-          fs.appendFileSync(output, `release_tag=${build.releaseTag}\n`);
-          fs.appendFileSync(output, `artifact_slug=${build.releaseTag.replaceAll('.', '-')}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `display_name=${build.displayName}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `semantic_version=${build.semanticVersion}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_tag=${build.releaseTag}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `artifact_slug=${build.releaseTag.replaceAll('.', '-')}\n`);
           NODE
 
       - name: Authorize owner release command
@@ -81,12 +79,16 @@ jobs:
     needs: authorize
     if: needs.authorize.outputs.allowed == 'true'
     runs-on: windows-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
+
+      - name: Prepare release diagnostics
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path release-diagnostics | Out-Null
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -96,6 +98,11 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Install dependencies
         run: npm ci
@@ -121,16 +128,84 @@ jobs:
           tests/v2Build103CommandPaletteStability.test.mjs
           tests/platformParityContract.test.mjs
 
+      - name: Prepare genuine Windows Rust and bundle resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install wireguard -y --no-progress
+          $wireGuardCandidates = @(
+            'C:\Program Files\WireGuard\wireguard.exe',
+            'C:\Program Files (x86)\WireGuard\wireguard.exe'
+          )
+          $wireGuardSource = $wireGuardCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $wireGuardSource) {
+            $wireGuardSource = Get-ChildItem 'C:\Program Files*' -Filter wireguard.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $wireGuardSource) { throw 'A genuine WireGuard executable could not be located.' }
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/wireguard | Out-Null
+          Copy-Item $wireGuardSource src-tauri/tools/wireguard/wireguard.exe -Force
+
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/cloudflared | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile src-tauri/tools/cloudflared/cloudflared.exe
+          $cloudflared = Get-Item src-tauri/tools/cloudflared/cloudflared.exe
+          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
+
+          Add-Type -AssemblyName System.Drawing
+          Get-ChildItem src-tauri/icons -Filter *.png | ForEach-Object {
+            $sourcePath = $_.FullName
+            $temporaryPath = "$sourcePath.rgba.png"
+            $sourceImage = [System.Drawing.Image]::FromFile($sourcePath)
+            try {
+              $bitmap = New-Object System.Drawing.Bitmap($sourceImage.Width, $sourceImage.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+              try {
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try { $graphics.DrawImage($sourceImage, 0, 0, $sourceImage.Width, $sourceImage.Height) }
+                finally { $graphics.Dispose() }
+                $bitmap.Save($temporaryPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              } finally { $bitmap.Dispose() }
+            } finally { $sourceImage.Dispose() }
+            Move-Item $temporaryPath $sourcePath -Force
+          }
+
       - name: Live metadata, poster, database, and card acceptance
-        run: npm run test:metadata-live
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "npm run test:metadata-live > release-diagnostics\live-metadata.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          Get-Content release-diagnostics/live-metadata.log
+          if ($exitCode -ne 0) { throw "Live metadata acceptance failed with exit code $exitCode" }
 
       - name: Production frontend build
         run: npm run build
 
       - name: Rust contract tests and native validation
+        shell: pwsh
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast
-          cargo check --manifest-path src-tauri/Cargo.toml
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast > release-diagnostics\rust-tests.log 2>&1"
+          $testExit = $LASTEXITCODE
+          Get-Content release-diagnostics/rust-tests.log
+          if ($testExit -ne 0) { throw "Rust tests failed with exit code $testExit" }
+          cmd /d /s /c "cargo check --manifest-path src-tauri/Cargo.toml > release-diagnostics\cargo-check.log 2>&1"
+          $checkExit = $LASTEXITCODE
+          Get-Content release-diagnostics/cargo-check.log
+          if ($checkExit -ne 0) { throw "cargo check failed with exit code $checkExit" }
+
+      - name: Generate release validation evidence
+        env:
+          EVIDENCE_MASTERGATE: success
+          EVIDENCE_CONTRACTS: success
+          EVIDENCE_PREVENTIVESCAN: success
+          EVIDENCE_INSTALL: success
+          EVIDENCE_TYPESCRIPT: success
+          EVIDENCE_TESTS: success
+          EVIDENCE_FRONTEND: success
+          EVIDENCE_RUST: success
+          EVIDENCE_LIVEMETADATA: success
+          EVIDENCE_PACKAGING: not_run
+        run: npm run generate:evidence
 
       - name: Upload validated acceptance evidence
         uses: actions/upload-artifact@v4
@@ -140,11 +215,21 @@ jobs:
             build-verification/current-build.json
             contracts/v1/contract-manifest.json
             master-evidence/*
+            release-diagnostics/*
           if-no-files-found: error
           retention-days: 90
 
+      - name: Upload release validation diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-diagnostics-${{ needs.authorize.outputs.artifact_slug }}-${{ github.sha }}
+          path: release-diagnostics/*
+          if-no-files-found: warn
+          retention-days: 90
+
   windows-installers:
-    name: Build and verify MSI and NSIS
+    name: Build, install, launch, and verify MSI and NSIS
     needs:
       - authorize
       - validate
@@ -155,6 +240,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+
+      - name: Prepare packaging diagnostics
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path release-diagnostics | Out-Null
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -179,6 +268,7 @@ jobs:
       - name: Prepare genuine Windows bundle resources
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           choco install wireguard -y --no-progress
           $wireGuardCandidates = @(
             'C:\Program Files\WireGuard\wireguard.exe',
@@ -194,12 +284,9 @@ jobs:
           Copy-Item $wireGuardSource src-tauri/tools/wireguard/wireguard.exe -Force
 
           New-Item -ItemType Directory -Force -Path src-tauri/tools/cloudflared | Out-Null
-          $cloudflaredUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
-          Invoke-WebRequest -Uri $cloudflaredUrl -OutFile src-tauri/tools/cloudflared/cloudflared.exe
+          Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile src-tauri/tools/cloudflared/cloudflared.exe
           $cloudflared = Get-Item src-tauri/tools/cloudflared/cloudflared.exe
-          if ($cloudflared.Length -lt 10000000) {
-            throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes"
-          }
+          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
           $cloudflaredHash = (Get-FileHash $cloudflared.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "cloudflared_sha256=$cloudflaredHash" >> $env:GITHUB_ENV
           "cloudflared_size=$($cloudflared.Length)" >> $env:GITHUB_ENV
@@ -222,7 +309,13 @@ jobs:
           }
 
       - name: Build Tauri installers
-        run: npm run tauri build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "npm run tauri build > release-diagnostics\tauri-build.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          Get-Content release-diagnostics/tauri-build.log
+          if ($exitCode -ne 0) { throw "Tauri build failed with exit code $exitCode" }
 
       - name: Collect, rename, and verify installer artifacts
         shell: pwsh
@@ -231,6 +324,7 @@ jobs:
           ARTIFACT_SLUG: ${{ needs.authorize.outputs.artifact_slug }}
           SEMANTIC_VERSION: ${{ needs.authorize.outputs.semantic_version }}
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
           $bundles = Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File
           $msiSource = $bundles | Where-Object { $_.Extension -eq '.msi' } | Select-Object -First 1
@@ -266,12 +360,70 @@ jobs:
             "cloudflared bytes: $env:cloudflared_size",
             "cloudflared SHA-256: $env:cloudflared_sha256"
           ) | Set-Content release-assets/CHECKSUMS.txt
+          Copy-Item release-assets/CHECKSUMS.txt release-diagnostics/CHECKSUMS.txt
+
+      - name: Install and launch packaged MSI
+        shell: pwsh
+        env:
+          ARTIFACT_SLUG: ${{ needs.authorize.outputs.artifact_slug }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path "release-assets/CinaVault-Premium-$env:ARTIFACT_SLUG-x64.msi").Path
+          $install = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+          if ($install.ExitCode -notin @(0, 3010)) { throw "MSI installation failed with exit code $($install.ExitCode)" }
+
+          $uninstallRoots = @(
+            'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'Registry::HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )
+          $installed = $uninstallRoots |
+            ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } |
+            Where-Object { $_.DisplayName -like 'CinaVault Premium*' } |
+            Select-Object -First 1
+
+          $roots = @()
+          if ($installed -and $installed.InstallLocation) { $roots += $installed.InstallLocation }
+          $roots += @(
+            (Join-Path $env:LOCALAPPDATA 'CinaVault Premium'),
+            (Join-Path $env:ProgramFiles 'CinaVault Premium'),
+            (Join-Path ${env:ProgramFiles(x86)} 'CinaVault Premium')
+          )
+          $exe = $roots |
+            Where-Object { $_ -and (Test-Path $_) } |
+            ForEach-Object { Get-ChildItem $_ -Filter 'CinaVault Premium.exe' -File -Recurse -ErrorAction SilentlyContinue } |
+            Select-Object -First 1
+          if (-not $exe) { throw 'MSI installed but the CinaVault executable could not be located.' }
+
+          $process = Start-Process $exe.FullName -PassThru
+          Start-Sleep -Seconds 8
+          if ($process.HasExited) { throw "Installed app exited during launch validation with code $($process.ExitCode)" }
+          Stop-Process -Id $process.Id -Force
+
+          @(
+            "msi_install_exit=$($install.ExitCode)",
+            "installed_executable=$($exe.FullName)",
+            'launch_alive_after_seconds=8',
+            'launch_validation=passed'
+          ) | Set-Content release-diagnostics/installer-launch-validation.txt
+
+          $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+          if ($uninstall.ExitCode -notin @(0, 1605, 3010)) { throw "MSI cleanup failed with exit code $($uninstall.ExitCode)" }
+          "msi_uninstall_exit=$($uninstall.ExitCode)" | Add-Content release-diagnostics/installer-launch-validation.txt
 
       - name: Upload verified Windows installers
         uses: actions/upload-artifact@v4
         with:
           name: cinavault-${{ needs.authorize.outputs.artifact_slug }}-windows-${{ github.sha }}
           path: release-assets/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload packaging diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packaging-diagnostics-${{ needs.authorize.outputs.artifact_slug }}-${{ github.sha }}
+          path: release-diagnostics/*
           if-no-files-found: error
           retention-days: 90
 
