@@ -57,6 +57,10 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function normalizeRepositoryId(value) {
+  return String(value || "").trim().replace(/\\/g, "/").toLowerCase();
+}
+
 function validateEntry(name, entry, releaseMode) {
   assert(entry && typeof entry === "object", `${name} must be an object`);
   assert(allowedStatuses.has(entry.status), `${name} has invalid status: ${entry.status}`);
@@ -95,9 +99,11 @@ assert(Array.isArray(record.platforms), "Platform list is required");
 for (const platform of ["windows", "android", "ios"]) {
   assert(record.platforms.includes(platform), `Platform parity scope is missing ${platform}`);
 }
+
+assert(Array.isArray(record.excludedRepositories), "excludedRepositories must be an array");
+const excludedRepositories = new Set(record.excludedRepositories.map(normalizeRepositoryId));
 assert(
-  Array.isArray(record.excludedRepositories) &&
-    record.excludedRepositories.includes("johngraven75/Cinavault-Reimagined"),
+  excludedRepositories.has(normalizeRepositoryId("johngraven75/Cinavault-Reimagined")),
   "Cinavault-Reimagined must remain explicitly excluded",
 );
 
