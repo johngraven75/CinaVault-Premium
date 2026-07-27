@@ -161,7 +161,10 @@ mod tests {
         include_str!("../../contracts/v1/golden/artwork-cache-entry.json");
 
     fn sha256(value: &str) -> String {
-        Sha256::digest(value.as_bytes())
+        // Git may materialize text fixtures with CRLF on Windows. The contract hash
+        // represents the fixture content, not the checkout platform's line endings.
+        let canonical = value.replace("\r\n", "\n").replace('\r', "\n");
+        Sha256::digest(canonical.as_bytes())
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect()
