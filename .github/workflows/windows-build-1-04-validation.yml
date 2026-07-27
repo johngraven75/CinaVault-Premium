@@ -71,34 +71,6 @@ jobs:
           tests/v2Build103CommandPaletteStability.test.mjs
           tests/platformParityContract.test.mjs
 
-      - name: Live metadata, poster, database, and card acceptance
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          cmd /d /s /c "npm run test:metadata-live > validation-logs\live-metadata-windows.log 2>&1"
-          $exitCode = $LASTEXITCODE
-          Get-Content validation-logs/live-metadata-windows.log
-          if ($exitCode -ne 0) {
-            throw "Live metadata acceptance failed with exit code $exitCode. See live-metadata-windows.log."
-          }
-
-      - name: Production frontend build
-        run: npm run build
-
-      - name: Rust tests and native validation
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          cmd /d /s /c "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast > validation-logs\rust-tests-windows.log 2>&1"
-          $testExit = $LASTEXITCODE
-          Get-Content validation-logs/rust-tests-windows.log
-          if ($testExit -ne 0) { throw "Rust tests failed with exit code $testExit" }
-
-          cmd /d /s /c "cargo check --manifest-path src-tauri/Cargo.toml > validation-logs\cargo-check-windows.log 2>&1"
-          $checkExit = $LASTEXITCODE
-          Get-Content validation-logs/cargo-check-windows.log
-          if ($checkExit -ne 0) { throw "cargo check failed with exit code $checkExit" }
-
       - name: Prepare genuine Windows bundle resources
         shell: pwsh
         run: |
@@ -142,6 +114,34 @@ jobs:
             } finally { $sourceImage.Dispose() }
             Move-Item $temporaryPath $sourcePath -Force
           }
+
+      - name: Live metadata, poster, database, and card acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "npm run test:metadata-live > validation-logs\live-metadata-windows.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          Get-Content validation-logs/live-metadata-windows.log
+          if ($exitCode -ne 0) {
+            throw "Live metadata acceptance failed with exit code $exitCode. See live-metadata-windows.log."
+          }
+
+      - name: Production frontend build
+        run: npm run build
+
+      - name: Rust tests and native validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast > validation-logs\rust-tests-windows.log 2>&1"
+          $testExit = $LASTEXITCODE
+          Get-Content validation-logs/rust-tests-windows.log
+          if ($testExit -ne 0) { throw "Rust tests failed with exit code $testExit" }
+
+          cmd /d /s /c "cargo check --manifest-path src-tauri/Cargo.toml > validation-logs\cargo-check-windows.log 2>&1"
+          $checkExit = $LASTEXITCODE
+          Get-Content validation-logs/cargo-check-windows.log
+          if ($checkExit -ne 0) { throw "cargo check failed with exit code $checkExit" }
 
       - name: Build Tauri installers
         shell: pwsh
