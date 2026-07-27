@@ -25,6 +25,13 @@ function rejectPattern(relativePath, pattern, reason) {
 }
 
 function rejectCrlf(relativePath) {
+  // Windows hosted runners can materialize repository files with CRLF even when
+  // the committed blobs are LF-normalized. Treat checkout conversion as an
+  // environment detail rather than a product defect; the Linux CI gate still
+  // enforces repository-side line-ending hygiene.
+  if (process.platform === "win32") {
+    return;
+  }
   const content = fs.readFileSync(path.join(root, relativePath));
   if (content.includes(Buffer.from("\r\n"))) {
     findings.push({
