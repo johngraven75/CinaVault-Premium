@@ -25,7 +25,8 @@
     "test:build170": "node --test tests/build170RemoteConnectivity.test.mjs",
     "test:v2-build-1-02": "node --test tests/v2Build102UiStability.test.mjs",
     "test:v2-build-1-03": "node --test tests/v2Build103CommandPaletteStability.test.mjs",
-    "test:platform-parity": "node --test tests/platformParityContract.test.mjs"
+    "test:platform-parity": "node --test tests/platformParityContract.test.mjs",
+    "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml live_tvmaze_metadata_poster_acceptance -- --ignored --nocapture"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
