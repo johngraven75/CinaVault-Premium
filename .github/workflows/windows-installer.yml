@@ -1,4 +1,4 @@
-name: Auto Build, Test, Cleanup — Build 171 Automation
+name: Auto Build, Test, Release — v2 Build 1.04
 
 on:
   push:
@@ -10,14 +10,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: build-171-release
+  group: v2-build-1-04-release
   cancel-in-progress: true
 
 env:
-  BUILD_NUMBER: '171'
-  APP_VERSION: 1.7.1
-  TAG_NAME: v1.7.1
-  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build171
+  APP_VERSION: 2.0.4
+  TAG_NAME: v2.0.4
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.04
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -27,7 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Remove existing Build 171 release and tag
+      - name: Remove existing v2 Build 1.04 release and tag
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,12 +34,12 @@ jobs:
           gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release delete $env:TAG_NAME --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 171 release.' }
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing v2 Build 1.04 release.' }
           } else {
             git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
             if ($LASTEXITCODE -eq 0) {
               git push origin ":refs/tags/$env:TAG_NAME"
-              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 171 tag.' }
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing v2 Build 1.04 tag.' }
             }
           }
           exit 0
@@ -65,23 +64,17 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Verify Build 171 identity and dynamic header
+      - name: Verify v2 Build 1.04 identity
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $tauriVersion = $tauri.version
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
           if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "Cargo.toml version is $cargoVersion, expected $env:APP_VERSION" }
-
-          $main = Get-Content src-tauri/src/main.rs -Raw
-          if (-not $main.Contains('"build": "171"')) { throw 'Runtime build identity is not 171.' }
-
-          $header = Get-Content src/components/Header.tsx -Raw
-          if (-not $header.Contains('"get_app_info"')) { throw 'Header no longer reads runtime app identity.' }
-          if (-not $header.Contains('CinaVault B{appInfo.build}')) { throw 'Header build badge is not runtime-driven.' }
-          if ($header -match 'CinaVault B\d+') { throw 'Hardcoded visible build badge detected in Header.tsx.' }
+          if ($tauri.app.windows[0].title -notmatch 'v2 Build 1\.04') { throw 'Windows title is not v2 Build 1.04.' }
 
       - name: Download and verify official WireGuard engine
         shell: pwsh
@@ -100,6 +93,9 @@ jobs:
           if ($engineSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($engineSignature.Status)" }
           New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
           Copy-Item $engine.FullName src-tauri\tools\wireguard\wireguard.exe -Force
+
+      - name: Master release gate
+        run: npm run verify:master-release
 
       - name: Frontend validation
         run: |
@@ -149,16 +145,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish Build 171 release
+      - name: Publish v2 Build 1.04 release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium Build 171
+          name: CinaVault Premium v2 Build 1.04
           body: |
-            CinaVault Premium Build 171, version 1.7.1.
+            CinaVault Premium v2 Build 1.04, version 2.0.4.
 
-            Performance-focused release with nonblocking startup, background plugin initialization, faster media-tool readiness checks, a runtime-driven build badge, and a responsive application shell foundation.
+            Windows release containing the verified NSIS EXE installer and MSI package, with SHA-256 checksums. Built from main after the v2 Build 1.04 metadata, poster, shared-contract, packaging, and validation repairs.
           draft: false
           prerelease: false
           generate_release_notes: true
