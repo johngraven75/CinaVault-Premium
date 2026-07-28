@@ -19,6 +19,7 @@ env:
   APP_VERSION: 2.0.4
   TAG_NAME: v2.0.4
   ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.04
+  WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
   windows-release:
@@ -68,8 +69,39 @@ jobs:
           npm test
           npm run build
 
+      - name: Prepare genuine Windows bundle resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
+          $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
+          if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
+
+          New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
+          $target = (Resolve-Path .\wireguard-extracted).Path
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed with exit code $($process.ExitCode)" }
+
+          $wireGuard = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
+          if (-not $wireGuard) { throw 'wireguard.exe was not found in the official MSI.' }
+          $wireGuardSignature = Get-AuthenticodeSignature $wireGuard.FullName
+          if ($wireGuardSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($wireGuardSignature.Status)" }
+          New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
+          Copy-Item $wireGuard.FullName src-tauri\tools\wireguard\wireguard.exe -Force
+
+          New-Item -ItemType Directory -Path src-tauri\tools\cloudflared -Force | Out-Null
+          $cloudflaredUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
+          Invoke-WebRequest -Uri $cloudflaredUrl -OutFile src-tauri\tools\cloudflared\cloudflared.exe
+          $cloudflared = Get-Item src-tauri\tools\cloudflared\cloudflared.exe
+          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
+
+          Write-Host "WireGuard SHA256: $((Get-FileHash src-tauri\tools\wireguard\wireguard.exe -Algorithm SHA256).Hash)"
+          Write-Host "cloudflared SHA256: $((Get-FileHash $cloudflared.FullName -Algorithm SHA256).Hash)"
+
       - name: Rust validation
         run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all
           cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
           cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
@@ -121,7 +153,7 @@ jobs:
           name: CinaVault Premium v2 Build 1.04
           body: |
             CinaVault Premium v2 Build 1.04, version 2.0.4.
-            Published only after candidate gate, contract checks, preventive scan, frontend validation, Rust validation, live metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
+            Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
           draft: false
           prerelease: false
           generate_release_notes: true
