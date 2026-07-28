@@ -8,6 +8,7 @@ mod jellyfin;
 mod player;
 mod plugins;
 mod plugin_configs;
+mod remote_connectivity;
 mod scanner;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -62,6 +63,15 @@ pub fn run() {
             let db_path = app_dir.join("cinavault.db");
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
+
+            let resource_dir = app.path().resource_dir().unwrap_or_else(|_| app_dir.clone());
+            remote_connectivity::configure(
+                resource_dir
+                    .join("tools")
+                    .join("cloudflared")
+                    .join("cloudflared.exe"),
+            );
+
             app.manage(AppState { db: Mutex::new(database) });
             log::info!("{} initialized successfully", build_identity::current().display_name);
             Ok(())
@@ -115,6 +125,9 @@ pub fn run() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
+            remote_connectivity::start_remote_connectivity,
+            remote_connectivity::stop_remote_connectivity,
+            remote_connectivity::get_remote_connectivity_status,
             plugins::get_plugin_repos,
             plugins::add_plugin_repo,
             plugins::remove_plugin_repo,
