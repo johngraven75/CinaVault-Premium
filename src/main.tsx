@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import RuntimeErrorBoundary from "./components/RuntimeErrorBoundary";
+import { BUILD_DATASET_VALUE, BUILD_INFO, WINDOW_TITLE } from "./buildInfo";
 import "./styles/index.css";
 import "./styles/cyber-hud.css";
 import "./styles/experience-shell.css";
@@ -16,6 +17,10 @@ const rootElement = document.getElementById("root");
 if (!rootElement) {
   throw new Error("CinaVault root element was not found.");
 }
+
+document.title = WINDOW_TITLE;
+document.documentElement.dataset.cinavaultBuild = BUILD_DATASET_VALUE;
+document.documentElement.dataset.cinavaultVersion = BUILD_INFO.version;
 
 const root = ReactDOM.createRoot(rootElement);
 const GLOBAL_ERROR_STORAGE_KEY = "cinavault_last_global_error";
@@ -35,7 +40,9 @@ function recordGlobalError(kind: string, value: unknown): void {
     kind,
     message: describeUnknownError(value),
     occurredAt: new Date().toISOString(),
-    build: "v2 Build 1.03",
+    build: BUILD_INFO.displayName,
+    version: BUILD_INFO.version,
+    releaseTag: BUILD_INFO.releaseTag,
   };
   console.error("CinaVault global interface error:", record);
   try {
@@ -53,14 +60,12 @@ window.addEventListener("unhandledrejection", (event) => {
   recordGlobalError("unhandledrejection", event.reason);
 });
 
-document.documentElement.dataset.cinavaultBuild = "v2-build-1-03";
-
 function StartupViewport(): React.JSX.Element {
   return (
     <div className="min-h-screen bg-[#030813] text-white flex items-center justify-center">
       <div className="w-[min(520px,88vw)] rounded-3xl border border-white/10 bg-[#071321]/95 p-8 shadow-2xl">
         <div className="text-xs font-bold uppercase tracking-[0.34em] text-cyan-300">
-          CinaVault Premium
+          {BUILD_INFO.name} · {BUILD_INFO.displayName}
         </div>
         <h1 className="mt-3 text-3xl font-black">Starting media center</h1>
         <p className="mt-3 text-sm text-slate-300">
@@ -148,7 +153,9 @@ void import("./App")
     root.render(
       <div className="cv-runtime-fallback" role="alert">
         <section className="cv-runtime-fallback-card">
-          <div className="cv-runtime-fallback-kicker">v2 Build 1.03 recovery</div>
+          <div className="cv-runtime-fallback-kicker">
+            {BUILD_INFO.displayName} recovery
+          </div>
           <h1>CinaVault could not load the interface</h1>
           <p>
             Restart the application. The startup error was recorded locally for

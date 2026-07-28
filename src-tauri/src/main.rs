@@ -1,54 +1,67 @@
-// CinaVault Premium — Tauri v2 Rust Backend (Build 170)
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod db;
-mod iptv;
-mod jellyfin;
-mod player;
-mod plugin_configs;
-mod plugins;
-mod scanner;
-mod casting;
-mod embedded_server;
-mod remote_connectivity;
-mod metadata {
-    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
-}
 mod adult_site_provider;
 mod ai;
 mod ai_automation;
 mod atomic_file;
+mod build_identity;
+mod casting;
 mod chapters;
 mod cloud_storage;
+mod db;
 mod downloads;
 mod duplicates;
+mod embedded_server;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
+mod iptv;
+mod jellyfin;
 mod library_artifacts;
+mod library_count;
 mod media_tools;
+mod metadata {
+    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
+}
 mod metadata_bridge;
+mod metadata_enrichment_runtime;
 mod metadata_ext;
-mod metadata_guard;
+mod metadata_guard {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/metadata_guard_without_wrapped_commands.rs"
+    ));
+}
+mod metadata_keyless;
+mod metadata_provider_config;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod nas_devices;
 mod pgma_bridge;
+mod player;
+mod plugin_configs;
+mod plugins;
+mod remote_connectivity;
+mod scanner;
+mod shared_contracts;
 mod source_health;
 mod task_progress;
 mod vpn;
 mod vpn_profile_store;
 
 use db::Database;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<Database>,
+    pub app_data_dir: PathBuf,
 }
 
 fn main() {
     env_logger::init();
+    let build = build_identity::current();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -57,21 +70,31 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .setup(|app| {
+        .setup(move |app| {
             let app_dir = app
                 .path()
                 .app_data_dir()
                 .expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
+            std::fs::create_dir_all(app_dir.join("artwork")).ok();
 
-            let plugin_dirs = ["jellyfin", "emby", "plex", "native"];
-            for dir in &plugin_dirs {
-                std::fs::create_dir_all(app_dir.join("plugins").join(dir)).ok();
+            for directory in ["jellyfin", "emby", "plex", "native"] {
+                std::fs::create_dir_all(app_dir.join("plugins").join(directory)).ok();
             }
 
             let db_path = app_dir.join("cinavault.db");
             let db_path_string = db_path.to_string_lossy().to_string();
             let database = Database::new(&db_path_string).expect("Failed to initialize database");
+
+            metadata_provider_config::configure(app_dir.clone());
+            match metadata_provider_config::ensure_registry(&database) {
+                Ok(registry) => log::info!(
+                    "Metadata provider registry ready: {} providers enabled",
+                    registry.providers.len()
+                ),
+                Err(error) => log::warn!("Metadata provider registry repair failed: {error}"),
+            }
+
             embedded_server::configure(db_path_string);
 
             let resource_dir = app
@@ -87,8 +110,8 @@ fn main() {
 
             app.manage(AppState {
                 db: Mutex::new(database),
+                app_data_dir: app_dir.clone(),
             });
-
             tauri::async_runtime::spawn(async {
                 match embedded_server::start_embedded_server(Some(32400)).await {
                     Ok(status) => {
@@ -114,7 +137,11 @@ fn main() {
                 }
             });
 
-            log::info!("CinaVault Premium Build 170 initialized successfully");
+            log::info!(
+                "{} {} initialized successfully",
+                build.product_name,
+                build.display_name
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -140,6 +167,7 @@ fn main() {
             db::get_recent_media,
             db::get_unverified_media,
             db::verify_media_item,
+            library_count::get_library_count,
             db::get_sources,
             db::add_source,
             db::remove_source,
@@ -190,12 +218,14 @@ fn main() {
             player::set_default_player,
             metadata_guard::fetch_metadata,
             metadata_guard::search_metadata,
-            metadata_guard::check_media_item_metadata,
+            metadata_enrichment_runtime::check_media_item_metadata,
             metadata_guard::get_provider_status,
             metadata_guard::test_api_key,
             metadata_guard::set_api_key,
             metadata_guard::get_api_keys,
             metadata_guard::get_metadata_providers,
+            metadata_provider_config::get_metadata_provider_registry,
+            metadata_provider_config::ensure_metadata_provider_registry,
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
             downloads::start_download,
@@ -223,7 +253,7 @@ fn main() {
             ai::get_ai_config,
             ai::set_ai_model,
             ai_automation::ai_library_manage,
-            enrichment::run_library_enrichment,
+            metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
             cloud_storage::cloud_auth_start,
@@ -257,25 +287,12 @@ fn main() {
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
-    serde_json::json!({
-        "name": "CinaVault Premium",
-        "version": "1.7.170",
-        "build": "170",
-        "edition": "Premium",
-        "embeddedServer": true,
-        "defaultServerPort": 32400,
-        "automaticNatTraversal": true,
-        "cloudRelayFallback": true,
-        "encryptedRemoteTransport": true,
-        "opaqueRemoteMediaKeys": true,
-        "aiMediaAutopilot": true,
-        "spatialExperienceShell": true
-    })
+    build_identity::get_current_build_info()
 }
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    open::that(url).map_err(|e| e.to_string())
+    open::that(url).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

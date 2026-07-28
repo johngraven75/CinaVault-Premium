@@ -1,0 +1,261 @@
+name: CinaVault Premium v2 Build 1.04 Windows Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cinavault-premium-v2-build-1-04-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-package:
+    name: Validate and package Premium Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Build 1.04 branch
+        uses: actions/checkout@v4
+
+      - name: Prepare Windows validation diagnostics
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path validation-logs | Out-Null
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify build identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content build-version.json -Raw | ConvertFrom-Json
+          if ($build.displayName -ne 'v2 Build 1.04') { throw "Unexpected displayName: $($build.displayName)" }
+          if ($build.semanticVersion -ne '2.0.4') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
+          if ($build.releaseTag -ne 'v2-build-1.04') { throw "Unexpected releaseTag: $($build.releaseTag)" }
+          $build | ConvertTo-Json -Depth 10 | Set-Content validation-logs/build-identity.json
+
+      - name: Shared contract conformance gate
+        run: npm run verify:contracts
+
+      - name: Preventive risk gate
+        run: npm run scan:preventive
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Complete regression suite
+        run: >-
+          node --test
+          tests/carryForwardVerification.test.mjs
+          tests/build170RemoteConnectivity.test.mjs
+          tests/v2Build102UiStability.test.mjs
+          tests/v2Build103CommandPaletteStability.test.mjs
+          tests/platformParityContract.test.mjs
+
+      - name: Prepare genuine Windows bundle resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install wireguard -y --no-progress
+          $wireGuardCandidates = @(
+            'C:\Program Files\WireGuard\wireguard.exe',
+            'C:\Program Files (x86)\WireGuard\wireguard.exe'
+          )
+          $wireGuardSource = $wireGuardCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $wireGuardSource) {
+            $wireGuardSource = Get-ChildItem 'C:\Program Files*' -Filter wireguard.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $wireGuardSource) { throw 'A genuine WireGuard executable could not be located.' }
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/wireguard | Out-Null
+          Copy-Item $wireGuardSource src-tauri/tools/wireguard/wireguard.exe -Force
+
+          New-Item -ItemType Directory -Force -Path src-tauri/tools/cloudflared | Out-Null
+          $cloudflaredUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
+          Invoke-WebRequest -Uri $cloudflaredUrl -OutFile src-tauri/tools/cloudflared/cloudflared.exe
+          $cloudflared = Get-Item src-tauri/tools/cloudflared/cloudflared.exe
+          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
+          "cloudflared_sha256=$((Get-FileHash $cloudflared.FullName -Algorithm SHA256).Hash.ToLowerInvariant())" | Set-Content validation-logs/bundle-resources.txt
+          "cloudflared_size=$($cloudflared.Length)" | Add-Content validation-logs/bundle-resources.txt
+          "wireguard_sha256=$((Get-FileHash $wireGuardSource -Algorithm SHA256).Hash.ToLowerInvariant())" | Add-Content validation-logs/bundle-resources.txt
+
+          Add-Type -AssemblyName System.Drawing
+          Get-ChildItem src-tauri/icons -Filter *.png | ForEach-Object {
+            $sourcePath = $_.FullName
+            $temporaryPath = "$sourcePath.rgba.png"
+            $sourceImage = [System.Drawing.Image]::FromFile($sourcePath)
+            try {
+              $bitmap = New-Object System.Drawing.Bitmap($sourceImage.Width, $sourceImage.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+              try {
+                $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                try { $graphics.DrawImage($sourceImage, 0, 0, $sourceImage.Width, $sourceImage.Height) }
+                finally { $graphics.Dispose() }
+                $bitmap.Save($temporaryPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              } finally { $bitmap.Dispose() }
+            } finally { $sourceImage.Dispose() }
+            Move-Item $temporaryPath $sourcePath -Force
+          }
+
+      - name: Live metadata, poster, database, and card acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "npm run test:metadata-live > validation-logs\live-metadata-windows.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          Get-Content validation-logs/live-metadata-windows.log
+          if ($exitCode -ne 0) {
+            throw "Live metadata acceptance failed with exit code $exitCode. See live-metadata-windows.log."
+          }
+
+      - name: Production frontend build
+        run: npm run build
+
+      - name: Rust tests and native validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast > validation-logs\rust-tests-windows.log 2>&1"
+          $testExit = $LASTEXITCODE
+          Get-Content validation-logs/rust-tests-windows.log
+          if ($testExit -ne 0) { throw "Rust tests failed with exit code $testExit" }
+
+          cmd /d /s /c "cargo check --manifest-path src-tauri/Cargo.toml > validation-logs\cargo-check-windows.log 2>&1"
+          $checkExit = $LASTEXITCODE
+          Get-Content validation-logs/cargo-check-windows.log
+          if ($checkExit -ne 0) { throw "cargo check failed with exit code $checkExit" }
+
+      - name: Build Tauri installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          cmd /d /s /c "npm run tauri build > validation-logs\tauri-build-windows.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          Get-Content validation-logs/tauri-build-windows.log
+          if ($exitCode -ne 0) { throw "Tauri installer build failed with exit code $exitCode" }
+
+      - name: Collect and verify Premium installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          $bundles = Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File
+          $msiSource = $bundles | Where-Object { $_.Extension -eq '.msi' } | Select-Object -First 1
+          $nsisSource = $bundles | Where-Object { $_.Extension -eq '.exe' } | Select-Object -First 1
+          if (-not $msiSource) { throw 'The MSI installer was not produced.' }
+          if (-not $nsisSource) { throw 'The NSIS installer was not produced.' }
+
+          $msiPath = 'release-assets/CinaVault-Premium-v2-build-1-04-x64.msi'
+          $nsisPath = 'release-assets/CinaVault-Premium-v2-build-1-04-x64-setup.exe'
+          Copy-Item $msiSource.FullName $msiPath
+          Copy-Item $nsisSource.FullName $nsisPath
+
+          $msi = Get-Item $msiPath
+          $nsis = Get-Item $nsisPath
+          if ($msi.Length -lt 1000000) { throw 'The MSI installer is unexpectedly small.' }
+          if ($nsis.Length -lt 1000000) { throw 'The NSIS installer is unexpectedly small.' }
+
+          $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            '# CinaVault Premium v2 Build 1.04 Windows validation',
+            '',
+            "MSI: $($msi.Name)",
+            "MSI bytes: $($msi.Length)",
+            "MSI SHA-256: $msiHash",
+            '',
+            "NSIS: $($nsis.Name)",
+            "NSIS bytes: $($nsis.Length)",
+            "NSIS SHA-256: $nsisHash",
+            '',
+            "Commit: $env:GITHUB_SHA"
+          ) | Set-Content release-assets/CHECKSUMS.txt
+          Copy-Item release-assets/CHECKSUMS.txt validation-logs/CHECKSUMS.txt
+
+      - name: Install and launch MSI package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path 'release-assets/CinaVault-Premium-v2-build-1-04-x64.msi').Path
+          $install = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+          if ($install.ExitCode -notin @(0, 3010)) { throw "MSI installation failed with exit code $($install.ExitCode)" }
+
+          $uninstallRoots = @(
+            'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'Registry::HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          )
+          $installed = $uninstallRoots |
+            ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } |
+            Where-Object { $_.DisplayName -like 'CinaVault Premium*' } |
+            Select-Object -First 1
+
+          $candidateRoots = @()
+          if ($installed -and $installed.InstallLocation) { $candidateRoots += $installed.InstallLocation }
+          $candidateRoots += @(
+            (Join-Path $env:LOCALAPPDATA 'CinaVault Premium'),
+            (Join-Path $env:ProgramFiles 'CinaVault Premium'),
+            (Join-Path ${env:ProgramFiles(x86)} 'CinaVault Premium')
+          )
+          $executableNames = @('cinavault-premium.exe', 'CinaVault Premium.exe')
+          $executable = $candidateRoots |
+            Where-Object { $_ -and (Test-Path $_) } |
+            ForEach-Object {
+              $root = $_
+              $executableNames | ForEach-Object {
+                Get-ChildItem $root -Filter $_ -File -Recurse -ErrorAction SilentlyContinue
+              }
+            } |
+            Select-Object -First 1
+          if (-not $executable) { throw 'MSI installed, but the CinaVault Premium executable could not be located.' }
+
+          $process = Start-Process $executable.FullName -PassThru
+          Start-Sleep -Seconds 8
+          if ($process.HasExited) { throw "Installed CinaVault process exited during launch validation with code $($process.ExitCode)" }
+          Stop-Process -Id $process.Id -Force
+
+          @(
+            "msi_install_exit=$($install.ExitCode)",
+            "installed_executable=$($executable.FullName)",
+            'launch_alive_after_seconds=8',
+            'launch_validation=passed'
+          ) | Set-Content validation-logs/installer-launch-validation.txt
+
+          $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+          if ($uninstall.ExitCode -notin @(0, 1605, 3010)) { throw "MSI cleanup failed with exit code $($uninstall.ExitCode)" }
+          "msi_uninstall_exit=$($uninstall.ExitCode)" | Add-Content validation-logs/installer-launch-validation.txt
+
+      - name: Upload verified Premium Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinavault-premium-v2-build-1-04-windows-${{ github.sha }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload Windows validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinavault-premium-v2-build-1-04-windows-diagnostics-${{ github.sha }}
+          path: validation-logs/*
+          if-no-files-found: warn
+          retention-days: 90

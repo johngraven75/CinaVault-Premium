@@ -1,6 +1,7 @@
-// Build 140 Futuristic Sidebar Navigation compatibility retained by Build 170.
+// Build 140 Futuristic Sidebar Navigation compatibility retained by the current manifest-driven shell.
 import type { JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { BUILD_INFO } from "../buildInfo";
 import { useAppStore, type TabId } from "../store/appStore";
 import {
   BrainCircuit,
@@ -246,7 +247,7 @@ export default function Sidebar(): JSX.Element {
                 CinaVault
               </div>
               <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                Build 170 · Online
+                {BUILD_INFO.displayName} · Online
               </div>
             </motion.div>
           )}

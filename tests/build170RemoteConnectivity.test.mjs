@@ -10,9 +10,13 @@ function read(relativePath) {
   const absolutePath = resolve(ROOT, relativePath);
   assert.ok(
     existsSync(absolutePath),
-    `Required Build 170 file is missing: ${relativePath}`,
+    `Required carry-forward file is missing: ${relativePath}`,
   );
   return readFileSync(absolutePath, "utf8").replace(/\r\n/g, "\n");
+}
+
+function readJson(relativePath) {
+  return JSON.parse(read(relativePath));
 }
 
 function requireTokens(source, tokens, label) {
@@ -21,7 +25,21 @@ function requireTokens(source, tokens, label) {
   }
 }
 
-test("Build 170 native connectivity includes NAT traversal and encrypted relay", () => {
+function currentBuild() {
+  const build = readJson("build-version.json");
+  for (const field of [
+    "semanticVersion",
+    "displayBuild",
+    "displayName",
+    "releaseTag",
+  ]) {
+    assert.equal(typeof build[field], "string", `Build manifest missing ${field}`);
+    assert.ok(build[field].trim(), `Build manifest field ${field} is empty`);
+  }
+  return build;
+}
+
+test("Build 170 native connectivity remains present in the current build", () => {
   const source = read("src-tauri/src/remote_connectivity.rs");
   requireTokens(
     source,
@@ -48,30 +66,43 @@ test("Build 170 native connectivity includes NAT traversal and encrypted relay",
   );
 });
 
-test("Build 170 Tauri startup prefers encrypted remote transport", () => {
+test("current Tauri startup preserves Build 170 encrypted remote transport", () => {
   const main = read("src-tauri/src/main.rs");
+  const identity = read("src-tauri/src/build_identity.rs");
+  const build = currentBuild();
+
   requireTokens(
     main,
     [
       "mod remote_connectivity;",
+      "mod build_identity;",
       "remote_connectivity::configure",
       "remote_connectivity::start_remote_connectivity",
       "remote_connectivity::stop_remote_connectivity",
       "remote_connectivity::get_remote_connectivity_status",
-      '"build": "170"',
+      "build_identity::get_current_build_info()",
+      "Some(true),\n                            Some(true),",
+    ],
+    "current main wiring",
+  );
+  requireTokens(
+    identity,
+    [
+      'include_str!("../../build-version.json")',
       '"automaticNatTraversal": true',
       '"cloudRelayFallback": true',
       '"encryptedRemoteTransport": true',
       '"opaqueRemoteMediaKeys": true',
       '"aiMediaAutopilot": true',
       '"spatialExperienceShell": true',
-      "Some(true),\n                            Some(true),",
     ],
-    "Build 170 main wiring",
+    "authoritative build identity",
   );
+  assert.ok(identity.includes("env!(\"CARGO_PKG_VERSION\")"));
+  assert.equal(readJson("package.json").version, build.semanticVersion);
 });
 
-test("Build 170 remote API hides local paths and exposes opaque media keys", () => {
+test("Build 170 remote API still hides local paths and exposes opaque media keys", () => {
   const source = read("src-tauri/src/embedded_server.rs");
   requireTokens(
     source,
@@ -80,8 +111,8 @@ test("Build 170 remote API hides local paths and exposes opaque media keys", () 
       "media_key",
       "REMOTE_MEDIA_KEY_DOMAIN",
       "Sha256",
-      '"/api/artwork/{media_key}"',
-      '"/api/stream/{media_key}"',
+      'format!("/api/artwork/{key}/{kind}")',
+      'format!("/api/stream/{key}")',
       "local_paths_exposed: false",
       'remote_transport: "HTTPS relay"',
       "private, no-store, max-age=0",
@@ -99,7 +130,7 @@ test("Build 170 remote API hides local paths and exposes opaque media keys", () 
   );
 });
 
-test("Build 170 source ingestion scans enriches and refreshes immediately", () => {
+test("Build 170 source ingestion still scans enriches and refreshes immediately", () => {
   const source = read("src/components/tabs/MediaSourcesTab.tsx");
   requireTokens(
     source,
@@ -120,7 +151,7 @@ test("Build 170 source ingestion scans enriches and refreshes immediately", () =
   );
 });
 
-test("Build 170 AI Media Autopilot manages recurring library work", () => {
+test("Build 170 AI Media Autopilot still manages recurring library work", () => {
   const source = read("src/services/aiMediaAutopilot.ts");
   requireTokens(
     source,
@@ -139,7 +170,7 @@ test("Build 170 AI Media Autopilot manages recurring library work", () => {
   );
 });
 
-test("Build 170 user-facing shell is a structural spatial redesign", () => {
+test("Build 170 structural spatial redesign remains intact", () => {
   const app = read("src/App.tsx");
   const header = read("src/components/Header.tsx");
   const sidebar = read("src/components/Sidebar.tsx");
@@ -167,8 +198,9 @@ test("Build 170 user-facing shell is a structural spatial redesign", () => {
       "get_embedded_server_status",
       "get_remote_connectivity_status",
       "AI active",
+      "BUILD_INFO.displayName",
     ],
-    "Build 170 command deck",
+    "current command deck",
   );
   requireTokens(
     sidebar,
@@ -177,8 +209,9 @@ test("Build 170 user-facing shell is a structural spatial redesign", () => {
       "AI Autopilot",
       "cv-orbital-nav-active",
       "Casting Center",
+      "BUILD_INFO.displayName",
     ],
-    "Build 170 orbital navigation",
+    "current orbital navigation",
   );
   requireTokens(
     backdrop,
@@ -204,7 +237,7 @@ test("Build 170 user-facing shell is a structural spatial redesign", () => {
   );
 });
 
-test("Build 170 library defaults to eight compact cards per desktop row", () => {
+test("Build 170 library still defaults to eight compact cards per desktop row", () => {
   const styles = read("src/styles/build170-library.css");
   requireTokens(
     styles,
@@ -217,7 +250,7 @@ test("Build 170 library defaults to eight compact cards per desktop row", () => 
   );
 });
 
-test("Build 170 remote access UI controls and displays live connectivity", () => {
+test("Build 170 remote access UI still controls and displays live connectivity", () => {
   const ui = read("src/components/tabs/RemoteAccessTab.tsx");
   requireTokens(
     ui,
@@ -236,9 +269,18 @@ test("Build 170 remote access UI controls and displays live connectivity", () =>
   );
 });
 
-test("Build 170 packaging includes relay runtime and release version", () => {
-  const config = JSON.parse(read("src-tauri/tauri.conf.json"));
-  assert.equal(config.version, "1.7.170");
+test("current packaging preserves the Build 170 relay runtime and follows the manifest", () => {
+  const build = currentBuild();
+  const config = readJson("src-tauri/tauri.conf.json");
+  const packageJson = readJson("package.json");
+  const cargo = read("src-tauri/Cargo.toml");
+
+  assert.equal(config.version, build.semanticVersion);
+  assert.equal(packageJson.version, build.semanticVersion);
+  assert.ok(
+    cargo.includes(`version = "${build.semanticVersion}"`),
+    "Cargo version must match build-version.json",
+  );
   assert.ok(
     config.bundle.resources.includes("tools/cloudflared/*"),
     "cloudflared bundle resource is not configured",
@@ -246,7 +288,7 @@ test("Build 170 packaging includes relay runtime and release version", () => {
   read("src-tauri/tools/cloudflared/README.txt");
 });
 
-test("Build 170 Cargo dependencies include both NAT traversal protocols", () => {
+test("Build 170 Cargo dependencies still include both NAT traversal protocols", () => {
   const cargo = read("src-tauri/Cargo.toml");
   assert.ok(cargo.includes('igd-next = "0.17.1"'));
   assert.ok(

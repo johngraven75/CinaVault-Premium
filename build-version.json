@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "productName": "CinaVault Premium",
+  "edition": "Premium",
+  "semanticVersion": "2.0.4",
+  "releaseCycle": "v2",
+  "displayBuild": "1.04",
+  "displayName": "v2 Build 1.04",
+  "releaseTag": "v2-build-1.04"
+}
