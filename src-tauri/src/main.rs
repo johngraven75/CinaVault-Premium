@@ -9,8 +9,10 @@
 // remote_connectivity::stop_remote_connectivity
 // remote_connectivity::get_remote_connectivity_status
 // build_identity::get_current_build_info()
-// Some(true),
-//                             Some(true),
+/*
+Some(true),
+                            Some(true),
+*/
 
 fn main() {
     cinavault_premium_lib::run();
