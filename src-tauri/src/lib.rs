@@ -66,6 +66,41 @@ pub fn run() {
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
 
+            // Recover the persistent Hugging Face credential on every launch if the DB
+            // copy is missing. This keeps upgrades/reinstalls stable without embedding a
+            // secret in the application binary or repository.
+            let db_hf_token = database
+                .get_setting_data("hf_token")
+                .ok()
+                .flatten()
+                .filter(|token| !token.trim().is_empty());
+            if db_hf_token.is_none() {
+                let fallback_hf_token = std::env::var("CINAVAULT_HF_TOKEN")
+                    .ok()
+                    .or_else(|| std::env::var("HF_TOKEN").ok())
+                    .filter(|token| !token.trim().is_empty())
+                    .or_else(|| {
+                        let token_path = dirs::home_dir()?
+                            .join(".cache")
+                            .join("huggingface")
+                            .join("token");
+                        let token = std::fs::read_to_string(token_path).ok()?;
+                        let token = token.trim();
+                        if token.starts_with("hf_") && token.len() > 20 {
+                            Some(token.to_string())
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(token) = fallback_hf_token {
+                    if let Err(error) = database.set_setting_data("hf_token", &token) {
+                        log::warn!("Unable to restore persistent Hugging Face token: {error}");
+                    } else {
+                        log::info!("Persistent Hugging Face token restored at startup");
+                    }
+                }
+            }
+
             let resource_dir = app.path().resource_dir().unwrap_or_else(|_| app_dir.clone());
             remote_connectivity::configure(
                 resource_dir
@@ -73,6 +108,19 @@ pub fn run() {
                     .join("cloudflared")
                     .join("cloudflared.exe"),
             );
+
+            // Permanent media tools are a startup dependency. Verify and automatically
+            // repair yt-dlp/FFmpeg/FFprobe/MediaInfo/MKVToolNix before the UI is ready.
+            match media_tools::ensure_media_tools() {
+                Ok(status) => {
+                    if status.get("ready").and_then(|value| value.as_bool()).unwrap_or(false) {
+                        log::info!("Permanent media tools are ready at launch");
+                    } else {
+                        log::warn!("Permanent media tools startup repair completed with missing tools: {status}");
+                    }
+                }
+                Err(error) => log::warn!("Permanent media tools startup repair failed: {error}"),
+            }
 
             app.manage(AppState { db: Mutex::new(database) });
             log::info!("{} initialized successfully", build_identity::current().display_name);
