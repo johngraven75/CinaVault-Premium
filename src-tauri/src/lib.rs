@@ -22,6 +22,7 @@ mod downloads;
 mod duplicates;
 mod enrichment;
 mod library_artifacts;
+mod library_count;
 mod media_tools;
 mod metadata_bridge;
 mod metadata_ext;
@@ -99,6 +100,7 @@ pub fn run() {
             db::search_media,
             db::get_recent_media,
             db::get_unverified_media,
+            library_count::get_library_count,
             db::verify_media_item,
             db::get_sources,
             db::add_source,
