@@ -1,109 +1,147 @@
-name: Windows Installer Build 168
-
-# Auto Build, Test, Cleanup
+name: Auto Build, Test, Cleanup — Build 171 Automation
 
 on:
   push:
     branches: [main]
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
   actions: read
-  pull-requests: read
 
 concurrency:
-  group: build-168
-  cancel-in-progress: false
+  group: build-171-release
+  cancel-in-progress: true
 
 env:
-  BUILD_NUMBER: '168'
-  APP_VERSION: 1.6.8
-  TAG_NAME: v1.6.8
-  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build168
+  BUILD_NUMBER: '171'
+  APP_VERSION: 1.7.1
+  TAG_NAME: v1.7.1
+  ARTIFACT_NAME: CinaVault-Premium-Windows-Installer-Build171
+  WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
-  build-and-release:
+  build-test-release:
     runs-on: windows-latest
-    if: >-
-      github.event_name != 'pull_request_target' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
-      - name: Check for existing release
-        id: release
+      - name: Remove existing Build 171 release and tag
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            "exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            gh release delete $env:TAG_NAME --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 171 release.' }
           } else {
-            "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
+            if ($LASTEXITCODE -eq 0) {
+              git push origin ":refs/tags/$env:TAG_NAME"
+              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing Build 171 tag.' }
+            }
           }
           exit 0
 
       - name: Setup Node.js
-        if: steps.release.outputs.exists != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Setup Rust
-        if: steps.release.outputs.exists != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+          components: rustfmt
 
       - name: Cache Rust
-        if: steps.release.outputs.exists != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
           cache-on-failure: true
 
       - name: Install dependencies
-        if: steps.release.outputs.exists != 'true'
-        run: npm install
+        run: npm install --ignore-scripts
 
-      - name: Validate and test
-        if: steps.release.outputs.exists != 'true'
+      - name: Verify Build 171 identity and dynamic header
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
+          if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
+          if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
+          if ($cargoVersion -ne $env:APP_VERSION) { throw "Cargo.toml version is $cargoVersion, expected $env:APP_VERSION" }
+
+          $main = Get-Content src-tauri/src/main.rs -Raw
+          if (-not $main.Contains('"build": "171"')) { throw 'Runtime build identity is not 171.' }
+
+          $header = Get-Content src/components/Header.tsx -Raw
+          if (-not $header.Contains('"get_app_info"')) { throw 'Header no longer reads runtime app identity.' }
+          if (-not $header.Contains('CinaVault B{appInfo.build}')) { throw 'Header build badge is not runtime-driven.' }
+          if ($header -match 'CinaVault B\d+') { throw 'Hardcoded visible build badge detected in Header.tsx.' }
+
+      - name: Download and verify official WireGuard engine
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
+          $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
+          if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
+          New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
+          $target = (Resolve-Path .\wireguard-extracted).Path
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed with exit code $($process.ExitCode)" }
+          $engine = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
+          if (-not $engine) { throw 'wireguard.exe was not found in the official MSI' }
+          $engineSignature = Get-AuthenticodeSignature $engine.FullName
+          if ($engineSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($engineSignature.Status)" }
+          New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
+          Copy-Item $engine.FullName src-tauri\tools\wireguard\wireguard.exe -Force
+
+      - name: Frontend validation
         run: |
           npm run lint
           npm test
+          npm run build
+
+      - name: Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Refresh Rust lockfile
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
+
+      - name: Rust compile
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
 
       - name: Build Windows installers
-        if: steps.release.outputs.exists != 'true'
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
-      - name: Stage installers and checksums
-        if: steps.release.outputs.exists != 'true'
+      - name: Stage and verify installers
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path installer-staging -Force | Out-Null
           Get-ChildItem 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle' -Recurse -File |
             Where-Object { $_.Extension -in '.msi', '.exe' } |
             Copy-Item -Destination installer-staging -Force
+          $msi = @(Get-ChildItem installer-staging -File -Filter *.msi)
+          $exe = @(Get-ChildItem installer-staging -File -Filter *.exe)
+          if ($msi.Count -lt 1) { throw 'No MSI installer was produced.' }
+          if ($exe.Count -lt 1) { throw 'No NSIS EXE installer was produced.' }
           $files = Get-ChildItem installer-staging -File | Where-Object { $_.Extension -in '.msi', '.exe' }
-          if (-not $files) { throw 'No MSI or EXE installer was produced.' }
           $checksums = foreach ($file in $files) {
             $hash = Get-FileHash $file.FullName -Algorithm SHA256
             "$($hash.Hash)  $($file.Name)"
           }
           Set-Content installer-staging\SHA256SUMS.txt $checksums -Encoding utf8
 
-      - name: Upload workflow artifact
-        if: steps.release.outputs.exists != 'true'
+      - name: Upload verified installers
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -111,15 +149,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish Build 168 release
-        if: steps.release.outputs.exists != 'true'
+      - name: Publish Build 171 release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium Build 168
+          name: CinaVault Premium Build 171
           body: |
-            Windows MSI and NSIS installers for CinaVault Premium Build 168, version 1.6.8.
+            CinaVault Premium Build 171, version 1.7.1.
+
+            Performance-focused release with nonblocking startup, background plugin initialization, faster media-tool readiness checks, a runtime-driven build badge, and a responsive application shell foundation.
           draft: false
           prerelease: false
           generate_release_notes: true

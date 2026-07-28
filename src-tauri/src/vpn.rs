@@ -1,100 +1,206 @@
-// CinaVault Premium — VPN & Security Module (Windscribe + AV)
+// CinaVault Premium — bundled WireGuard VPN and Windows Defender integration.
+use crate::vpn_profile_store;
+use std::path::PathBuf;
 use std::process::Command;
+use tauri::{AppHandle, Manager};
 
-const VPN_LOCATIONS: &[(&str, &str)] = &[
-    ("US East", "US-East"),
-    ("US West", "US-West"),
-    ("US Central", "US-Central"),
-    ("Canada", "CA"),
-    ("UK", "GB"),
-    ("Netherlands", "NL"),
-    ("Germany", "DE"),
-    ("France", "FR"),
-    ("Switzerland", "CH"),
-    ("Hong Kong", "HK"),
-];
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-#[tauri::command]
-pub async fn vpn_connect(location: String) -> Result<serde_json::Value, String> {
-    let loc_code = VPN_LOCATIONS
-        .iter()
-        .find(|(name, _)| *name == location)
-        .map(|(_, code)| *code)
-        .unwrap_or(&location);
-
-    let output = Command::new("windscribe")
-        .args(&["connect", loc_code])
-        .output()
-        .map_err(|e| format!("Failed to run windscribe: {}. Is Windscribe installed?", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    Ok(serde_json::json!({
-        "status": if output.status.success() { "connected" } else { "failed" },
-        "location": location,
-        "output": stdout,
-        "error": if stderr.is_empty() { None } else { Some(stderr) },
-    }))
+fn wireguard_executable(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("unable to resolve application resources: {error}"))?;
+    let candidates = [
+        resource_dir
+            .join("tools")
+            .join("wireguard")
+            .join("wireguard.exe"),
+        resource_dir.join("wireguard").join("wireguard.exe"),
+        resource_dir.join("wireguard.exe"),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| "bundled WireGuard engine is missing from this installation".to_string())
 }
 
-#[tauri::command]
-pub async fn vpn_disconnect() -> Result<serde_json::Value, String> {
-    let output = Command::new("windscribe")
-        .arg("disconnect")
-        .output()
-        .map_err(|e| format!("Failed to run windscribe: {}", e))?;
-
-    Ok(serde_json::json!({
-        "status": if output.status.success() { "disconnected" } else { "failed" },
-        "output": String::from_utf8_lossy(&output.stdout).to_string(),
-    }))
+#[cfg(target_os = "windows")]
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
-#[tauri::command]
-pub async fn vpn_status() -> Result<serde_json::Value, String> {
-    let output = Command::new("windscribe").arg("status").output();
+#[cfg(not(target_os = "windows"))]
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    Command::new(program)
+}
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let connected = stdout.to_lowercase().contains("connected");
-            Ok(serde_json::json!({
-                "installed": true,
-                "connected": connected,
-                "details": stdout,
-                "locations": VPN_LOCATIONS.iter().map(|(name, code)| {
-                    serde_json::json!({ "name": name, "code": code })
-                }).collect::<Vec<_>>(),
-            }))
-        }
-        Err(_) => Ok(serde_json::json!({
-            "installed": false,
-            "connected": false,
-            "details": "Windscribe CLI not found. Install via windscribe.com",
-            "locations": VPN_LOCATIONS.iter().map(|(name, code)| {
-                serde_json::json!({ "name": name, "code": code })
-            }).collect::<Vec<_>>(),
-        })),
+fn tunnel_service_name(profile_name: &str) -> String {
+    format!("WireGuardTunnel${profile_name}")
+}
+
+fn service_is_running(profile_name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        hidden_command("sc.exe")
+            .args(["query", &tunnel_service_name(profile_name)])
+            .output()
+            .map(|output| {
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout)
+                        .to_ascii_uppercase()
+                        .contains("RUNNING")
+            })
+            .unwrap_or(false)
     }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = profile_name;
+        false
+    }
+}
+
+#[tauri::command]
+pub async fn vpn_import_profile(
+    app: AppHandle,
+    source_path: String,
+) -> Result<vpn_profile_store::StoredVpnProfile, String> {
+    vpn_profile_store::import_profile(&app, &source_path)
+}
+
+#[tauri::command]
+pub async fn vpn_profiles(
+    app: AppHandle,
+) -> Result<Vec<vpn_profile_store::StoredVpnProfile>, String> {
+    let profiles = vpn_profile_store::list_profiles(&app, None)?;
+    Ok(profiles
+        .into_iter()
+        .map(|mut profile| {
+            profile.active = service_is_running(&profile.name);
+            profile
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let executable = wireguard_executable(&app)?;
+        let profile_path = vpn_profile_store::profile_path(&app, &profile)?;
+        let output = hidden_command(&executable)
+            .arg("/installtunnelservice")
+            .arg(&profile_path)
+            .output()
+            .map_err(|error| format!("failed to start bundled WireGuard engine: {error}"))?;
+        if !output.status.success() && !service_is_running(&profile) {
+            return Err(format!(
+                "WireGuard tunnel failed to start: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        Ok(serde_json::json!({
+            "status": "connected",
+            "profile": profile,
+            "service": tunnel_service_name(&profile),
+            "engine": executable.to_string_lossy(),
+        }))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, profile);
+        Err("bundled WireGuard tunnels are currently supported on Windows only".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn vpn_disconnect(app: AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let executable = wireguard_executable(&app)?;
+        let profiles = vpn_profile_store::list_profiles(&app, None)?;
+        let active: Vec<String> = profiles
+            .into_iter()
+            .filter(|profile| service_is_running(&profile.name))
+            .map(|profile| profile.name)
+            .collect();
+        for profile in &active {
+            let output = hidden_command(&executable)
+                .arg("/uninstalltunnelservice")
+                .arg(profile)
+                .output()
+                .map_err(|error| format!("failed to stop WireGuard tunnel '{profile}': {error}"))?;
+            if !output.status.success() && service_is_running(profile) {
+                return Err(format!(
+                    "WireGuard tunnel '{profile}' failed to stop: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+        }
+        Ok(serde_json::json!({
+            "status": "disconnected",
+            "profiles": active,
+        }))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("bundled WireGuard tunnels are currently supported on Windows only".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn vpn_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    let engine = wireguard_executable(&app).ok();
+    let profiles = vpn_profile_store::list_profiles(&app, None).unwrap_or_default();
+    let profile_values: Vec<serde_json::Value> = profiles
+        .iter()
+        .map(|profile| {
+            serde_json::json!({
+                "name": profile.name,
+                "path": profile.path,
+                "active": service_is_running(&profile.name),
+            })
+        })
+        .collect();
+    let active_profile = profiles
+        .iter()
+        .find(|profile| service_is_running(&profile.name))
+        .map(|profile| profile.name.clone());
+    Ok(serde_json::json!({
+        "installed": engine.is_some(),
+        "engineBundled": engine.is_some(),
+        "connected": active_profile.is_some(),
+        "activeProfile": active_profile,
+        "profiles": profile_values,
+        "details": if engine.is_some() {
+            "Bundled WireGuard engine ready"
+        } else {
+            "Bundled WireGuard engine missing from installation"
+        },
+    }))
 }
 
 #[tauri::command]
 pub async fn run_antivirus_scan() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("powershell")
-            .args(&["-Command", "Start-MpScan -ScanType QuickScan"])
+        let output = hidden_command("powershell")
+            .args(["-NoProfile", "-Command", "Start-MpScan -ScanType QuickScan"])
             .output()
-            .map_err(|e| format!("Failed to start scan: {}", e))?;
-
+            .map_err(|error| format!("failed to start Windows Defender scan: {error}"))?;
         Ok(serde_json::json!({
             "status": if output.status.success() { "scan_started" } else { "failed" },
             "type": "quick",
-            "output": String::from_utf8_lossy(&output.stdout).to_string(),
+            "output": String::from_utf8_lossy(&output.stdout).trim(),
+            "error": String::from_utf8_lossy(&output.stderr).trim(),
         }))
     }
-
     #[cfg(not(target_os = "windows"))]
     {
         Ok(serde_json::json!({
@@ -108,17 +214,16 @@ pub async fn run_antivirus_scan() -> Result<serde_json::Value, String> {
 pub async fn update_av_signatures() -> Result<serde_json::Value, String> {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("powershell")
-            .args(&["-Command", "Update-MpSignature"])
+        let output = hidden_command("powershell")
+            .args(["-NoProfile", "-Command", "Update-MpSignature"])
             .output()
-            .map_err(|e| format!("Failed to update signatures: {}", e))?;
-
+            .map_err(|error| format!("failed to update Windows Defender signatures: {error}"))?;
         Ok(serde_json::json!({
             "status": if output.status.success() { "updated" } else { "failed" },
-            "output": String::from_utf8_lossy(&output.stdout).to_string(),
+            "output": String::from_utf8_lossy(&output.stdout).trim(),
+            "error": String::from_utf8_lossy(&output.stderr).trim(),
         }))
     }
-
     #[cfg(not(target_os = "windows"))]
     {
         Ok(serde_json::json!({
@@ -129,32 +234,11 @@ pub async fn update_av_signatures() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn install_security_tools() -> Result<serde_json::Value, String> {
-    #[cfg(target_os = "windows")]
-    {
-        // Install Windscribe via winget
-        let output = Command::new("winget")
-            .args(&[
-                "install",
-                "--id",
-                "Windscribe.Windscribe",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-            ])
-            .output()
-            .map_err(|e| format!("winget failed: {}", e))?;
-
-        Ok(serde_json::json!({
-            "status": if output.status.success() { "installed" } else { "check_output" },
-            "output": String::from_utf8_lossy(&output.stdout).to_string(),
-        }))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(serde_json::json!({
-            "status": "unsupported",
-            "message": "Auto-install is only available on Windows via winget",
-        }))
-    }
+pub async fn install_security_tools(app: AppHandle) -> Result<serde_json::Value, String> {
+    let executable = wireguard_executable(&app)?;
+    Ok(serde_json::json!({
+        "status": "bundled",
+        "message": "WireGuard is already bundled with CinaVault; no host installation is required.",
+        "engine": executable.to_string_lossy(),
+    }))
 }

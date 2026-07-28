@@ -5,9 +5,9 @@
 // only on catalog flags.
 use serde::Serialize;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[cfg(target_os = "windows")]
@@ -225,7 +225,11 @@ pub fn inspect_with_mediainfo(path: String) -> Result<serde_json::Value, String>
 
 #[tauri::command]
 pub fn inspect_with_mkvtoolnix(path: String) -> Result<serde_json::Value, String> {
-    run_json_tool("mkvmerge", &["--identification-format", "json", "--identify"], &path)
+    run_json_tool(
+        "mkvmerge",
+        &["--identification-format", "json", "--identify"],
+        &path,
+    )
 }
 
 #[cfg(test)]

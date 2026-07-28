@@ -1,430 +1,131 @@
-name: CinaVault Premium — Automated Daily Maintenance
+name: Automated Daily Maintenance
 
 on:
   schedule:
-    # Runs every day at 03:00 UTC
-    - cron: "0 3 * * *"
+    - cron: "23 8 * * 1"
   workflow_dispatch:
-    inputs:
-      skip_cleanup:
-        description: "Skip dead-code/file cleanup step"
-        required: false
-        default: "false"
-      skip_updates:
-        description: "Skip dependency update step"
-        required: false
-        default: "false"
 
 permissions:
-  contents: write
+  contents: read
   issues: write
   pull-requests: write
-  actions: read
+  actions: write
 
-env:
-  NODE_VERSION: "20"
-  RUST_TOOLCHAIN: stable
-  BOT_NAME: "CinaVault CI Bot"
-  BOT_EMAIL: "ci@cinavault.app"
+concurrency:
+  group: repository-maintenance
+  cancel-in-progress: false
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 1: Dependency Updates — npm audit fix + cargo update
-  # ─────────────────────────────────────────────────────────────────────────────
-  dependency-updates:
-    name: Dependency Updates & Security Audit
-    runs-on: ubuntu-latest
-    if: github.event.inputs.skip_updates != 'true'
-    outputs:
-      npm_changed: ${{ steps.npm_update.outputs.changed }}
-      cargo_changed: ${{ steps.cargo_update.outputs.changed }}
+  health-check:
+    name: Weekly Repository Health
+    runs-on: windows-latest
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> target"
-
-      - name: Configure git
-        run: |
-          git config user.name "${{ env.BOT_NAME }}"
-          git config user.email "${{ env.BOT_EMAIL }}"
-
-      # ── npm audit fix ──────────────────────────────────────────────────────
-      - name: npm install (clean)
-        run: npm ci
-
-      - name: npm audit (report)
-        run: npm audit --audit-level=moderate --json > /tmp/npm-audit.json || true
-
-      - name: npm audit fix (non-breaking)
-        run: npm audit fix --audit-level=moderate || true
-
-      - name: Check for npm changes
-        id: npm_update
-        run: |
-          if git diff --quiet package-lock.json package.json; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "npm audit fix applied changes:"
-            git diff --stat package-lock.json package.json
-          fi
-
-      # ── cargo update ──────────────────────────────────────────────────────
-      - name: cargo update (minor/patch)
-        run: cargo update --manifest-path src-tauri/Cargo.toml
-
-      - name: Check for Cargo.lock changes
-        id: cargo_update
-        run: |
-          if git diff --quiet src-tauri/Cargo.lock; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "cargo update applied changes:"
-            git diff --stat src-tauri/Cargo.lock
-          fi
-
-      # ── cargo audit ───────────────────────────────────────────────────────
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --quiet 2>/dev/null || true
-
-      - name: cargo audit (security)
-        run: cargo audit --manifest-path src-tauri/Cargo.toml --json > /tmp/cargo-audit.json || true
-
-      # ── Commit updates if any ─────────────────────────────────────────────
-      - name: Commit dependency updates
-        if: steps.npm_update.outputs.changed == 'true' || steps.cargo_update.outputs.changed == 'true'
-        run: |
-          git add package-lock.json package.json src-tauri/Cargo.lock || true
-          git commit -m "chore(deps): automated dependency update [skip ci]" || true
-          git push || true
-
-      - name: Upload audit reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: audit-reports-${{ github.run_number }}
-          path: |
-            /tmp/npm-audit.json
-            /tmp/cargo-audit.json
-          retention-days: 30
-          if-no-files-found: ignore
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 2: Dead Code & File Cleanup — runs cleanup.mjs in full mode
-  # ─────────────────────────────────────────────────────────────────────────────
-  dead-code-cleanup:
-    name: Dead Code & File Cleanup
-    runs-on: ubuntu-latest
-    if: github.event.inputs.skip_cleanup != 'true'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> target"
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Configure git
-        run: |
-          git config user.name "${{ env.BOT_NAME }}"
-          git config user.email "${{ env.BOT_EMAIL }}"
-
-      - name: Run automated cleanup (verbose)
-        run: node scripts/cleanup.mjs --verbose
-
-      - name: Run Prettier on all source files
-        run: |
-          npx prettier --write 'src/**/*.{ts,tsx,css,json}' --log-level warn || true
-          npx prettier --write 'tests/**/*.mjs' --log-level warn || true
-          npx prettier --write 'package.json' --log-level warn || true
-
-      - name: Run rustfmt on all Rust source files
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml || true
-
-      - name: Run cargo clippy (report unused code)
-        run: |
-          cargo clippy --manifest-path src-tauri/Cargo.toml \
-            -- -W dead_code -W unused_imports -W unused_variables \
-            2>&1 | tee /tmp/clippy-report.txt || true
-
-      - name: Check for cleanup/format changes to commit
-        id: cleanup_diff
-        run: |
-          git add -A
-          if git diff --cached --quiet; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "Files changed by cleanup/formatting:"
-            git diff --cached --name-only
-          fi
-
-      - name: Commit cleanup and formatting changes
-        if: steps.cleanup_diff.outputs.has_changes == 'true'
-        run: |
-          git commit -m "chore(cleanup): automated dead-code removal and formatting [skip ci]"
-          git push
-
-      - name: Upload cleanup and clippy reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: cleanup-maintenance-${{ github.run_number }}
-          path: |
-            docs/cleanup-reports/
-            /tmp/clippy-report.txt
-          retention-days: 30
-          if-no-files-found: ignore
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 3: Stale Branch Cleanup — delete merged branches older than 30 days
-  # ─────────────────────────────────────────────────────────────────────────────
-  stale-branch-cleanup:
-    name: Stale Branch Cleanup
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Configure git
-        run: |
-          git config user.name "${{ env.BOT_NAME }}"
-          git config user.email "${{ env.BOT_EMAIL }}"
-
-      - name: Delete stale merged branches (>30 days)
-        run: |
-          git fetch --prune origin
-
-          CUTOFF=$(date -d "30 days ago" +%s)
-          DELETED=0
-          SKIPPED=0
-
-          for branch in $(git branch -r --merged origin/main | grep -v 'origin/main' | grep -v 'origin/develop' | sed 's|origin/||'); do
-            LAST_COMMIT=$(git log -1 --format="%ct" "origin/$branch" 2>/dev/null || echo "0")
-            if [ "$LAST_COMMIT" -lt "$CUTOFF" ]; then
-              echo "Deleting stale merged branch: $branch (last commit: $(date -d @$LAST_COMMIT))"
-              git push origin --delete "$branch" 2>/dev/null && DELETED=$((DELETED+1)) || true
-            else
-              SKIPPED=$((SKIPPED+1))
-            fi
-          done
-
-          echo "Stale branch cleanup complete: $DELETED deleted, $SKIPPED skipped (too recent or protected)"
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 4: Dependency Drift Detection — alert if versions have drifted
-  # ─────────────────────────────────────────────────────────────────────────────
-  drift-detection:
-    name: Dependency Drift Detection
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Check for outdated npm packages
-        run: npm outdated --json > /tmp/npm-outdated.json || true
-
-      - name: Report outdated packages
-        run: |
-          if [ -s /tmp/npm-outdated.json ]; then
-            echo "Outdated npm packages detected:"
-            cat /tmp/npm-outdated.json | node -e "
-              const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-              Object.entries(data).forEach(([pkg, info]) => {
-                console.log(\`  \${pkg}: current=\${info.current} wanted=\${info.wanted} latest=\${info.latest}\`);
-              });
-            " || cat /tmp/npm-outdated.json
-          else
-            echo "All npm packages are up to date."
-          fi
-
-      - name: Upload drift report
-        uses: actions/upload-artifact@v4
-        with:
-          name: drift-report-${{ github.run_number }}
-          path: /tmp/npm-outdated.json
-          retention-days: 14
-          if-no-files-found: ignore
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 5: Self-Healing — open GitHub issue if main branch is broken
-  # ─────────────────────────────────────────────────────────────────────────────
-  self-healing-check:
-    name: Self-Healing Health Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main
+        uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 22
           cache: npm
 
-      - name: Install npm dependencies
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
         run: npm ci
 
-      - name: Install Linux Tauri system deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -q \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            pkg-config
+      - name: Audit JavaScript dependencies
+        run: npm audit --audit-level=high
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: TypeScript regression gate
+        run: npm run lint
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Carry-forward regression suite
+        run: npm run test:all
+
+      - name: Production frontend build
+        run: npm run build
+
+      - name: Rust formatting verification
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Rust static analysis
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Rust compile verification
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
+  stale-management:
+    name: Stale Issue and Pull Request Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark inactive work
+        uses: actions/stale@v9
         with:
-          workspaces: "src-tauri -> target"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: 45
+          days-before-close: 14
+          stale-issue-message: "This issue has been inactive for 45 days. Add current reproduction details or implementation status to keep it open."
+          stale-pr-message: "This pull request has been inactive for 45 days. Rebase it on main and confirm CI status to keep it open."
+          close-issue-message: "Closed automatically after the stale grace period. Reopen with current details if the issue still applies."
+          close-pr-message: "Closed automatically after the stale grace period. Reopen or replace it with a fresh branch if work resumes."
+          exempt-issue-labels: "pinned,security,release-blocker"
+          exempt-pr-labels: "pinned,security,release-blocker"
 
-      - name: TypeScript health check
-        id: ts_check
-        run: |
-          npm run type-check 2>&1 | tee /tmp/ts-check.log
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
-        continue-on-error: true
+  artifact-cleanup:
+    name: Expire Old Workflow Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove old artifacts
+        uses: c-hive/gha-remove-artifacts@v1
+        with:
+          age: "30 days"
+          skip-recent: 5
 
-      - name: Cargo health check
-        id: cargo_check
-        run: |
-          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee /tmp/cargo-check.log
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
-        continue-on-error: true
-
-      - name: Governance test health check
-        id: governance_check
-        run: |
-          npm run test:all 2>&1 | tee /tmp/governance-check.log
-          echo "exit_code=$?" >> $GITHUB_OUTPUT
-        continue-on-error: true
-
-      - name: Open self-healing issue if main is broken
-        if: |
-          steps.ts_check.outputs.exit_code != '0' ||
-          steps.cargo_check.outputs.exit_code != '0' ||
-          steps.governance_check.outputs.exit_code != '0'
+  failure-report:
+    name: Report Maintenance Failure
+    needs:
+      - health-check
+      - stale-management
+      - artifact-cleanup
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open maintenance issue
         uses: actions/github-script@v7
         with:
           script: |
-            const tsOk = '${{ steps.ts_check.outputs.exit_code }}' === '0';
-            const cargoOk = '${{ steps.cargo_check.outputs.exit_code }}' === '0';
-            const govOk = '${{ steps.governance_check.outputs.exit_code }}' === '0';
-
-            const failures = [];
-            if (!tsOk) failures.push('TypeScript type-check');
-            if (!cargoOk) failures.push('Cargo check (Rust)');
-            if (!govOk) failures.push('Governance tests');
-
-            const title = `🚨 Main branch health check failed — ${failures.join(', ')}`;
-
-            // Avoid duplicate issues
-            const existing = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'health-check-failure',
-            });
-            const alreadyOpen = existing.data.some(i => i.title === title);
-            if (alreadyOpen) {
-              console.log('Issue already open, skipping creation.');
-              return;
-            }
-
+            const title = `Automated maintenance failure: ${context.runNumber}`;
             const body = [
-              `## CinaVault Premium — Main Branch Health Check Failed`,
-              ``,
-              `**Date:** ${new Date().toISOString()}`,
-              `**Failed checks:**`,
-              failures.map(f => `- ❌ ${f}`).join('\n'),
-              ``,
-              `## What to do`,
-              `1. Pull the latest main branch locally.`,
-              `2. Run \`npm run type-check\` to see TypeScript errors.`,
-              `3. Run \`cargo check --manifest-path src-tauri/Cargo.toml\` to see Rust errors.`,
-              `4. Run \`npm run test:all\` to see governance test failures.`,
-              `5. Fix the issue and push — this issue will be closed automatically on next successful health check.`,
-              ``,
-              `---`,
-              `*This issue was created automatically by the CinaVault daily maintenance workflow.*`,
-            ].join('\n');
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title,
-              body,
-              labels: ['health-check-failure', 'automated', 'priority:high'],
-            });
-
-      - name: Close stale health-check issues if main is healthy
-        if: |
-          steps.ts_check.outputs.exit_code == '0' &&
-          steps.cargo_check.outputs.exit_code == '0' &&
-          steps.governance_check.outputs.exit_code == '0'
-        uses: actions/github-script@v7
-        with:
-          script: |
+              "The scheduled repository maintenance workflow failed.",
+              "",
+              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              "",
+              "No source files were changed automatically. Review the failed job logs and repair the cause through a normal branch and pull request."
+            ].join("\n");
             const existing = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              state: 'open',
-              labels: 'health-check-failure',
+              state: "open",
+              labels: "automation,maintenance"
             });
-            for (const issue of existing.data) {
-              await github.rest.issues.update({
+            if (!existing.data.some(issue => issue.title === title)) {
+              await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: issue.number,
-                state: 'closed',
-                body: issue.body + '\n\n---\n✅ *Auto-closed: main branch health check passed.*',
+                title,
+                body,
+                labels: ["automation", "maintenance"]
               });
-              console.log(`Closed health-check issue #${issue.number}`);
             }

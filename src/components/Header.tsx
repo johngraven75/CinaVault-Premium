@@ -1,109 +1,180 @@
-// CinaVault Premium — Build 157 Cyber HUD Command Header
-// Build 140 Cyber HUD Command Header behavior is permanently carried forward (CinaVault B140).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Activity,
   Bell,
-  Cpu,
+  BrainCircuit,
+  Cast,
+  Cloud,
+  Command,
+  Download,
+  FolderOpen,
+  Home,
   Maximize2,
+  Puzzle,
   RadioTower,
+  Router,
   Search,
-  ShieldCheck,
+  Server,
+  Settings,
+  Shield,
+  Sliders,
   Sparkles,
-  Zap,
+  Tv,
+  X,
+  type LucideIcon,
 } from "lucide-react";
-import { useAppStore, TabId } from "../store/appStore";
+import { BUILD_INFO } from "../buildInfo";
+import { useAppStore, type TabId } from "../store/appStore";
 import { getUnreadStatusMessages } from "../utils/pluginUiSafety";
 
-interface TabMeta {
-  label: string;
-  subtitle: string;
-  signal: string;
+interface AppInfo {
+  name: string;
+  version: string;
+  build: string;
+  displayName?: string;
+  releaseTag?: string;
+  edition: string;
 }
 
-const TAB_META: Record<TabId, TabMeta> = {
-  home: {
-    label: "Movies",
-    subtitle:
-      "Holographic library carousel, vault inventory, and instant playback",
-    signal: "Vault",
-  },
-  sources: {
-    label: "Media Sources",
-    subtitle: "Ingest folders, drives, network shares, and scan targets",
-    signal: "Ingest",
-  },
-  downloads: {
-    label: "My Vault",
-    subtitle: "Queue telemetry, acquisitions, and personal watch staging",
-    signal: "Queue",
-  },
-  livetv: {
-    label: "TV Shows",
-    subtitle: "Live streams, channel intelligence, and guide signals",
-    signal: "Stream",
-  },
-  server: {
-    label: "System Core",
-    subtitle: "Services, runtime health, networking, and uptime telemetry",
-    signal: "Core",
-  },
-  security: {
-    label: "Security",
-    subtitle: "Access control, privacy shields, audit trails, and hardening",
-    signal: "Guard",
-  },
-  remote: {
-    label: "Remote",
-    subtitle: "Relay state, external reachability, and secure remote paths",
-    signal: "Relay",
-  },
-  advanced: {
-    label: "Advanced",
-    subtitle: "Expert tuning, debug controls, and platform diagnostics",
-    signal: "Tune",
-  },
-  cloud: {
-    label: "Cloud / NAS",
-    subtitle: "Cloud sync, NAS fabric, and storage mesh control",
-    signal: "Mesh",
-  },
-  plugins: {
-    label: "Plugins",
-    subtitle: "Metadata engines, compatibility bridges, and extension control",
-    signal: "Mods",
-  },
-  ai: {
-    label: "AI Terminal",
-    subtitle: "Predictive diagnostics, repair guidance, and neural analysis",
-    signal: "Neural",
-  },
-  settings: {
-    label: "Settings",
-    subtitle: "Themes, preferences, profiles, and cinematic behavior",
-    signal: "Config",
-  },
+interface EmbeddedServerStatus {
+  running: boolean;
+  port: number;
+}
+
+interface RemoteConnectivityStatus {
+  directAvailable: boolean;
+  relayActive: boolean;
+  relayMode?: string | null;
+  preferredUrl?: string | null;
+}
+
+interface CommandDestination {
+  id: TabId;
+  label: string;
+  description: string;
+  keywords: string;
+  icon: LucideIcon;
+}
+
+const FALLBACK_APP_INFO: AppInfo = {
+  name: BUILD_INFO.name,
+  version: BUILD_INFO.version,
+  build: BUILD_INFO.build,
+  displayName: BUILD_INFO.displayName,
+  releaseTag: BUILD_INFO.releaseTag,
+  edition: BUILD_INFO.edition,
 };
 
-const PRIMARY_TABS: TabId[] = [
-  "home",
-  "livetv",
-  "downloads",
-  "sources",
-  "server",
-  "plugins",
-  "ai",
-  "settings",
+const COMMAND_DESTINATIONS: CommandDestination[] = [
+  {
+    id: "home",
+    label: "Library",
+    description: "Browse, filter, play, verify, and manage media cards",
+    keywords: "movies media home library posters cards play",
+    icon: Home,
+  },
+  {
+    id: "sources",
+    label: "Media Sources",
+    description: "Add local folders, scan libraries, and run enrichment",
+    keywords: "folder drive scan source local import ingest",
+    icon: FolderOpen,
+  },
+  {
+    id: "downloads",
+    label: "Downloads",
+    description: "Manage acquisitions and incoming media",
+    keywords: "download queue acquire media",
+    icon: Download,
+  },
+  {
+    id: "livetv",
+    label: "Live TV",
+    description: "Open channels, guide data, and live streams",
+    keywords: "tv live channels epg guide stream",
+    icon: Tv,
+  },
+  {
+    id: "server",
+    label: "Server Core",
+    description: "Inspect embedded media services and runtime health",
+    keywords: "server core status services embedded",
+    icon: Server,
+  },
+  {
+    id: "remote",
+    label: "Remote Access",
+    description: "Manage NAT traversal, relay, and remote clients",
+    keywords: "remote nat upnp relay cloud clients access",
+    icon: Router,
+  },
+  {
+    id: "security",
+    label: "Security",
+    description: "Control identities, VPN, scanning, and privacy",
+    keywords: "security vpn antivirus users privacy encryption",
+    icon: Shield,
+  },
+  {
+    id: "ai",
+    label: "AI Autopilot",
+    description: "Automate metadata, posters, repairs, and diagnostics",
+    keywords: "ai autopilot metadata poster automation repair",
+    icon: BrainCircuit,
+  },
+  {
+    id: "plugins",
+    label: "Extensions",
+    description: "Control metadata providers and media tooling",
+    keywords: "plugins extensions providers metadata tools",
+    icon: Puzzle,
+  },
+  {
+    id: "cloud",
+    label: "Cloud & NAS",
+    description: "Connect storage services and network libraries",
+    keywords: "cloud nas storage network",
+    icon: Cloud,
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    description: "Open diagnostics and expert configuration",
+    keywords: "advanced diagnostics debug expert tuning",
+    icon: Sliders,
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    description: "Customize appearance, behavior, and preferences",
+    keywords: "settings themes appearance preferences",
+    icon: Settings,
+  },
 ];
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  phase: number;
-  size: number;
+function StatusTile({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: JSX.Element;
+  title: string;
+  subtitle: string;
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-2 rounded-[15px] border border-white/[0.08] bg-black/20 px-3 py-2">
+      {icon}
+      <div>
+        <div className="text-[10px] font-black text-white">{title}</div>
+        <div className="text-[8px] font-bold uppercase tracking-[0.16em] text-slate-500">
+          {subtitle}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Header(): JSX.Element {
@@ -113,93 +184,54 @@ export default function Header(): JSX.Element {
     searchQuery,
     setSearchQuery,
     statusMessages,
+    settings,
   } = useAppStore();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [clock, setClock] = useState(new Date());
+  const reduceMotion = useReducedMotion();
+  const [clock, setClock] = useState(() => new Date());
+  const [appInfo, setAppInfo] = useState<AppInfo>(FALLBACK_APP_INFO);
   const [showNotifications, setShowNotifications] = useState(false);
   const [lastReadMessageIndex, setLastReadMessageIndex] = useState(0);
-  const unreadMessages = getUnreadStatusMessages(
-    statusMessages,
-    lastReadMessageIndex,
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [serverStatus, setServerStatus] = useState<EmbeddedServerStatus>({
+    running: false,
+    port: 32400,
+  });
+  const [remoteStatus, setRemoteStatus] = useState<RemoteConnectivityStatus>({
+    directAvailable: false,
+    relayActive: false,
+  });
+  const paletteInputRef = useRef<HTMLInputElement | null>(null);
+
+  const unreadMessages = useMemo(
+    () => getUnreadStatusMessages(statusMessages, lastReadMessageIndex),
+    [lastReadMessageIndex, statusMessages],
   );
-  const activeMeta = TAB_META[activeTab] ?? TAB_META.home;
+  const filteredDestinations = useMemo(() => {
+    const query = paletteQuery.trim().toLowerCase();
+    if (!query) return COMMAND_DESTINATIONS;
+    return COMMAND_DESTINATIONS.filter((destination) =>
+      `${destination.label} ${destination.description} ${destination.keywords}`
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [paletteQuery]);
+  const autopilotEnabled = settings.ai_media_autopilot_enabled !== "false";
+  const remoteLabel = remoteStatus.relayActive
+    ? `${remoteStatus.relayMode || "Cloud"} relay`
+    : remoteStatus.directAvailable
+      ? "Direct route"
+      : "Local only";
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-
-    let animationFrame = 0;
-    let width = 0;
-    let height = 0;
-    let particles: Particle[] = [];
-
-    const resize = (): void => {
-      const ratio = Math.max(1, window.devicePixelRatio || 1);
-      width = canvas.offsetWidth;
-      height = canvas.offsetHeight;
-      canvas.width = Math.max(1, Math.floor(width * ratio));
-      canvas.height = Math.max(1, Math.floor(height * ratio));
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      particles = Array.from({ length: 96 }, () => ({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        vx: 0.18 + Math.random() * 0.72,
-        phase: Math.random() * Math.PI * 2,
-        size: 0.55 + Math.random() * 1.4,
-      }));
-    };
-
-    const draw = (): void => {
-      const now = performance.now();
-      context.clearRect(0, 0, width, height);
-
-      const glow = context.createRadialGradient(
-        width * 0.18,
-        height * 0.32,
-        0,
-        width * 0.18,
-        height * 0.32,
-        width * 0.7,
-      );
-      glow.addColorStop(0, "rgba(0,245,255,0.16)");
-      glow.addColorStop(0.48, "rgba(189,0,255,0.055)");
-      glow.addColorStop(1, "transparent");
-      context.fillStyle = glow;
-      context.fillRect(0, 0, width, height);
-
-      context.globalCompositeOperation = "lighter";
-      for (const particle of particles) {
-        particle.x += particle.vx;
-        if (particle.x > width + 8) particle.x = -8;
-        const y = particle.y + Math.sin(now * 0.0015 + particle.phase) * 5;
-        const alpha = 0.28 + Math.sin(now * 0.002 + particle.phase) * 0.16;
-        context.beginPath();
-        context.arc(particle.x, y, particle.size, 0, Math.PI * 2);
-        context.fillStyle = `rgba(0,245,255,${Math.max(0.08, alpha)})`;
-        context.fill();
-      }
-
-      const scanX = ((now * 0.08) % (width + 180)) - 180;
-      const beam = context.createLinearGradient(scanX, 0, scanX + 180, 0);
-      beam.addColorStop(0, "transparent");
-      beam.addColorStop(0.48, "rgba(0,245,255,0.0)");
-      beam.addColorStop(0.5, "rgba(0,245,255,0.36)");
-      beam.addColorStop(1, "transparent");
-      context.fillStyle = beam;
-      context.fillRect(0, 0, width, height);
-      context.globalCompositeOperation = "source-over";
-
-      animationFrame = requestAnimationFrame(draw);
-    };
-
-    resize();
-    draw();
-    window.addEventListener("resize", resize);
-
+    let active = true;
+    void invoke<AppInfo>("get_app_info")
+      .then((info) => {
+        if (active && info?.build) setAppInfo(info);
+      })
+      .catch(() => undefined);
     return () => {
-      cancelAnimationFrame(animationFrame);
-      window.removeEventListener("resize", resize);
+      active = false;
     };
   }, []);
 
@@ -208,193 +240,294 @@ export default function Header(): JSX.Element {
     return () => window.clearInterval(timer);
   }, []);
 
-  const toggleFullscreen = async (): Promise<void> => {
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      const [serverResult, remoteResult] = await Promise.allSettled([
+        invoke<EmbeddedServerStatus>("get_embedded_server_status"),
+        invoke<RemoteConnectivityStatus>("get_remote_connectivity_status"),
+      ]);
+      if (!active) return;
+      if (serverResult.status === "fulfilled") setServerStatus(serverResult.value);
+      if (remoteResult.status === "fulfilled") setRemoteStatus(remoteResult.value);
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 7000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+      if (event.key === "Escape") {
+        setPaletteOpen(false);
+        setShowNotifications(false);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, []);
+
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const timer = window.setTimeout(() => paletteInputRef.current?.focus(), 40);
+    return () => window.clearTimeout(timer);
+  }, [paletteOpen]);
+
+  const navigate = (tab: TabId) => {
+    setActiveTab(tab);
+    setPaletteOpen(false);
+    setPaletteQuery("");
+  };
+
+  const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
       } else {
         await document.documentElement.requestFullscreen();
       }
-    } catch {}
+    } catch (error) {
+      console.warn("Fullscreen request failed:", error);
+    }
   };
 
   return (
-    <header className="cyber-header relative z-20 shrink-0 overflow-visible">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full"
-        aria-hidden="true"
-      />
+    <>
+      <header className="relative z-30 shrink-0 px-4 pb-3 pt-3">
+        <div className="flex min-h-[64px] items-center gap-3 rounded-[22px] border border-white/[0.10] bg-[linear-gradient(110deg,rgba(255,255,255,0.075),rgba(255,255,255,0.018)),rgba(3,6,18,0.72)] px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_14px_36px_rgba(0,0,0,0.26)]">
+          <motion.button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            whileHover={reduceMotion ? undefined : { x: 2 }}
+            whileTap={reduceMotion ? undefined : { x: 0 }}
+            className="flex min-w-0 items-center gap-3 rounded-[17px] border border-cyan-200/14 bg-[linear-gradient(90deg,rgba(105,247,255,0.10),rgba(184,92,255,0.06))] px-3 py-2 text-left"
+          >
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] border border-cyan-200/18 bg-black/25 text-cyan-100 shadow-[0_0_18px_rgba(105,247,255,0.12)]">
+              <Command size={17} />
+            </span>
+            <span className="hidden min-w-0 sm:block">
+              <span className="block text-[9px] font-black uppercase tracking-[0.24em] text-cyan-200/80">
+                Command Deck
+              </span>
+              <span className="block truncate text-[13px] font-black text-white">
+                {appInfo.name} · {appInfo.displayName || `Build ${appInfo.build}`}
+              </span>
+            </span>
+            <span className="hidden rounded-lg border border-white/10 bg-black/25 px-2 py-1 text-[9px] font-black text-slate-400 lg:block">
+              Ctrl K
+            </span>
+          </motion.button>
 
-      <div className="relative z-10 flex h-full flex-col gap-3 px-4 py-3 xl:px-5">
-        <div className="flex min-h-0 items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cyan-100/70"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search the entire vault..."
+              className="h-11 w-full rounded-[16px] border border-white/[0.08] bg-black/25 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-200/35 focus:bg-cyan-200/[0.04] focus:shadow-[0_0_24px_rgba(105,247,255,0.10)]"
+              aria-label="Search the library"
+            />
+          </div>
+
+          <div className="hidden items-center gap-2 xl:flex">
+            <StatusTile
+              icon={<span className="cv-status-orb" />}
+              title={serverStatus.running ? "Server online" : "Server starting"}
+              subtitle={`Port ${serverStatus.port || 32400}`}
+            />
+            <StatusTile
+              icon={<RadioTower size={14} className="text-fuchsia-300" />}
+              title={remoteLabel}
+              subtitle="Remote path"
+            />
+            <StatusTile
+              icon={<BrainCircuit size={14} className="text-cyan-200" />}
+              title={autopilotEnabled ? "AI active" : "AI manual"}
+              subtitle="Media autopilot"
+            />
+          </div>
+
+          <div className="hidden min-w-[74px] text-right font-mono text-[10px] tracking-wide text-slate-400 md:block">
+            <div className="text-white">
+              {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </div>
+            <div>{clock.toLocaleDateString([], { month: "short", day: "2-digit" })}</div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("cinavault:open-casting"))}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-fuchsia-200/16 bg-fuchsia-300/[0.07] text-fuchsia-100 transition hover:border-fuchsia-200/35 hover:bg-fuchsia-300/[0.13]"
+            title="Open Casting Center"
+          >
+            <Cast size={16} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void toggleFullscreen()}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.035] text-slate-300 transition hover:border-cyan-200/25 hover:bg-cyan-200/[0.07] hover:text-white"
+            title="Toggle fullscreen"
+          >
+            <Maximize2 size={16} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowNotifications((open) => !open);
+              setLastReadMessageIndex(statusMessages.length);
+            }}
+            className="relative grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.035] text-slate-300 transition hover:border-cyan-200/25 hover:bg-cyan-200/[0.07] hover:text-white"
+            title="Open command feed"
+          >
+            <Bell size={16} />
+            {unreadMessages.length > 0 && (
+              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_12px_rgba(255,200,87,0.95)]" />
+            )}
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {showNotifications && (
             <motion.div
-              className="cyber-brand-chip h-12 px-3"
-              whileHover={{ scale: 1.03 }}
-              transition={{ type: "spring", stiffness: 360, damping: 24 }}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="absolute right-4 top-[82px] z-50 w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[22px] border border-cyan-200/18 bg-[rgba(4,7,19,0.98)] shadow-[0_28px_80px_rgba(0,0,0,0.62),0_0_46px_rgba(105,247,255,0.10)]"
             >
-              <Zap size={18} className="text-cyan-200" />
-              <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase tracking-[0.28em] text-cyan-200">
-                  CinaVault B157
+              <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.15em] text-cyan-100">
+                  <Activity size={14} /> Live Command Feed
                 </div>
-                <div className="truncate text-sm font-black uppercase tracking-[0.16em]">
-                  Hyper-Neon Fusion
-                </div>
-              </div>
-            </motion.div>
-
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 8, filter: "blur(8px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -8, filter: "blur(8px)" }}
-                transition={{ duration: 0.22 }}
-                className="hidden min-w-0 md:block"
-              >
-                <div className="cyber-eyebrow flex items-center gap-2">
-                  <Sparkles size={12} /> Quantum Grid Active /{" "}
-                  {activeMeta.signal}
-                </div>
-                <h1 className="cyber-title truncate text-xl font-black tracking-tight">
-                  {activeMeta.label}
-                </h1>
-                <p className="truncate text-xs text-cv-subtext">
-                  {activeMeta.subtitle}
-                </p>
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2 lg:gap-3">
-            <div className="hidden items-center gap-2 rounded-none border border-cyan-300/20 bg-black/40 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200 shadow-[0_0_18px_rgba(0,245,255,0.12)] lg:flex">
-              <Activity size={13} className="text-emerald-300" />
-              Nominal
-            </div>
-
-            <div className="cyber-search-core hidden sm:block">
-              <Search
-                size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cyan-200"
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="AI search core..."
-                className="cyber-search-input"
-                aria-label="Search library, plugins, and sources"
-              />
-            </div>
-
-            <div className="hidden min-w-[94px] text-right font-mono text-[11px] tracking-wide text-cv-subtext/90 md:block">
-              {clock.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              className="cyber-button h-11 w-11 px-0"
-              title="Toggle fullscreen"
-            >
-              <Maximize2 size={15} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowNotifications((open) => !open);
-                setLastReadMessageIndex(Math.max(0, statusMessages.length - 1));
-              }}
-              className="cyber-button relative h-11 w-11 px-0"
-              title="Show command feed"
-            >
-              <Bell size={15} />
-              {unreadMessages.length > 0 && (
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--cyber-amber)] shadow-[0_0_14px_rgba(255,153,0,0.95)]" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <nav
-            className="quantum-nav flex-1"
-            aria-label="Primary CinaVault navigation"
-          >
-            {PRIMARY_TABS.map((tab) => {
-              const meta = TAB_META[tab];
-              const isActive = activeTab === tab;
-              return (
                 <button
-                  key={tab}
                   type="button"
-                  data-label={meta.label}
-                  className={`quantum-tab ${isActive ? "is-active" : ""}`}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => setShowNotifications(false)}
+                  className="grid h-8 w-8 place-items-center rounded-xl border border-white/[0.08] text-slate-400 hover:text-white"
+                  aria-label="Close command feed"
                 >
-                  {meta.label}
+                  <X size={14} />
                 </button>
-              );
-            })}
-          </nav>
-
-          <div className="hidden items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cv-subtext xl:flex">
-            <Cpu size={13} className="text-cyan-200" />
-            HUD Link
-            <ShieldCheck size={13} className="text-emerald-300" />
-            Secure
-          </div>
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {showNotifications && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.18 }}
-            className="cyber-terminal-panel absolute right-5 top-[calc(100%+10px)] z-50 w-96 max-w-[calc(100vw-2rem)] bg-[#05050a]/95 p-0"
-          >
-            <div className="flex items-center justify-between border-b border-cyan-300/15 px-4 py-3">
-              <span className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-200">
-                <RadioTower size={14} /> Command Feed
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.18em] text-cv-subtext">
-                {statusMessages.length} messages
-              </span>
-            </div>
-            <div className="max-h-80 overflow-y-auto py-1">
-              {statusMessages.length === 0 ? (
-                <div className="px-4 py-5 text-xs text-cv-subtext">
-                  No notifications yet
-                </div>
-              ) : (
-                statusMessages
-                  .slice(-12)
-                  .reverse()
-                  .map((message, index) => (
-                    <div
-                      key={`${message}-${index}`}
-                      className="border-b border-cyan-300/[0.07] px-4 py-3 last:border-b-0"
-                    >
-                      <div className="text-xs leading-relaxed text-cv-text">
+              </div>
+              <div className="max-h-[360px] overflow-y-auto p-2">
+                {statusMessages.length === 0 ? (
+                  <div className="p-5 text-sm text-slate-400">
+                    System activity will appear here.
+                  </div>
+                ) : (
+                  statusMessages
+                    .slice(-16)
+                    .reverse()
+                    .map((message, index) => (
+                      <div
+                        key={`${message}-${index}`}
+                        className="mb-1 rounded-[14px] border border-white/[0.06] bg-white/[0.025] px-3 py-3 text-xs leading-relaxed text-slate-200 last:mb-0"
+                      >
                         {message}
                       </div>
-                    </div>
-                  ))
-              )}
-            </div>
+                    ))
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </header>
+
+      <AnimatePresence>
+        {paletteOpen && (
+          <motion.div
+            className="cv-command-palette-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setPaletteOpen(false);
+            }}
+          >
+            <motion.div
+              className="cv-command-palette"
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: reduceMotion ? 0 : 0.16, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className="relative">
+                <Search
+                  size={17}
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-cyan-200"
+                />
+                <input
+                  ref={paletteInputRef}
+                  value={paletteQuery}
+                  onChange={(event) => setPaletteQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && filteredDestinations[0]) {
+                      navigate(filteredDestinations[0].id);
+                    }
+                  }}
+                  className="cv-command-input pl-12"
+                  placeholder="Go anywhere or search capabilities..."
+                  aria-label="Command palette"
+                />
+              </div>
+              <div className="max-h-[470px] overflow-y-auto p-2">
+                {filteredDestinations.length === 0 ? (
+                  <div className="p-7 text-center text-sm text-slate-400">
+                    No matching destination.
+                  </div>
+                ) : (
+                  filteredDestinations.map((destination) => {
+                    const Icon = destination.icon;
+                    return (
+                      <button
+                        key={destination.id}
+                        type="button"
+                        onClick={() => navigate(destination.id)}
+                        className="cv-command-item rounded-[16px]"
+                      >
+                        <span className="cv-command-icon">
+                          <Icon size={17} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-black text-white">
+                            {destination.label}
+                          </span>
+                          <span className="block truncate text-xs text-slate-400">
+                            {destination.description}
+                          </span>
+                        </span>
+                        {activeTab === destination.id && (
+                          <span className="rounded-full border border-cyan-200/20 bg-cyan-200/[0.08] px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-100">
+                            Active
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <div className="flex items-center justify-between border-t border-white/[0.08] px-4 py-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                <span className="flex items-center gap-2">
+                  <Sparkles size={12} className="text-fuchsia-300" /> {BUILD_INFO.displayName} spatial command system
+                </span>
+                <span>Esc to close</span>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-    </header>
+    </>
   );
 }
