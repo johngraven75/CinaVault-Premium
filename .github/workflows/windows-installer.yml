@@ -3,6 +3,8 @@ name: Auto Build, Test, Release — v2 Build 1.04
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -10,7 +12,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: v2-build-1-04-release
+  group: v2-build-1-04-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
