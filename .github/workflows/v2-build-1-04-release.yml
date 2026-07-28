@@ -1,0 +1,114 @@
+name: CinaVault Premium v2 Build 1.04 Release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: cinavault-v2-0-4-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_VERSION: 2.0.4
+  TAG_NAME: v2.0.4
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.04
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Verify release identity
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
+          if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
+          if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
+          if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
+
+      - name: Master release gate
+        run: npm run verify:master-release
+
+      - name: Frontend validation
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Rust validation
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
+          cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+
+      - name: Build Windows installers
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
+
+      - name: Stage and checksum installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path installer-staging -Force | Out-Null
+          Get-ChildItem 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle' -Recurse -File |
+            Where-Object { $_.Extension -in '.msi', '.exe' } |
+            Copy-Item -Destination installer-staging -Force
+          $msi = @(Get-ChildItem installer-staging -File -Filter *.msi)
+          $exe = @(Get-ChildItem installer-staging -File -Filter *.exe)
+          if ($msi.Count -lt 1) { throw 'No MSI installer was produced.' }
+          if ($exe.Count -lt 1) { throw 'No NSIS EXE installer was produced.' }
+          $files = Get-ChildItem installer-staging -File | Where-Object { $_.Extension -in '.msi', '.exe' }
+          $checksums = foreach ($file in $files) {
+            $hash = Get-FileHash $file.FullName -Algorithm SHA256
+            "$($hash.Hash)  $($file.Name)"
+          }
+          Set-Content installer-staging\SHA256SUMS.txt $checksums -Encoding utf8
+
+      - name: Upload verified installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: installer-staging/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish v2.0.4 GitHub release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          target_commitish: main
+          name: CinaVault Premium v2 Build 1.04
+          body: |
+            CinaVault Premium v2 Build 1.04, version 2.0.4.
+            Includes verified Windows NSIS EXE and MSI installers with SHA-256 checksums.
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            installer-staging/*.msi
+            installer-staging/*.exe
+            installer-staging/SHA256SUMS.txt
