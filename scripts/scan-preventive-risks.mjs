@@ -83,9 +83,9 @@ requireMarker(
   "Rust build identity must derive from build-version.json",
 );
 requireMarker(
-  "src-tauri/src/main.rs",
-  "build_identity::get_current_build_info()",
-  "Rust app info must use the typed build identity",
+  "src-tauri/src/lib.rs",
+  "build_identity::get_current_build_info",
+  "Tauri runtime app info must use the typed manifest-driven build identity",
 );
 requireMarker(
   ".github/workflows/release-build-170.yml",
@@ -118,10 +118,11 @@ if (tauriConfiguration.version !== build.semanticVersion) {
   });
 }
 
-const staleBuildPattern = /(?:Build 170|v2 Build 1\.0[0-3]|1\.7\.170)/;
+const staleBuildPattern = /(?:Build 168|Build 170|v2 Build 1\.0[0-3]|1\.6\.8|1\.7\.170)/;
 for (const relativePath of [
   "src/components/Header.tsx",
   "src/components/Sidebar.tsx",
+  "src-tauri/src/lib.rs",
   "src-tauri/src/main.rs",
   "src-tauri/src/embedded_server.rs",
 ]) {
