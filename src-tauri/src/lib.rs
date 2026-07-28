@@ -1,7 +1,8 @@
 // CinaVault Premium — shared Tauri v2 backend for desktop and Android
-// Build 168 feature surface retained across supported platforms.
+// Build identity is sourced from build-version.json through build_identity.
 
 mod db;
+mod build_identity;
 mod iptv;
 mod jellyfin;
 mod player;
@@ -62,7 +63,7 @@ pub fn run() {
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
             app.manage(AppState { db: Mutex::new(database) });
-            log::info!("CinaVault Premium Build 168 initialized successfully");
+            log::info!("{} initialized successfully", build_identity::current().display_name);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -179,7 +180,7 @@ pub fn run() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
-            get_app_info,
+            build_identity::get_current_build_info,
             open_external_url,
             get_system_info,
             pick_folder,
@@ -187,16 +188,6 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
-}
-
-#[tauri::command]
-fn get_app_info() -> serde_json::Value {
-    serde_json::json!({
-        "name": "CinaVault Premium",
-        "version": "1.6.8",
-        "build": "168",
-        "edition": "Premium"
-    })
 }
 
 #[tauri::command]
