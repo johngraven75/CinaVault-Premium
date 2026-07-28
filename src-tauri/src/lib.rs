@@ -31,6 +31,7 @@ mod nas_devices;
 mod pgma_bridge;
 mod task_progress;
 mod vpn;
+mod vpn_profile_store;
 
 use db::Database;
 use std::sync::Mutex;
