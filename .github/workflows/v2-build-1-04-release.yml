@@ -1,4 +1,4 @@
-name: CinaVault Premium v2 Build 1.04 Release
+name: CinaVault Premium v2 Build 1.05 Release
 
 on:
   pull_request:
@@ -12,13 +12,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v2-0-4-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v2-0-5-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: 2.0.4
-  TAG_NAME: v2.0.4
-  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.04
+  APP_VERSION: 2.0.5
+  TAG_NAME: v2.0.5
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.05
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -144,15 +144,15 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2.0.4 GitHub release
+      - name: Publish v2.0.5 GitHub release
         if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium v2 Build 1.04
+          name: CinaVault Premium v2 Build 1.05
           body: |
-            CinaVault Premium v2 Build 1.04, version 2.0.4.
+            CinaVault Premium v2 Build 1.05, version 2.0.5.
             Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
           draft: false
           prerelease: false
