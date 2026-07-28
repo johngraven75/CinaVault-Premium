@@ -1,4 +1,4 @@
-name: CinaVault Premium v2 Build 1.04 Windows Validation
+name: CinaVault Premium v2 Build 1.05 Windows Validation
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cinavault-premium-v2-build-1-04-windows-${{ github.event.pull_request.number || github.ref }}
+  group: cinavault-premium-v2-build-1-05-windows-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout Build 1.04 branch
+      - name: Checkout Build 1.05 branch
         uses: actions/checkout@v4
 
       - name: Prepare Windows validation diagnostics
@@ -48,9 +48,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $build = Get-Content build-version.json -Raw | ConvertFrom-Json
-          if ($build.displayName -ne 'v2 Build 1.04') { throw "Unexpected displayName: $($build.displayName)" }
-          if ($build.semanticVersion -ne '2.0.4') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
-          if ($build.releaseTag -ne 'v2-build-1.04') { throw "Unexpected releaseTag: $($build.releaseTag)" }
+          if ($build.displayName -ne 'v2 Build 1.05') { throw "Unexpected displayName: $($build.displayName)" }
+          if ($build.semanticVersion -ne '2.0.5') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
+          if ($build.releaseTag -ne 'v2-build-1.05') { throw "Unexpected releaseTag: $($build.releaseTag)" }
           $build | ConvertTo-Json -Depth 10 | Set-Content validation-logs/build-identity.json
 
       - name: Shared contract conformance gate
@@ -70,6 +70,7 @@ jobs:
           tests/v2Build102UiStability.test.mjs
           tests/v2Build103CommandPaletteStability.test.mjs
           tests/platformParityContract.test.mjs
+          tests/hlsStreamSupport.test.mjs
 
       - name: Prepare genuine Windows bundle resources
         shell: pwsh
@@ -163,8 +164,8 @@ jobs:
           if (-not $msiSource) { throw 'The MSI installer was not produced.' }
           if (-not $nsisSource) { throw 'The NSIS installer was not produced.' }
 
-          $msiPath = 'release-assets/CinaVault-Premium-v2-build-1-04-x64.msi'
-          $nsisPath = 'release-assets/CinaVault-Premium-v2-build-1-04-x64-setup.exe'
+          $msiPath = 'release-assets/CinaVault-Premium-v2-build-1-05-x64.msi'
+          $nsisPath = 'release-assets/CinaVault-Premium-v2-build-1-05-x64-setup.exe'
           Copy-Item $msiSource.FullName $msiPath
           Copy-Item $nsisSource.FullName $nsisPath
 
@@ -176,7 +177,7 @@ jobs:
           $msiHash = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           $nsisHash = (Get-FileHash $nsis.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
-            '# CinaVault Premium v2 Build 1.04 Windows validation',
+            '# CinaVault Premium v2 Build 1.05 Windows validation',
             '',
             "MSI: $($msi.Name)",
             "MSI bytes: $($msi.Length)",
@@ -194,7 +195,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $msi = (Resolve-Path 'release-assets/CinaVault-Premium-v2-build-1-04-x64.msi').Path
+          $msi = (Resolve-Path 'release-assets/CinaVault-Premium-v2-build-1-05-x64.msi').Path
           $install = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
           if ($install.ExitCode -notin @(0, 3010)) { throw "MSI installation failed with exit code $($install.ExitCode)" }
 
@@ -246,7 +247,7 @@ jobs:
       - name: Upload verified Premium Windows installers
         uses: actions/upload-artifact@v4
         with:
-          name: cinavault-premium-v2-build-1-04-windows-${{ github.sha }}
+          name: cinavault-premium-v2-build-1-05-windows-${{ github.sha }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 90
@@ -255,7 +256,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cinavault-premium-v2-build-1-04-windows-diagnostics-${{ github.sha }}
+          name: cinavault-premium-v2-build-1-05-windows-diagnostics-${{ github.sha }}
           path: validation-logs/*
           if-no-files-found: warn
           retention-days: 90
