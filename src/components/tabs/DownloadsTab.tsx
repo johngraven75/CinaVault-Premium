@@ -1,5 +1,5 @@
 // CinaVault Premium — Downloads Tab (yt-dlp + FFmpeg + MediaInfo + MKVToolNix)
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
@@ -10,6 +10,7 @@ import {
   FileSearch,
   Loader,
   PackageSearch,
+  Radio,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -34,6 +35,8 @@ export default function DownloadsTab() {
   const [inspectingTool, setInspectingTool] = useState<
     "mediainfo" | "mkvtoolnix" | null
   >(null);
+
+  const isHls = useMemo(() => /\.m3u8(?:$|\?)/i.test(url.trim()), [url]);
 
   const checkTools = async () => {
     try {
@@ -68,25 +71,43 @@ export default function DownloadsTab() {
   const startDownload = async () => {
     if (!url) return;
     setDownloading(true);
-    addStatusMessage(`Starting download: ${url}`);
+    addStatusMessage(
+      isHls
+        ? `Starting HLS decode/download through yt-dlp + FFmpeg: ${url}`
+        : `Starting download: ${url}`,
+    );
     try {
-      const cmd = isPlaylist ? "start_playlist_download" : "start_download";
+      const cmd = isPlaylist
+        ? "start_playlist_download"
+        : isHls
+          ? "start_media_download"
+          : "start_download";
       const result = await invoke<any>(cmd, {
         url,
         outputDir: outputDir || undefined,
+        ...(isHls
+          ? {
+              format: "bestvideo*+bestaudio/best",
+              cookiesFile: undefined,
+              includePlaylist: false,
+            }
+          : {}),
       });
-      addStatusMessage(`Download ${result.status}: ${result.title || url}`);
+      addStatusMessage(
+        `${isHls ? "HLS stream" : "Download"} ${result.status}: ${result.title || url}`,
+      );
       setHistory((prev) => [
         {
           url,
           status: result.status,
           title: result.title,
+          kind: result.media_kind || (isHls ? "hls" : "media"),
           time: new Date().toLocaleTimeString(),
         },
         ...prev,
       ]);
     } catch (error) {
-      addStatusMessage(`Download failed: ${error}`);
+      addStatusMessage(`${isHls ? "HLS download" : "Download"} failed: ${error}`);
     } finally {
       setDownloading(false);
       setUrl("");
@@ -254,10 +275,21 @@ export default function DownloadsTab() {
               type="text"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://youtube.com/watch?v=... or any supported URL"
+              placeholder="https://example.com/master.m3u8 or any supported media URL"
               className="cv-input"
             />
           </div>
+          {isHls && (
+            <div className="glass-panel-2 rounded-lg px-4 py-3 flex items-start gap-3">
+              <Radio size={16} className="text-cv-accent mt-0.5" />
+              <div>
+                <div className="text-sm font-semibold">HLS stream detected</div>
+                <div className="text-[11px] text-cv-subtext">
+                  CinaVault will hand the .m3u8 playlist to yt-dlp and FFmpeg, select the best available rendition, decode/remux the HLS segments, and save a normal media file when the source is not DRM-protected.
+                </div>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="section-label">
@@ -290,6 +322,8 @@ export default function DownloadsTab() {
             >
               {downloading ? (
                 <Loader size={14} className="animate-spin" />
+              ) : isHls ? (
+                <Radio size={14} />
               ) : (
                 <Download size={14} />
               )}
@@ -297,7 +331,9 @@ export default function DownloadsTab() {
                 ? "Downloading..."
                 : isPlaylist
                   ? "Download Playlist"
-                  : "Download"}
+                  : isHls
+                    ? "Decode & Download HLS"
+                    : "Download"}
             </button>
             {downloading && (
               <button
@@ -345,6 +381,7 @@ export default function DownloadsTab() {
                     {item.title || item.url}
                   </div>
                   <div className="text-[10px] text-cv-subtext truncate">
+                    {item.kind === "hls" ? "HLS · " : ""}
                     {item.url}
                   </div>
                 </div>
