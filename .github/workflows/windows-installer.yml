@@ -107,7 +107,9 @@ jobs:
           npm run build
 
       - name: Rust formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Refresh Rust lockfile
         run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
