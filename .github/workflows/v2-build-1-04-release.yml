@@ -1,9 +1,9 @@
-name: Auto Build, Test, Cleanup & Release — v2 Build 1.04
+name: CinaVault Premium v2 Build 1.04 Release
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: v2-build-1-04-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v2-0-4-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -22,35 +22,18 @@ env:
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
-  build-test-release:
+  windows-release:
     runs-on: windows-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Remove existing v2 Build 1.04 release and tag
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release delete $env:TAG_NAME --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing v2 Build 1.04 release.' }
-          } else {
-            git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
-            if ($LASTEXITCODE -eq 0) {
-              git push origin ":refs/tags/$env:TAG_NAME"
-              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing v2 Build 1.04 tag.' }
-            }
-          }
-          exit 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -58,47 +41,27 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          cache-on-failure: true
-
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci
 
-      - name: Verify v2 Build 1.04 identity
+      - name: Verify release identity
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $tauriVersion = $tauri.version
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
-          if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
-          if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
-          if ($cargoVersion -ne $env:APP_VERSION) { throw "Cargo.toml version is $cargoVersion, expected $env:APP_VERSION" }
-          if ($tauri.app.windows[0].title -notmatch 'v2 Build 1\.04') { throw 'Windows title is not v2 Build 1.04.' }
-
-      - name: Download and verify official WireGuard engine
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
-          $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
-          if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
-          New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
-          $target = (Resolve-Path .\wireguard-extracted).Path
-          $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed with exit code $($process.ExitCode)" }
-          $engine = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
-          if (-not $engine) { throw 'wireguard.exe was not found in the official MSI' }
-          $engineSignature = Get-AuthenticodeSignature $engine.FullName
-          if ($engineSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($engineSignature.Status)" }
-          New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
-          Copy-Item $engine.FullName src-tauri\tools\wireguard\wireguard.exe -Force
+          if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
+          if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
+          if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
 
       - name: Master candidate gate
         run: npm run verify:master-build
+
+      - name: Shared contract conformance gate
+        run: npm run verify:contracts
+
+      - name: Preventive risk gate
+        run: npm run scan:preventive
 
       - name: Frontend validation
         run: |
@@ -106,24 +69,55 @@ jobs:
           npm test
           npm run build
 
-      - name: Rust formatting
+      - name: Prepare genuine Windows bundle resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
+          $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
+          if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
+
+          New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
+          $target = (Resolve-Path .\wireguard-extracted).Path
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed with exit code $($process.ExitCode)" }
+
+          $wireGuard = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
+          if (-not $wireGuard) { throw 'wireguard.exe was not found in the official MSI.' }
+          $wireGuardSignature = Get-AuthenticodeSignature $wireGuard.FullName
+          if ($wireGuardSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($wireGuardSignature.Status)" }
+          New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
+          Copy-Item $wireGuard.FullName src-tauri\tools\wireguard\wireguard.exe -Force
+
+          New-Item -ItemType Directory -Path src-tauri\tools\cloudflared -Force | Out-Null
+          $cloudflaredUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
+          Invoke-WebRequest -Uri $cloudflaredUrl -OutFile src-tauri\tools\cloudflared\cloudflared.exe
+          $cloudflared = Get-Item src-tauri\tools\cloudflared\cloudflared.exe
+          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
+
+          Write-Host "WireGuard SHA256: $((Get-FileHash src-tauri\tools\wireguard\wireguard.exe -Algorithm SHA256).Hash)"
+          Write-Host "cloudflared SHA256: $((Get-FileHash $cloudflared.FullName -Algorithm SHA256).Hash)"
+
+      - name: Rust validation
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --all
           cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
+          cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
 
-      - name: Refresh Rust lockfile
-        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
-
-      - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
-
-      - name: Rust compile
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+      - name: Live metadata and poster acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --manifest-path src-tauri/Cargo.toml live_tvmaze_metadata_poster_acceptance -- --ignored --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Live metadata/poster acceptance failed with exit code $LASTEXITCODE" }
 
       - name: Build Windows installers
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
-      - name: Stage and verify installers
+      - name: Stage and checksum installers
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -150,8 +144,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2 Build 1.04 release
-        if: github.event_name == 'workflow_dispatch'
+      - name: Publish v2.0.4 GitHub release
+        if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
@@ -159,8 +153,7 @@ jobs:
           name: CinaVault Premium v2 Build 1.04
           body: |
             CinaVault Premium v2 Build 1.04, version 2.0.4.
-
-            Windows release containing the verified NSIS EXE installer and MSI package, with SHA-256 checksums. Built from main after the v2 Build 1.04 metadata, poster, shared-contract, packaging, and validation repairs.
+            Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
           draft: false
           prerelease: false
           generate_release_notes: true

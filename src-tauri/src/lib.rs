@@ -1,12 +1,14 @@
 // CinaVault Premium — shared Tauri v2 backend for desktop and Android
-// Build 168 feature surface retained across supported platforms.
+// Build identity is sourced from build-version.json through build_identity.
 
 mod db;
+mod build_identity;
 mod iptv;
 mod jellyfin;
 mod player;
 mod plugins;
 mod plugin_configs;
+mod remote_connectivity;
 mod scanner;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -61,8 +63,17 @@ pub fn run() {
             let db_path = app_dir.join("cinavault.db");
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
+
+            let resource_dir = app.path().resource_dir().unwrap_or_else(|_| app_dir.clone());
+            remote_connectivity::configure(
+                resource_dir
+                    .join("tools")
+                    .join("cloudflared")
+                    .join("cloudflared.exe"),
+            );
+
             app.manage(AppState { db: Mutex::new(database) });
-            log::info!("CinaVault Premium Build 168 initialized successfully");
+            log::info!("{} initialized successfully", build_identity::current().display_name);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -114,6 +125,9 @@ pub fn run() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
+            remote_connectivity::start_remote_connectivity,
+            remote_connectivity::stop_remote_connectivity,
+            remote_connectivity::get_remote_connectivity_status,
             plugins::get_plugin_repos,
             plugins::add_plugin_repo,
             plugins::remove_plugin_repo,
@@ -179,7 +193,7 @@ pub fn run() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
-            get_app_info,
+            build_identity::get_current_build_info,
             open_external_url,
             get_system_info,
             pick_folder,
@@ -187,16 +201,6 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
-}
-
-#[tauri::command]
-fn get_app_info() -> serde_json::Value {
-    serde_json::json!({
-        "name": "CinaVault Premium",
-        "version": "1.6.8",
-        "build": "168",
-        "edition": "Premium"
-    })
 }
 
 #[tauri::command]
