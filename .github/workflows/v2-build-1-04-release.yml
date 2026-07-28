@@ -23,20 +23,25 @@ env:
 jobs:
   windows-release:
     runs-on: windows-latest
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci
 
       - name: Verify release identity
         shell: pwsh
@@ -48,8 +53,14 @@ jobs:
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
 
-      - name: Master release gate
-        run: npm run verify:master-release
+      - name: Master candidate gate
+        run: npm run verify:master-build
+
+      - name: Shared contract conformance gate
+        run: npm run verify:contracts
+
+      - name: Preventive risk gate
+        run: npm run scan:preventive
 
       - name: Frontend validation
         run: |
@@ -63,6 +74,13 @@ jobs:
           cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
           cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+
+      - name: Live metadata and poster acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --manifest-path src-tauri/Cargo.toml live_tvmaze_metadata_poster_acceptance -- --ignored --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Live metadata/poster acceptance failed with exit code $LASTEXITCODE" }
 
       - name: Build Windows installers
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
@@ -95,7 +113,7 @@ jobs:
           retention-days: 30
 
       - name: Publish v2.0.4 GitHub release
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
@@ -103,7 +121,7 @@ jobs:
           name: CinaVault Premium v2 Build 1.04
           body: |
             CinaVault Premium v2 Build 1.04, version 2.0.4.
-            Includes verified Windows NSIS EXE and MSI installers with SHA-256 checksums.
+            Published only after candidate gate, contract checks, preventive scan, frontend validation, Rust validation, live metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
           draft: false
           prerelease: false
           generate_release_notes: true
