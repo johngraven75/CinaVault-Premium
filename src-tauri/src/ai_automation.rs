@@ -1,4 +1,4 @@
-use crate::{duplicates, enrichment, scanner, AppState};
+use crate::{downloads, duplicates, enrichment, scanner, AppState};
 use std::collections::BTreeSet;
 use tauri::State;
 
@@ -20,6 +20,81 @@ fn normalized_tasks(tasks: Option<Vec<String>>) -> Vec<String> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+
+const AUTOMATED_DOWNLOAD_MODEL: &str = "Qwen/Qwen3-4B-Instruct-2507";
+
+#[tauri::command]
+pub async fn ai_automated_download(
+    state: State<'_, AppState>,
+    url: String,
+    output_dir: Option<String>,
+    include_playlist: Option<bool>,
+    cookies_file: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let trimmed_url = url.trim();
+    if !(trimmed_url.starts_with("https://") || trimmed_url.starts_with("http://")) {
+        return Err("A valid HTTP or HTTPS media link is required".to_string());
+    }
+
+    let _tool_status = crate::media_tools::ensure_media_tools()
+        .map_err(|error| format!("Automatic media tool setup failed: {error}"))?;
+
+    let planning_prompt = format!(
+        "Classify this submitted media link for a fully automated lawful download workflow. Return concise JSON with media_kind, likely_adult, metadata_priority, and poster_strategy. Do not suggest bypassing DRM, paywalls, access controls, or CAPTCHAs. URL: {trimmed_url}"
+    );
+    let ai_plan = match crate::ai::ai_inference(
+        state.clone(),
+        planning_prompt,
+        Some(AUTOMATED_DOWNLOAD_MODEL.to_string()),
+        None,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => serde_json::json!({
+            "status": "fallback",
+            "message": error,
+            "model": AUTOMATED_DOWNLOAD_MODEL,
+            "deterministic_pipeline_continued": true,
+        }),
+    };
+
+    let mut result = downloads::start_media_download(
+        state,
+        trimmed_url.to_string(),
+        output_dir,
+        Some("bestvideo*+bestaudio/best/bestvideo+bestaudio".to_string()),
+        cookies_file,
+        Some(include_playlist.unwrap_or(false)),
+    )
+    .await?;
+
+    if let Some(object) = result.as_object_mut() {
+        object.insert(
+            "automation".to_string(),
+            serde_json::json!({
+                "enabled": true,
+                "model": AUTOMATED_DOWNLOAD_MODEL,
+                "ai_plan": ai_plan,
+                "steps": [
+                    "validate_link",
+                    "repair_download_dependencies",
+                    "classify_media",
+                    "download_best_available_format",
+                    "detect_final_files",
+                    "verify_adult_metadata",
+                    "retrieve_provider_metadata",
+                    "download_and_validate_poster",
+                    "write_nfo_sidecar",
+                    "return_verification_report"
+                ],
+                "fallback": "deterministic processing remains active when AI inference is unavailable"
+            }),
+        );
+    }
+    Ok(result)
 }
 
 #[tauri::command]
