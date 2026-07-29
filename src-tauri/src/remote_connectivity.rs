@@ -109,7 +109,8 @@ async fn discover_public_ip() -> Option<String> {
 async fn map_upnp(port: u16) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         let local_address = SocketAddr::new(IpAddr::V4(local_ipv4()?), port);
-        let gateway = search_gateway(SearchOptions::default()).map_err(|error| error.to_string())?;
+        let gateway =
+            search_gateway(SearchOptions::default()).map_err(|error| error.to_string())?;
         gateway
             .add_port(
                 PortMappingProtocol::TCP,
@@ -217,9 +218,8 @@ async fn start_cloud_relay(port: u16) -> Result<(Child, String, String), String>
         .stderr(Stdio::piped());
 
     if let Some(token) = token {
-        let public_url = configured_url.ok_or(
-            "CINAVAULT_CLOUDFLARE_PUBLIC_URL is required with a named tunnel token",
-        )?;
+        let public_url = configured_url
+            .ok_or("CINAVAULT_CLOUDFLARE_PUBLIC_URL is required with a named tunnel token")?;
         command.args(["tunnel", "--no-autoupdate", "run", "--token", &token]);
         let child = command
             .spawn()
@@ -356,10 +356,7 @@ pub async fn start_remote_connectivity(
                 status.relay_active = true;
                 status.relay_url = Some(relay_url.clone());
                 status.relay_mode = Some(relay_mode);
-                runtime()
-                    .lock()
-                    .map_err(|error| error.to_string())?
-                    .tunnel = Some(child);
+                runtime().lock().map_err(|error| error.to_string())?.tunnel = Some(child);
             }
             Err(error) => {
                 let mapping_summary = if mapping_errors.is_empty() {
@@ -373,9 +370,8 @@ pub async fn start_remote_connectivity(
             }
         }
     } else {
-        status.last_error = Some(
-            "Encrypted cloud relay is disabled; no public client URL will be exposed".into(),
-        );
+        status.last_error =
+            Some("Encrypted cloud relay is disabled; no public client URL will be exposed".into());
     }
 
     status.preferred_url = status
@@ -387,10 +383,7 @@ pub async fn start_remote_connectivity(
         status.running = false;
     }
 
-    runtime()
-        .lock()
-        .map_err(|error| error.to_string())?
-        .status = status.clone();
+    runtime().lock().map_err(|error| error.to_string())?.status = status.clone();
     Ok(status)
 }
 
@@ -398,10 +391,7 @@ pub async fn start_remote_connectivity(
 pub async fn stop_remote_connectivity() -> Result<RemoteConnectivityStatus, String> {
     stop_runtime().await?;
     let status = RemoteConnectivityStatus::default();
-    runtime()
-        .lock()
-        .map_err(|error| error.to_string())?
-        .status = status.clone();
+    runtime().lock().map_err(|error| error.to_string())?.status = status.clone();
     Ok(status)
 }
 

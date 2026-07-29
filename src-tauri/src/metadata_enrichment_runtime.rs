@@ -155,14 +155,17 @@ async fn resolve_keyless_update(
     let mut update = build_update(item, matched);
 
     if let Some(url) = poster_url {
-        match metadata_keyless::cache_remote_artwork(client, app_data_dir, id, "poster", &url).await {
+        match metadata_keyless::cache_remote_artwork(client, app_data_dir, id, "poster", &url).await
+        {
             Ok(cached) => {
                 if item.poster_path.as_deref() != Some(cached.path.as_str()) {
                     update.poster_path = Some(cached.path);
                 }
                 update.poster_cached = true;
             }
-            Err(error) => update.errors.push(format!("artwork_cache/{query}: {error}")),
+            Err(error) => update
+                .errors
+                .push(format!("artwork_cache/{query}: {error}")),
         }
     }
 
@@ -205,9 +208,7 @@ fn load_item(database: &Database, id: i64) -> Result<MediaItem, String> {
         .ok_or_else(|| format!("Media item {id} was not found"))
 }
 
-async fn run_keyless_prepass(
-    state: &State<'_, AppState>,
-) -> Result<KeylessPrepassReport, String> {
+async fn run_keyless_prepass(state: &State<'_, AppState>) -> Result<KeylessPrepassReport, String> {
     let items = {
         let database = state.db.lock().map_err(|error| error.to_string())?;
         database
@@ -286,11 +287,7 @@ pub async fn check_media_item_metadata(
                         let database = state.db.lock().map_err(|error| error.to_string())?;
                         load_item(&database, id)?
                     };
-                    let provider = update
-                        .provider
-                        .clone()
-                        .into_iter()
-                        .collect::<Vec<_>>();
+                    let provider = update.provider.clone().into_iter().collect::<Vec<_>>();
                     return serde_json::to_value(SingleItemMetadataResult {
                         result_type: "single_item_metadata_check",
                         status: "success",
@@ -376,13 +373,14 @@ mod tests {
         assert!(poster_path.is_file(), "cached poster must exist on disk");
         assert!(poster_path.starts_with(app_dir.join("artwork")));
         let bytes = fs::read(&poster_path).expect("cached poster should be readable");
-        assert!(bytes.len() > 1024, "cached poster should contain real image bytes");
+        assert!(
+            bytes.len() > 1024,
+            "cached poster should contain real image bytes"
+        );
         assert!(
             bytes.starts_with(&[0xFF, 0xD8, 0xFF])
                 || bytes.starts_with(b"\x89PNG\r\n\x1a\n")
-                || (bytes.len() >= 12
-                    && &bytes[0..4] == b"RIFF"
-                    && &bytes[8..12] == b"WEBP"),
+                || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP"),
             "cached poster must have a recognized image signature"
         );
     }
@@ -408,7 +406,8 @@ mod tests {
             ),
         );
 
-        let client = metadata_keyless::http_client().expect("live metadata client should initialize");
+        let client =
+            metadata_keyless::http_client().expect("live metadata client should initialize");
         let update = resolve_keyless_update(&client, &app_dir, &inserted)
             .await
             .expect("live keyless lookup should complete")
@@ -426,12 +425,10 @@ mod tests {
             "provider title should be posted to the media row"
         );
         assert!(reloaded.year.is_some());
-        assert!(
-            reloaded
-                .imdb_id
-                .as_deref()
-                .is_some_and(|value| value.starts_with("tt"))
-        );
+        assert!(reloaded
+            .imdb_id
+            .as_deref()
+            .is_some_and(|value| value.starts_with("tt")));
         assert_cached_poster(&reloaded, &app_dir);
 
         let _ = fs::remove_dir_all(root);
@@ -440,8 +437,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires live Cinemeta and artwork network access"]
     async fn live_metadata_poster_acceptance_cinemeta_movie() {
-        let root =
-            std::env::temp_dir().join(format!("cinavault-movie-live-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("cinavault-movie-live-{}", Uuid::new_v4()));
         let media_dir = root.join("media");
         let app_dir = root.join("appdata");
         fs::create_dir_all(&media_dir).expect("test media directory should be created");
@@ -459,27 +455,32 @@ mod tests {
             ),
         );
 
-        let client = metadata_keyless::http_client().expect("live metadata client should initialize");
+        let client =
+            metadata_keyless::http_client().expect("live metadata client should initialize");
         let update = resolve_keyless_update(&client, &app_dir, &inserted)
             .await
             .expect("live movie lookup should complete")
             .expect("Inception should resolve through live Cinemeta metadata");
         assert_eq!(update.provider.as_deref(), Some("cinemeta"));
-        assert!(update.poster_cached, "live movie poster bytes must be cached");
+        assert!(
+            update.poster_cached,
+            "live movie poster bytes must be cached"
+        );
         let changed = apply_update(&database, &inserted, &update)
             .expect("live movie metadata should write to SQLite");
-        assert!(changed >= 3, "multiple movie metadata fields should be written");
+        assert!(
+            changed >= 3,
+            "multiple movie metadata fields should be written"
+        );
 
         let reloaded = load_item(&database, inserted.id.expect("inserted media id"))
             .expect("updated movie row should reload");
         assert_eq!(reloaded.title, "Inception");
         assert_eq!(reloaded.year, Some(2010));
-        assert!(
-            reloaded
-                .imdb_id
-                .as_deref()
-                .is_some_and(|value| value.starts_with("tt"))
-        );
+        assert!(reloaded
+            .imdb_id
+            .as_deref()
+            .is_some_and(|value| value.starts_with("tt")));
         assert_cached_poster(&reloaded, &app_dir);
 
         let _ = fs::remove_dir_all(root);

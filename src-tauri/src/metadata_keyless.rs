@@ -197,9 +197,7 @@ pub async fn fetch_cinemeta_match(
         _ => "movie",
     };
     let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
-    let url = format!(
-        "{CINEMETA_BASE_URL}/catalog/{content_type}/top/search={encoded}.json"
-    );
+    let url = format!("{CINEMETA_BASE_URL}/catalog/{content_type}/top/search={encoded}.json");
     let response = client
         .get(url)
         .send()
@@ -391,9 +389,11 @@ fn normalize_media_name(value: &str) -> String {
 }
 
 fn looks_like_release_name(value: &str) -> bool {
-    Regex::new(r"(?i)\b(S\d{1,2}E\d{1,3}|\d{1,2}x\d{1,3}|480p|720p|1080p|2160p|x264|x265|webrip|bluray)\b")
-        .expect("release-name regex should compile")
-        .is_match(value)
+    Regex::new(
+        r"(?i)\b(S\d{1,2}E\d{1,3}|\d{1,2}x\d{1,3}|480p|720p|1080p|2160p|x264|x265|webrip|bluray)\b",
+    )
+    .expect("release-name regex should compile")
+    .is_match(value)
 }
 
 fn title_matches(expected: &str, candidate: &str) -> bool {
@@ -537,7 +537,10 @@ mod tests {
     #[test]
     fn movie_release_name_is_reduced_to_movie_title() {
         assert_eq!(
-            metadata_query("Inception.2010.1080p", r"C:\Movies\Inception.2010.1080p.mkv"),
+            metadata_query(
+                "Inception.2010.1080p",
+                r"C:\Movies\Inception.2010.1080p.mkv"
+            ),
             "Inception"
         );
     }

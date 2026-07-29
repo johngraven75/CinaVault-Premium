@@ -25,10 +25,16 @@ mod metadata {
 mod metadata_bridge;
 mod metadata_enrichment_runtime;
 mod metadata_ext {
-    include!(concat!(env!("OUT_DIR"), "/metadata_ext_without_repaired_commands.rs"));
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/metadata_ext_without_repaired_commands.rs"
+    ));
 }
 mod metadata_guard {
-    include!(concat!(env!("OUT_DIR"), "/metadata_guard_without_commands.rs"));
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/metadata_guard_without_commands.rs"
+    ));
 }
 mod metadata_keyless;
 #[cfg(test)]

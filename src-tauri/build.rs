@@ -38,11 +38,7 @@ fn strip_command_attribute(source: String, function_name: &str) -> (String, usiz
     (sanitized, stripped)
 }
 
-fn strip_expected_commands(
-    mut source: String,
-    command_functions: &[&str],
-    label: &str,
-) -> String {
+fn strip_expected_commands(mut source: String, command_functions: &[&str], label: &str) -> String {
     let mut stripped = 0usize;
     for function_name in command_functions {
         let result = strip_command_attribute(source, function_name);
@@ -91,16 +87,13 @@ fn write_metadata_ext_without_repaired_command_attrs() {
         &["check_media_item_metadata"],
         "metadata extension repaired wrapper",
     );
-    fs::write(out_path, sanitized)
-        .expect("failed to write sanitized metadata extension module");
+    fs::write(out_path, sanitized).expect("failed to write sanitized metadata extension module");
 }
 
 fn write_metadata_guard_without_command_attrs() {
     println!("cargo:rerun-if-changed=src/metadata_guard.rs");
-    let (source_path, out_path) = manifest_and_output_paths(
-        "metadata_guard.rs",
-        "metadata_guard_without_commands.rs",
-    );
+    let (source_path, out_path) =
+        manifest_and_output_paths("metadata_guard.rs", "metadata_guard_without_commands.rs");
     let source = normalized_source(&source_path);
     let sanitized = strip_expected_commands(
         source,
