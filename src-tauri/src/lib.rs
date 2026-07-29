@@ -184,6 +184,7 @@ pub fn run() {
             duplicates::find_duplicates,
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
+            duplicates::quarantine,
             iptv::add_xtream_profile,
             iptv::get_xtream_profiles,
             iptv::remove_xtream_profile,
