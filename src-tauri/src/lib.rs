@@ -1,38 +1,45 @@
 // CinaVault Premium — shared Tauri v2 backend for desktop and Android
 // Build identity is sourced from build-version.json through build_identity.
 
-mod db;
-mod build_identity;
-mod iptv;
-mod jellyfin;
-mod player;
-mod plugins;
-mod plugin_configs;
-mod remote_connectivity;
-mod scanner;
-mod metadata {
-    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
-}
 mod adult_site_provider;
 mod ai;
 mod ai_automation;
+mod atomic_file;
+mod build_identity;
 mod chapters;
 mod cloud_storage;
+mod db;
 mod downloads;
 mod duplicates;
-mod enrichment;
+mod enrichment {
+    include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
+}
+mod iptv;
+mod jellyfin;
 mod library_artifacts;
 mod library_count;
 mod media_tools;
+mod metadata {
+    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
+}
 mod metadata_bridge;
 mod metadata_enrichment_runtime;
-mod metadata_ext;
-mod metadata_guard;
+mod metadata_ext {
+    include!(concat!(env!("OUT_DIR"), "/metadata_ext_without_repaired_commands.rs"));
+}
+mod metadata_guard {
+    include!(concat!(env!("OUT_DIR"), "/metadata_guard_without_commands.rs"));
+}
 mod metadata_keyless;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod nas_devices;
 mod pgma_bridge;
+mod player;
+mod plugin_configs;
+mod plugins;
+mod remote_connectivity;
+mod scanner;
 mod task_progress;
 mod vpn;
 mod vpn_profile_store;
