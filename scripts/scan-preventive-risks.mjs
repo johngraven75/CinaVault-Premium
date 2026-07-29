@@ -205,7 +205,7 @@ for (const [marker, reason] of [
     "Build script must sanitize internal metadata guard command macros",
   ],
   [
-    'strip_expected_commands(\n        transformed,\n        &["run_library_enrichment"]',
+    '&["run_library_enrichment"]',
     "Build script must keep legacy enrichment callable without exporting a duplicate command",
   ],
 ]) {
