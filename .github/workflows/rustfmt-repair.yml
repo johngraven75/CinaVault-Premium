@@ -1,0 +1,50 @@
+name: One-shot Rustfmt Repair
+
+on:
+  push:
+    branches:
+      - v2-build-1-05-windows-metadata-repair
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rustfmt-repair-v2-build-1-05
+  cancel-in-progress: false
+
+jobs:
+  format-and-commit:
+    if: github.event.head_commit.message != 'Apply rustfmt normalization'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: v2-build-1-05-windows-metadata-repair
+          fetch-depth: 0
+
+      - name: Setup Rust with rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply canonical Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all
+
+      - name: Verify formatter result
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Commit formatter-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src-tauri; then
+            echo "Rust sources were already formatted."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri
+          git commit -m "Apply rustfmt normalization"
+          git push origin HEAD:v2-build-1-05-windows-metadata-repair
