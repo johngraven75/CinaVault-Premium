@@ -117,15 +117,6 @@ pub(crate) fn has_adult_hint(text: &str) -> bool {
         "x library",
         "vids x",
         "videos x",
-        "boyfriend.tv",
-        "xvideos",
-        "xnxx",
-        "pornhub",
-        "redtube",
-        "youporn",
-        "tube8",
-        "xhamster",
-        "spankbang",
     ]
     .iter()
     .any(|hint| lower.contains(hint))
@@ -661,20 +652,11 @@ async fn resolve_provider_match(
         let mut matches = Vec::new();
         match source_kind {
             SourceKind::AdultVideo => {
-                if let Some(key) = provider_keys.get("tpdb") {
-                    match fetch_tpdb_metadata(client, key, query).await {
+                if let Some(key) = provider_keys.get("stashdb") {
+                    match fetch_stashdb_metadata(client, key, query).await {
                         Ok(Some(result)) => matches.push(result),
                         Ok(None) => {}
-                        Err(err) => provider_errors.push(format!("tpdb/{query}: {err}")),
-                    }
-                }
-                if matches.is_empty() {
-                    if let Some(key) = provider_keys.get("stashdb") {
-                        match fetch_stashdb_metadata(client, key, query).await {
-                            Ok(Some(result)) => matches.push(result),
-                            Ok(None) => {}
-                            Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
-                        }
+                        Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
                     }
                 }
                 if matches.is_empty() {
@@ -815,125 +797,6 @@ async fn fetch_omdb_metadata(
         genre: non_empty_string(data.get("Genre").and_then(|value| value.as_str())),
         tmdb_id: None,
         imdb_id: non_empty_string(data.get("imdbID").and_then(|value| value.as_str())),
-    }))
-}
-
-
-async fn fetch_tpdb_metadata(
-    client: &reqwest::Client,
-    api_key: &str,
-    query: &str,
-) -> Result<Option<ProviderMatch>, String> {
-    if api_key.trim().is_empty() {
-        return Ok(None);
-    }
-
-    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
-    let search_url = format!("https://api.theporndb.net/scenes?parse={encoded}&hash=&year=");
-    let response = client
-        .get(search_url)
-        .bearer_auth(api_key.trim())
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
-    let status = response.status();
-    let search = response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|err| err.to_string())?;
-    if !status.is_success() {
-        return Err(search
-            .get("message")
-            .and_then(|value| value.as_str())
-            .unwrap_or("ThePornDB search failed")
-            .to_string());
-    }
-
-    let Some(scene_id) = search
-        .get("data")
-        .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("uuid").or_else(|| item.get("UUID")))
-        .and_then(|value| value.as_str())
-    else {
-        return Ok(None);
-    };
-
-    let response = client
-        .get(format!("https://api.theporndb.net/scenes/{scene_id}"))
-        .bearer_auth(api_key.trim())
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
-    let status = response.status();
-    let detail_response = response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|err| err.to_string())?;
-    if !status.is_success() {
-        return Err(detail_response
-            .get("message")
-            .and_then(|value| value.as_str())
-            .unwrap_or("ThePornDB scene lookup failed")
-            .to_string());
-    }
-
-    let detail = detail_response.get("data").unwrap_or(&detail_response);
-    let genre = detail
-        .get("tags")
-        .and_then(|value| value.as_array())
-        .map(|tags| {
-            tags.iter()
-                .filter_map(|tag| tag.get("name").and_then(|value| value.as_str()))
-                .filter(|name| !name.trim().is_empty())
-                .take(6)
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .filter(|value| !value.trim().is_empty());
-    let poster_path = detail
-        .get("posters")
-        .and_then(|value| value.get("large"))
-        .and_then(|value| value.as_str())
-        .and_then(|value| non_empty_string(Some(value)))
-        .or_else(|| {
-            detail
-                .get("poster")
-                .and_then(|value| value.as_str())
-                .and_then(|value| non_empty_string(Some(value)))
-        })
-        .or_else(|| {
-            detail
-                .get("background")
-                .and_then(|value| value.get("large"))
-                .and_then(|value| value.as_str())
-                .and_then(|value| non_empty_string(Some(value)))
-        });
-
-    Ok(Some(ProviderMatch {
-        title: non_empty_string(detail.get("title").and_then(|value| value.as_str())),
-        overview: non_empty_string(
-            detail
-                .get("description")
-                .or_else(|| detail.get("details"))
-                .and_then(|value| value.as_str()),
-        ),
-        poster_path,
-        year: parse_year_prefix(
-            detail
-                .get("date")
-                .or_else(|| detail.get("release_date"))
-                .and_then(|value| value.as_str()),
-        ),
-        rating: None,
-        genre,
-        tmdb_id: None,
-        imdb_id: detail
-            .get("uuid")
-            .and_then(|value| value.as_str())
-            .and_then(|value| non_empty_string(Some(value))),
     }))
 }
 
@@ -1595,152 +1458,6 @@ fn push_sample(
         file_path: file_path.to_string(),
         action: action.to_string(),
     });
-}
-
-
-#[derive(Debug, Serialize)]
-pub struct DownloadedAdultMetadataReport {
-    pub status: &'static str,
-    pub adult_verified: bool,
-    pub file_path: String,
-    pub configured_providers: Vec<String>,
-    pub metadata_found: bool,
-    pub poster_path: Option<String>,
-    pub nfo_written: bool,
-    pub provider_errors: Vec<String>,
-}
-
-pub(crate) fn is_adult_download_source(source_url: &str, file_path: &str) -> bool {
-    has_adult_hint(source_url) || has_adult_hint(file_path)
-}
-
-pub(crate) async fn enrich_downloaded_adult_file(
-    state: &State<'_, AppState>,
-    source_url: &str,
-    file_path: &str,
-) -> Result<DownloadedAdultMetadataReport, String> {
-    if !is_adult_download_source(source_url, file_path) {
-        return Ok(DownloadedAdultMetadataReport {
-            status: "skipped_non_adult",
-            adult_verified: false,
-            file_path: file_path.to_string(),
-            configured_providers: Vec::new(),
-            metadata_found: false,
-            poster_path: None,
-            nfo_written: false,
-            provider_errors: Vec::new(),
-        });
-    }
-    if !Path::new(file_path).is_file() {
-        return Err(format!("Downloaded media file does not exist: {file_path}"));
-    }
-
-    let provider_keys = {
-        let db = state.db.lock().map_err(|err| err.to_string())?;
-        load_provider_keys(&db)?
-    };
-    let configured_providers = ["tpdb", "stashdb", "tmdb", "omdb"]
-        .into_iter()
-        .filter(|provider| provider_keys.contains_key(*provider))
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-
-    let normalized_title = normalize_filename_title(file_path);
-    let title = if normalized_title.is_empty() {
-        Path::new(file_path)
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("Downloaded adult video")
-            .to_string()
-    } else {
-        normalized_title
-    };
-    let item = LibraryItemRecord {
-        id: 0,
-        title: title.clone(),
-        file_path: file_path.to_string(),
-        media_type: "adult".to_string(),
-        overview: None,
-        poster_path: None,
-        year: None,
-        rating: None,
-        genre: Some("Adult".to_string()),
-        tmdb_id: None,
-        imdb_id: None,
-        source_name: Some("Downloaded adult media".to_string()),
-        source_path: Some(source_url.to_string()),
-    };
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|err| err.to_string())?;
-    let mut provider_errors = Vec::new();
-    let queries = build_query_candidates(&item, extract_embedded_title(file_path));
-    let remote_provider = resolve_provider_match(
-        &client,
-        &provider_keys,
-        SourceKind::AdultVideo,
-        &queries,
-        &mut provider_errors,
-    )
-    .await;
-    let local_provider = local_sidecar_artwork_match(&item)
-        .or_else(|| local_display_title_match(&item))
-        .unwrap_or_else(|| ProviderMatch {
-            title: Some(title.clone()),
-            genre: Some("Adult".to_string()),
-            ..ProviderMatch::default()
-        });
-    let metadata_found = remote_provider.is_some();
-    let provider = remote_provider
-        .map(|remote| merge_provider_matches(remote, local_provider.clone()))
-        .unwrap_or(local_provider);
-
-    let mut update = build_metadata_update(&item, &provider, &SourceKind::AdultVideo);
-    let mut poster_path = update.poster_path.clone();
-    if let Some(remote_url) = poster_path.clone() {
-        if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
-            match download_poster_to_sidecar(&client, &remote_url, file_path).await {
-                Ok(local_path) => {
-                    poster_path = Some(local_path.clone());
-                    update.poster_path = Some(local_path);
-                }
-                Err(err) => {
-                    poster_path = None;
-                    provider_errors.push(format!("poster/{file_path}: {err}"));
-                }
-            }
-        }
-    }
-
-    let nfo_title = update.title.as_deref().unwrap_or(&title);
-    write_nfo_sidecar(
-        file_path,
-        nfo_title,
-        update.year,
-        update.overview.as_deref(),
-        update.rating,
-        update.genre.as_deref().or(Some("Adult")),
-        update.tmdb_id.as_deref(),
-        update.imdb_id.as_deref(),
-        poster_path.as_deref(),
-    )?;
-
-    Ok(DownloadedAdultMetadataReport {
-        status: if provider_errors.is_empty() {
-            "verified"
-        } else {
-            "verified_with_provider_warnings"
-        },
-        adult_verified: true,
-        file_path: file_path.to_string(),
-        configured_providers,
-        metadata_found,
-        poster_path,
-        nfo_written: true,
-        provider_errors,
-    })
 }
 
 #[derive(Debug, serde::Serialize)]
