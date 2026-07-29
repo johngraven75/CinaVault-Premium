@@ -101,6 +101,12 @@ jobs:
       - name: Master candidate gate
         run: npm run verify:master-build
 
+      - name: Shared contract conformance gate
+        run: npm run verify:contracts
+
+      - name: Preventive risk gate
+        run: npm run scan:preventive
+
       - name: Frontend validation
         run: |
           npm run lint
@@ -108,9 +114,7 @@ jobs:
           npm run build
 
       - name: Rust formatting
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Refresh Rust lockfile
         run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
@@ -120,6 +124,26 @@ jobs:
 
       - name: Rust compile
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+
+      - name: Live TVMaze and Cinemeta metadata acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Path validation-logs -Force | Out-Null
+          cmd /d /s /c "npm run test:metadata-live > validation-logs\live-metadata.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          $log = Get-Content validation-logs\live-metadata.log -Raw
+          Write-Host $log
+          if ($exitCode -ne 0) { throw "Live metadata acceptance failed with exit code $exitCode" }
+          if ($log -notmatch 'live_metadata_poster_acceptance_tvmaze_series') {
+            throw 'TVMaze series acceptance test did not execute.'
+          }
+          if ($log -notmatch 'live_metadata_poster_acceptance_cinemeta_movie') {
+            throw 'Cinemeta movie acceptance test did not execute.'
+          }
+          if ($log -notmatch 'test result: ok\. 2 passed; 0 failed') {
+            throw 'Live metadata gate did not report exactly two passing acceptance tests.'
+          }
 
       - name: Build Windows installers
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
@@ -151,8 +175,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2 Build 1.05 release
+      - name: Reconfirm master release authorization
         if: github.event_name == 'workflow_dispatch'
+        run: npm run verify:master-release
+
+      - name: Publish v2 Build 1.05 release
+        if: github.event_name == 'workflow_dispatch' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
@@ -161,7 +189,7 @@ jobs:
           body: |
             CinaVault Premium v2 Build 1.05, version 2.0.5.
 
-            Windows release containing the verified NSIS EXE installer and MSI package, with SHA-256 checksums. Built from main after candidate, HLS/media, metadata, shared-contract, packaging, and validation repairs.
+            Windows release containing the verified NSIS EXE installer and MSI package, with SHA-256 checksums. Published only after the master release gate, shared contracts, preventive scan, frontend validation, Rust validation, and live TVMaze/Cinemeta metadata and poster acceptance passed.
           draft: false
           prerelease: false
           generate_release_notes: true

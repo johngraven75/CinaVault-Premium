@@ -101,18 +101,30 @@ jobs:
 
       - name: Rust validation
         run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all
           cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
           cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
           cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
 
-      - name: Live metadata and poster acceptance
+      - name: Live TV and movie metadata, poster, and database acceptance
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          cargo test --manifest-path src-tauri/Cargo.toml live_tvmaze_metadata_poster_acceptance -- --ignored --nocapture
-          if ($LASTEXITCODE -ne 0) { throw "Live metadata/poster acceptance failed with exit code $LASTEXITCODE" }
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Path release-diagnostics -Force | Out-Null
+          cmd /d /s /c "npm run test:metadata-live > release-diagnostics\live-metadata.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          $log = Get-Content release-diagnostics\live-metadata.log -Raw
+          Write-Host $log
+          if ($exitCode -ne 0) { throw "Live metadata/poster acceptance failed with exit code $exitCode" }
+          if ($log -notmatch 'live_metadata_poster_acceptance_tvmaze_series') {
+            throw 'TVMaze series acceptance test did not execute.'
+          }
+          if ($log -notmatch 'live_metadata_poster_acceptance_cinemeta_movie') {
+            throw 'Cinemeta movie acceptance test did not execute.'
+          }
+          if ($log -notmatch 'test result: ok\. 2 passed; 0 failed') {
+            throw 'Live metadata gate did not report exactly two passing acceptance tests.'
+          }
 
       - name: Build Windows installers
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
@@ -153,7 +165,7 @@ jobs:
           name: CinaVault Premium v2 Build 1.05
           body: |
             CinaVault Premium v2 Build 1.05, version 2.0.5.
-            Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
+            Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live TVMaze and Cinemeta metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
           draft: false
           prerelease: false
           generate_release_notes: true

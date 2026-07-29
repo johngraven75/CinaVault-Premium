@@ -25,13 +25,7 @@ function rejectPattern(relativePath, pattern, reason) {
 }
 
 function rejectCrlf(relativePath) {
-  // Windows hosted runners can materialize repository files with CRLF even when
-  // the committed blobs are LF-normalized. Treat checkout conversion as an
-  // environment detail rather than a product defect; the Linux CI gate still
-  // enforces repository-side line-ending hygiene.
-  if (process.platform === "win32") {
-    return;
-  }
+  if (process.platform === "win32") return;
   const content = fs.readFileSync(path.join(root, relativePath));
   if (content.includes(Buffer.from("\r\n"))) {
     findings.push({
@@ -88,9 +82,14 @@ requireMarker(
   "Tauri runtime app info must use the typed manifest-driven build identity",
 );
 requireMarker(
+  "src-tauri/src/main.rs",
+  "cinavault_premium_lib::run();",
+  "Windows binary entrypoint must execute the repaired shared Tauri runtime",
+);
+requireMarker(
   ".github/workflows/release-build-170.yml",
   "npm run verify:master-release",
-  "Packaging must be blocked by the master release gate",
+  "Master-gated packaging must remain blocked by the master release gate",
 );
 
 const packageJson = JSON.parse(read("package.json"));
@@ -170,6 +169,126 @@ if (/api[_-]?key|access[_-]?token|client[_-]?secret/i.test(
     reason: "Portable provider contract appears to contain credentials",
   });
 }
+
+for (const [marker, reason] of [
+  [
+    "metadata_enrichment_runtime::check_media_item_metadata",
+    "Check Metadata must route through the keyless/cached enrichment runtime",
+  ],
+  [
+    "metadata_enrichment_runtime::run_library_enrichment",
+    "Library enrichment must route through the keyless/cached enrichment runtime",
+  ],
+  [
+    "pub app_data_dir: PathBuf",
+    "AppState must expose the application-data root for durable artwork caching",
+  ],
+  [
+    'create_dir_all(app_dir.join("artwork"))',
+    "Startup must create the application-owned artwork cache",
+  ],
+]) {
+  requireMarker("src-tauri/src/lib.rs", marker, reason);
+}
+
+for (const [marker, reason] of [
+  [
+    "metadata_ext_without_repaired_commands.rs",
+    "Build script must generate a metadata extension fallback without the wrapped command macro",
+  ],
+  [
+    "metadata_guard_without_commands.rs",
+    "Build script must sanitize internal metadata guard command macros",
+  ],
+  [
+    '&["run_library_enrichment"]',
+    "Build script must keep legacy enrichment callable without exporting a duplicate command",
+  ],
+]) {
+  requireMarker("src-tauri/build.rs", marker, reason);
+}
+
+const assetProtocol = tauriConfiguration?.app?.security?.assetProtocol;
+if (assetProtocol?.enable !== true) {
+  findings.push({
+    severity: "high",
+    file: "src-tauri/tauri.conf.json",
+    reason: "Tauri asset protocol must be enabled so cached local posters can render",
+  });
+}
+if (!Array.isArray(assetProtocol?.scope) || !assetProtocol.scope.includes("$APPDATA/artwork/**/*")) {
+  findings.push({
+    severity: "high",
+    file: "src-tauri/tauri.conf.json",
+    reason: "Tauri asset scope must include only the CinaVault application artwork cache",
+  });
+}
+
+for (const [marker, reason] of [
+  ["https://api.tvmaze.com/search/shows", "Keyless TV metadata provider is missing"],
+  ["https://v3-cinemeta.strem.io", "Keyless movie metadata provider is missing"],
+  ["fetch_keyless_match", "Media-type-aware keyless provider routing is missing"],
+  ['app_data_dir.join("artwork")', "Artwork is not cached under application-owned storage"],
+  ["Remote artwork must use HTTPS", "Artwork cache no longer enforces encrypted provider transport"],
+]) {
+  requireMarker("src-tauri/src/metadata_keyless.rs", marker, reason);
+}
+for (const [marker, reason] of [
+  ["run_keyless_prepass", "Bulk enrichment no longer performs the keyless metadata prepass"],
+  ["fetch_keyless_match", "Metadata runtime no longer routes by media type to keyless providers"],
+  ["cache_remote_artwork", "Metadata runtime no longer persists provider poster bytes"],
+  ["update_media_metadata_data", "Metadata runtime no longer writes resolved metadata back to SQLite"],
+  [
+    "live_metadata_poster_acceptance_tvmaze_series",
+    "Live TV metadata/poster acceptance test is missing",
+  ],
+  [
+    "live_metadata_poster_acceptance_cinemeta_movie",
+    "Live movie metadata/poster acceptance test is missing",
+  ],
+]) {
+  requireMarker("src-tauri/src/metadata_enrichment_runtime.rs", marker, reason);
+}
+requireMarker(
+  "package.json",
+  "live_metadata_poster_acceptance_",
+  "Live metadata command must execute both TVMaze and Cinemeta acceptance fixtures",
+);
+requireMarker(
+  "src/components/tabs/HomeTab.tsx",
+  "convertFileSrc(path)",
+  "Library media cards must convert application-cache poster paths into renderable asset URLs",
+);
+
+const installerWorkflows = [
+  ".github/workflows/windows-build-1-04-validation.yml",
+  ".github/workflows/v2-build-1-04-release.yml",
+  ".github/workflows/windows-installer.yml",
+];
+for (const workflow of installerWorkflows) {
+  for (const [marker, reason] of [
+    ["npm run test:metadata-live", "Installer workflow must run live metadata acceptance"],
+    [
+      "live_metadata_poster_acceptance_tvmaze_series",
+      "Installer workflow must prove the TVMaze series acceptance test executed",
+    ],
+    [
+      "live_metadata_poster_acceptance_cinemeta_movie",
+      "Installer workflow must prove the Cinemeta movie acceptance test executed",
+    ],
+    [
+      "test result: ok\\. 2 passed; 0 failed",
+      "Installer workflow must require exactly two passing live acceptance tests",
+    ],
+  ]) {
+    requireMarker(workflow, marker, reason);
+  }
+}
+requireMarker(
+  ".github/workflows/windows-installer.yml",
+  "npm run verify:master-release",
+  "Manual release publication must reconfirm the master release gate",
+);
 
 fs.mkdirSync(path.join(root, "master-evidence"), { recursive: true });
 fs.writeFileSync(

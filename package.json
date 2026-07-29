@@ -30,7 +30,7 @@
     "test:v2-build-1-03": "node --test tests/v2Build103CommandPaletteStability.test.mjs",
     "test:platform-parity": "node --test tests/platformParityContract.test.mjs",
     "test:hls": "node --test tests/hlsStreamSupport.test.mjs",
-    "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml live_tvmaze_metadata_poster_acceptance -- --ignored --nocapture"
+    "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml live_metadata_poster_acceptance_ -- --ignored --nocapture"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

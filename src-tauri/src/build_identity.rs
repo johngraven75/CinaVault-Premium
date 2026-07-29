@@ -21,7 +21,10 @@ pub fn current() -> &'static BuildIdentity {
     BUILD_IDENTITY.get_or_init(|| {
         let identity: BuildIdentity = serde_json::from_str(BUILD_VERSION_JSON)
             .expect("build-version.json must contain a valid build identity");
-        assert_eq!(identity.schema_version, 1, "unsupported build identity schema");
+        assert_eq!(
+            identity.schema_version, 1,
+            "unsupported build identity schema"
+        );
         assert_eq!(
             identity.semantic_version,
             env!("CARGO_PKG_VERSION"),

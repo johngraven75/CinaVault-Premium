@@ -1,45 +1,63 @@
 // CinaVault Premium — shared Tauri v2 backend for desktop and Android
 // Build identity is sourced from build-version.json through build_identity.
 
-mod db;
-mod build_identity;
-mod iptv;
-mod jellyfin;
-mod player;
-mod plugins;
-mod plugin_configs;
-mod remote_connectivity;
-mod scanner;
-mod metadata {
-    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
-}
 mod adult_site_provider;
 mod ai;
 mod ai_automation;
+mod atomic_file;
+mod build_identity;
 mod chapters;
 mod cloud_storage;
+mod db;
 mod downloads;
 mod duplicates;
-mod enrichment;
+mod enrichment {
+    include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
+}
+mod iptv;
+mod jellyfin;
 mod library_artifacts;
 mod library_count;
 mod media_tools;
+mod metadata {
+    include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
+}
 mod metadata_bridge;
-mod metadata_ext;
+mod metadata_enrichment_runtime;
+mod metadata_ext {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/metadata_ext_without_repaired_commands.rs"
+    ));
+}
+mod metadata_guard {
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/metadata_guard_without_commands.rs"
+    ));
+}
+mod metadata_keyless;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod nas_devices;
 mod pgma_bridge;
+mod player;
+mod plugin_configs;
+mod plugins;
+mod remote_connectivity;
+mod scanner;
 mod task_progress;
 mod vpn;
 mod vpn_profile_store;
 
 use db::Database;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 
 pub struct AppState {
     pub db: Mutex<Database>,
+    pub app_data_dir: PathBuf,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -56,6 +74,7 @@ pub fn run() {
         .setup(|app| {
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
             std::fs::create_dir_all(&app_dir).ok();
+            std::fs::create_dir_all(app_dir.join("artwork")).ok();
 
             let plugin_dirs = ["jellyfin", "emby", "plex", "native"];
             for dir in &plugin_dirs {
@@ -122,7 +141,10 @@ pub fn run() {
                 Err(error) => log::warn!("Permanent media tools startup repair failed: {error}"),
             }
 
-            app.manage(AppState { db: Mutex::new(database) });
+            app.manage(AppState {
+                db: Mutex::new(database),
+                app_data_dir: app_dir,
+            });
             log::info!("{} initialized successfully", build_identity::current().display_name);
             Ok(())
         })
@@ -196,7 +218,7 @@ pub fn run() {
             player::set_default_player,
             metadata_ext::fetch_metadata,
             metadata_ext::search_metadata,
-            metadata_ext::check_media_item_metadata,
+            metadata_enrichment_runtime::check_media_item_metadata,
             metadata_ext::get_provider_status,
             metadata_ext::test_api_key,
             metadata_ext::set_api_key,
@@ -230,7 +252,7 @@ pub fn run() {
             ai::get_ai_config,
             ai::set_ai_model,
             ai_automation::ai_library_manage,
-            enrichment::run_library_enrichment,
+            metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
             cloud_storage::cloud_auth_start,
