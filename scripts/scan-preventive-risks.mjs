@@ -25,13 +25,7 @@ function rejectPattern(relativePath, pattern, reason) {
 }
 
 function rejectCrlf(relativePath) {
-  // Windows hosted runners can materialize repository files with CRLF even when
-  // the committed blobs are LF-normalized. Treat checkout conversion as an
-  // environment detail rather than a product defect; the Linux CI gate still
-  // enforces repository-side line-ending hygiene.
-  if (process.platform === "win32") {
-    return;
-  }
+  if (process.platform === "win32") return;
   const content = fs.readFileSync(path.join(root, relativePath));
   if (content.includes(Buffer.from("\r\n"))) {
     findings.push({
@@ -88,9 +82,14 @@ requireMarker(
   "Tauri runtime app info must use the typed manifest-driven build identity",
 );
 requireMarker(
+  "src-tauri/src/main.rs",
+  "cinavault_premium_lib::run();",
+  "Windows binary entrypoint must execute the repaired shared Tauri runtime",
+);
+requireMarker(
   ".github/workflows/release-build-170.yml",
   "npm run verify:master-release",
-  "Packaging must be blocked by the master release gate",
+  "Master-gated packaging must remain blocked by the master release gate",
 );
 
 const packageJson = JSON.parse(read("package.json"));
@@ -171,9 +170,6 @@ if (/api[_-]?key|access[_-]?token|client[_-]?secret/i.test(
   });
 }
 
-// Windows metadata/poster routing is release-critical. The implementation may
-// exist and still be broken if the production Tauri handler drifts back to the
-// legacy command path, which is the regression repaired in v2 Build 1.05.
 for (const [marker, reason] of [
   [
     "metadata_enrichment_runtime::check_media_item_metadata",
@@ -262,6 +258,36 @@ requireMarker(
   "src/components/tabs/HomeTab.tsx",
   "convertFileSrc(path)",
   "Library media cards must convert application-cache poster paths into renderable asset URLs",
+);
+
+const installerWorkflows = [
+  ".github/workflows/windows-build-1-04-validation.yml",
+  ".github/workflows/v2-build-1-04-release.yml",
+  ".github/workflows/windows-installer.yml",
+];
+for (const workflow of installerWorkflows) {
+  for (const [marker, reason] of [
+    ["npm run test:metadata-live", "Installer workflow must run live metadata acceptance"],
+    [
+      "live_metadata_poster_acceptance_tvmaze_series",
+      "Installer workflow must prove the TVMaze series acceptance test executed",
+    ],
+    [
+      "live_metadata_poster_acceptance_cinemeta_movie",
+      "Installer workflow must prove the Cinemeta movie acceptance test executed",
+    ],
+    [
+      "test result: ok\\. 2 passed; 0 failed",
+      "Installer workflow must require exactly two passing live acceptance tests",
+    ],
+  ]) {
+    requireMarker(workflow, marker, reason);
+  }
+}
+requireMarker(
+  ".github/workflows/windows-installer.yml",
+  "npm run verify:master-release",
+  "Manual release publication must reconfirm the master release gate",
 );
 
 fs.mkdirSync(path.join(root, "master-evidence"), { recursive: true });
