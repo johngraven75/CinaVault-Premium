@@ -1,4 +1,4 @@
-name: Auto Build, Test, Cleanup & Release — v2 Build 1.05
+name: Auto Build, Test, Cleanup & Release — v2 Build 1.06
 
 on:
   push:
@@ -12,13 +12,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: v2-build-1-05-release-${{ github.event_name }}-${{ github.ref }}
+  group: v2-build-1-06-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: 2.0.5
-  TAG_NAME: v2.0.5
-  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.05
+  APP_VERSION: 2.0.6
+  TAG_NAME: v2.0.6
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.06
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -28,22 +28,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Remove existing v2 Build 1.05 release and tag
+      - name: Protect immutable v2 Build 1.06 release identity
         if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          $ErrorActionPreference = 'Stop'
+          git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release delete $env:TAG_NAME --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing v2 Build 1.05 release.' }
-          } else {
-            git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
-            if ($LASTEXITCODE -eq 0) {
-              git push origin ":refs/tags/$env:TAG_NAME"
-              if ($LASTEXITCODE -ne 0) { throw 'Failed to remove existing v2 Build 1.05 tag.' }
-            }
+            throw "Release tag $env:TAG_NAME already exists. Advance the build number instead of replacing a published tag."
           }
           exit 0
 
@@ -68,7 +62,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify v2 Build 1.05 identity
+      - name: Verify v2 Build 1.06 identity
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -78,7 +72,7 @@ jobs:
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version is $packageVersion, expected $env:APP_VERSION" }
           if ($tauriVersion -ne $env:APP_VERSION) { throw "tauri.conf.json version is $tauriVersion, expected $env:APP_VERSION" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "Cargo.toml version is $cargoVersion, expected $env:APP_VERSION" }
-          if ($tauri.app.windows[0].title -notmatch 'v2 Build 1\.05') { throw 'Windows title is not v2 Build 1.05.' }
+          if ($tauri.app.windows[0].title -notmatch 'v2 Build 1\.06') { throw 'Windows title is not v2 Build 1.06.' }
 
       - name: Download and verify official WireGuard engine
         shell: pwsh
@@ -179,15 +173,15 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: npm run verify:master-release
 
-      - name: Publish v2 Build 1.05 release
+      - name: Publish v2 Build 1.06 release
         if: github.event_name == 'workflow_dispatch' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium v2 Build 1.05
+          name: CinaVault Premium v2 Build 1.06
           body: |
-            CinaVault Premium v2 Build 1.05, version 2.0.5.
+            CinaVault Premium v2 Build 1.06, version 2.0.6.
 
             Windows release containing the verified NSIS EXE installer and MSI package, with SHA-256 checksums. Published only after the master release gate, shared contracts, preventive scan, frontend validation, Rust validation, and live TVMaze/Cinemeta metadata and poster acceptance passed.
           draft: false
