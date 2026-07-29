@@ -11,6 +11,7 @@ import {
   Loader,
   PackageSearch,
   Radio,
+  Sparkles,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -77,24 +78,14 @@ export default function DownloadsTab() {
         : `Starting download: ${url}`,
     );
     try {
-      const cmd = isPlaylist
-        ? "start_playlist_download"
-        : isHls
-          ? "start_media_download"
-          : "start_download";
-      const result = await invoke<any>(cmd, {
+      const result = await invoke<any>("ai_automated_download", {
         url,
         outputDir: outputDir || undefined,
-        ...(isHls
-          ? {
-              format: "bestvideo*+bestaudio/best",
-              cookiesFile: undefined,
-              includePlaylist: false,
-            }
-          : {}),
+        includePlaylist: isPlaylist,
+        cookiesFile: undefined,
       });
       addStatusMessage(
-        `${isHls ? "HLS stream" : "Download"} ${result.status}: ${result.title || url}`,
+        `${isHls ? "HLS stream" : "AI Download & Organize"} ${result.status}: ${result.title || url}`,
       );
       setHistory((prev) => [
         {
@@ -266,7 +257,7 @@ export default function DownloadsTab() {
 
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Download size={16} className="text-cv-accent" /> Web / URL Download
+          <Sparkles size={16} className="text-cv-accent" /> AI Automated Web Download
         </h3>
         <div className="space-y-3">
           <div>
@@ -278,6 +269,15 @@ export default function DownloadsTab() {
               placeholder="https://example.com/master.m3u8 or any supported media URL"
               className="cv-input"
             />
+          </div>
+          <div className="glass-panel-2 rounded-lg px-4 py-3 flex items-start gap-3">
+            <Sparkles size={16} className="text-cv-accent mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold">One-link automation enabled</div>
+              <div className="text-[11px] text-cv-subtext">
+                CinaVault validates the link, repairs required tools, downloads the best available format, detects completed files, verifies adult metadata when applicable, retrieves provider artwork, and writes NFO sidecars automatically.
+              </div>
+            </div>
           </div>
           {isHls && (
             <div className="glass-panel-2 rounded-lg px-4 py-3 flex items-start gap-3">
