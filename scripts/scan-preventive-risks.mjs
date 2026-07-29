@@ -171,6 +171,84 @@ if (/api[_-]?key|access[_-]?token|client[_-]?secret/i.test(
   });
 }
 
+// Windows metadata/poster routing is release-critical. The implementation may
+// exist and still be broken if the production Tauri handler drifts back to the
+// legacy command path, which is the regression repaired in v2 Build 1.05.
+for (const [marker, reason] of [
+  [
+    "metadata_enrichment_runtime::check_media_item_metadata",
+    "Check Metadata must route through the keyless/cached enrichment runtime",
+  ],
+  [
+    "metadata_enrichment_runtime::run_library_enrichment",
+    "Library enrichment must route through the keyless/cached enrichment runtime",
+  ],
+  [
+    "pub app_data_dir: PathBuf",
+    "AppState must expose the application-data root for durable artwork caching",
+  ],
+  [
+    'create_dir_all(app_dir.join("artwork"))',
+    "Startup must create the application-owned artwork cache",
+  ],
+]) {
+  requireMarker("src-tauri/src/lib.rs", marker, reason);
+}
+
+for (const [marker, reason] of [
+  [
+    "metadata_ext_without_repaired_commands.rs",
+    "Build script must generate a metadata extension fallback without the wrapped command macro",
+  ],
+  [
+    "metadata_guard_without_commands.rs",
+    "Build script must sanitize internal metadata guard command macros",
+  ],
+  [
+    'strip_expected_commands(\n        transformed,\n        &["run_library_enrichment"]',
+    "Build script must keep legacy enrichment callable without exporting a duplicate command",
+  ],
+]) {
+  requireMarker("src-tauri/build.rs", marker, reason);
+}
+
+const assetProtocol = tauriConfiguration?.app?.security?.assetProtocol;
+if (assetProtocol?.enable !== true) {
+  findings.push({
+    severity: "high",
+    file: "src-tauri/tauri.conf.json",
+    reason: "Tauri asset protocol must be enabled so cached local posters can render",
+  });
+}
+if (!Array.isArray(assetProtocol?.scope) || !assetProtocol.scope.includes("$APPDATA/artwork/**/*")) {
+  findings.push({
+    severity: "high",
+    file: "src-tauri/tauri.conf.json",
+    reason: "Tauri asset scope must include only the CinaVault application artwork cache",
+  });
+}
+
+for (const [marker, reason] of [
+  ["https://api.tvmaze.com/search/shows", "Keyless TV metadata provider is missing"],
+  ['app_data_dir.join("artwork")', "Artwork is not cached under application-owned storage"],
+  ["Remote artwork must use HTTPS", "Artwork cache no longer enforces encrypted provider transport"],
+]) {
+  requireMarker("src-tauri/src/metadata_keyless.rs", marker, reason);
+}
+for (const [marker, reason] of [
+  ["run_keyless_prepass", "Bulk enrichment no longer performs the keyless metadata prepass"],
+  ["cache_remote_artwork", "Metadata runtime no longer persists provider poster bytes"],
+  ["update_media_metadata_data", "Metadata runtime no longer writes resolved metadata back to SQLite"],
+  ["live_tvmaze_metadata_poster_acceptance", "Live metadata/poster acceptance test is missing"],
+]) {
+  requireMarker("src-tauri/src/metadata_enrichment_runtime.rs", marker, reason);
+}
+requireMarker(
+  "src/components/tabs/HomeTab.tsx",
+  "convertFileSrc(path)",
+  "Library media cards must convert application-cache poster paths into renderable asset URLs",
+);
+
 fs.mkdirSync(path.join(root, "master-evidence"), { recursive: true });
 fs.writeFileSync(
   path.join(root, "master-evidence", "preventive-risk-findings.json"),
