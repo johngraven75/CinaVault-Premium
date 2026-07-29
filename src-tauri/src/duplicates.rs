@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -227,6 +228,128 @@ pub fn remove_duplicate(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+
+#[tauri::command]
+pub fn quarantine(
+    state: State<AppState>,
+    item_id: i64,
+) -> Result<serde_json::Value, String> {
+    let source_path = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        db.conn
+            .query_row(
+                "SELECT file_path FROM duplicate_items WHERE id = ?1",
+                params![item_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| format!("Duplicate item {item_id} was not found: {e}"))?
+    };
+
+    let source = PathBuf::from(&source_path);
+    if !source.is_file() {
+        return Err(format!("Duplicate file does not exist: {}", source.display()));
+    }
+
+    let quarantine_dir = state.app_data_dir.join("quarantine");
+    std::fs::create_dir_all(&quarantine_dir)
+        .map_err(|e| format!("Unable to create quarantine directory: {e}"))?;
+
+    let destination = unique_quarantine_path(&quarantine_dir, &source)?;
+    move_without_overwrite(&source, &destination)?;
+
+    let destination_string = destination.to_string_lossy().into_owned();
+    let update_result = (|| -> Result<(), String> {
+        let mut db = state.db.lock().map_err(|e| e.to_string())?;
+        let transaction = db.conn.transaction().map_err(|e| e.to_string())?;
+        transaction
+            .execute(
+                "UPDATE duplicate_items SET file_path = ?1 WHERE id = ?2",
+                params![destination_string, item_id],
+            )
+            .map_err(|e| e.to_string())?;
+        transaction
+            .execute(
+                "UPDATE media_items SET file_path = ?1
+                 WHERE id = (SELECT media_id FROM duplicate_items WHERE id = ?2)",
+                params![destination_string, item_id],
+            )
+            .map_err(|e| e.to_string())?;
+        transaction.commit().map_err(|e| e.to_string())
+    })();
+
+    if let Err(error) = update_result {
+        let rollback_error = std::fs::rename(&destination, &source).err();
+        return Err(match rollback_error {
+            Some(rollback) => format!(
+                "Unable to update quarantine records: {error}; file rollback also failed: {rollback}"
+            ),
+            None => format!("Unable to update quarantine records: {error}"),
+        });
+    }
+
+    Ok(serde_json::json!({
+        "item_id": item_id,
+        "original_path": source_path,
+        "quarantine_path": destination_string,
+    }))
+}
+
+fn unique_quarantine_path(directory: &Path, source: &Path) -> Result<PathBuf, String> {
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| format!("Source path has no file name: {}", source.display()))?;
+    let first_candidate = directory.join(file_name);
+    if !first_candidate.exists() {
+        return Ok(first_candidate);
+    }
+
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("duplicate");
+    let extension = source.extension().and_then(|value| value.to_str());
+
+    for suffix in 1..=10_000u32 {
+        let candidate_name = match extension {
+            Some(ext) if !ext.is_empty() => format!("{stem} ({suffix}).{ext}"),
+            _ => format!("{stem} ({suffix})"),
+        };
+        let candidate = directory.join(candidate_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err("Unable to allocate a unique quarantine file name".to_string())
+}
+
+fn move_without_overwrite(source: &Path, destination: &Path) -> Result<(), String> {
+    if destination.exists() {
+        return Err(format!(
+            "Refusing to overwrite quarantine file: {}",
+            destination.display()
+        ));
+    }
+
+    match std::fs::rename(source, destination) {
+        Ok(()) => Ok(()),
+        Err(rename_error) => {
+            std::fs::copy(source, destination).map_err(|copy_error| {
+                format!(
+                    "Unable to move file into quarantine ({rename_error}); copy fallback failed: {copy_error}"
+                )
+            })?;
+            if let Err(remove_error) = std::fs::remove_file(source) {
+                let _ = std::fs::remove_file(destination);
+                return Err(format!(
+                    "Quarantine copy succeeded but source removal failed: {remove_error}"
+                ));
+            }
+            Ok(())
+        }
+    }
 }
 
 fn partial_hash(path: &str) -> Result<String, String> {
