@@ -9,14 +9,22 @@ const destinationIds = new Set(contract.destinations.map((entry) => entry.id));
 const capabilityIds = new Set(contract.crossPlatformCapabilities);
 const defectIds = new Set(contract.defectParity.map((entry) => entry.id));
 
-test("platform parity contract uses Windows Premium as the only reference", () => {
+test("platform parity contract uses the current Windows Premium reference", () => {
   assert.equal(contract.schemaVersion, 1);
   assert.equal(contract.reference.repository, "johngraven75/CinaVault-Premium");
-  assert.equal(contract.reference.release, "v2-build-1.03");
+  assert.equal(contract.reference.release, "v2-build-1.06");
+  assert.equal(contract.reference.platform, "windows");
   assert.deepEqual(contract.includedRepositories, [
     "johngraven75/CinaVault-Premium",
     "johngraven75/cinavault-android",
     "johngraven75/Cinavault-Server-Premium-Edition-iOS",
+  ]);
+  assert.deepEqual(contract.excludedRepositories, [
+    {
+      repository: "johngraven75/Cinavault-Reimagined",
+      reason:
+        "Work in this repository is exclusive to that repository and must not be copied into or out of the Premium parity program.",
+    },
   ]);
 });
 
