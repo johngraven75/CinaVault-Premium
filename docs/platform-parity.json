@@ -3,13 +3,19 @@
   "contractId": "cinavault-platform-parity-v1",
   "reference": {
     "repository": "johngraven75/CinaVault-Premium",
-    "release": "v2-build-1.03",
+    "release": "v2-build-1.06",
     "platform": "windows"
   },
   "includedRepositories": [
     "johngraven75/CinaVault-Premium",
     "johngraven75/cinavault-android",
     "johngraven75/Cinavault-Server-Premium-Edition-iOS"
+  ],
+  "excludedRepositories": [
+    {
+      "repository": "johngraven75/Cinavault-Reimagined",
+      "reason": "Work in this repository is exclusive to that repository and must not be copied into or out of the Premium parity program."
+    }
   ],
   "destinations": [
     { "id": "library", "label": "Library", "required": true },
