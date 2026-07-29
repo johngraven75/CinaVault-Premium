@@ -261,6 +261,7 @@ pub fn run() {
             ai::get_ai_config,
             ai::set_ai_model,
             ai_automation::ai_library_manage,
+            ai_automation::ai_automated_download,
             metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
