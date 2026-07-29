@@ -39,7 +39,6 @@ mod metadata_guard {
 mod metadata_keyless;
 #[cfg(test)]
 mod metadata_posting_tests;
-mod metadata_provider_config;
 mod nas_devices;
 mod pgma_bridge;
 mod player;
@@ -85,11 +84,6 @@ pub fn run() {
             let db_path = app_dir.join("cinavault.db");
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
-
-            metadata_provider_config::configure(app_dir.clone());
-            if let Err(error) = metadata_provider_config::ensure_registry(&database) {
-                log::warn!("Unable to initialize metadata provider registry: {error}");
-            }
 
             // Recover the persistent Hugging Face credential on every launch if the DB
             // copy is missing. This keeps upgrades/reinstalls stable without embedding a
@@ -231,8 +225,6 @@ pub fn run() {
             metadata_ext::set_api_key,
             metadata_ext::get_api_keys,
             metadata_ext::get_metadata_providers,
-            metadata_provider_config::get_metadata_provider_registry,
-            metadata_provider_config::ensure_metadata_provider_registry,
             chapters::generate_chapter_thumbs,
             chapters::get_chapter_thumbs,
             downloads::start_download,
@@ -261,7 +253,6 @@ pub fn run() {
             ai::get_ai_config,
             ai::set_ai_model,
             ai_automation::ai_library_manage,
-            ai_automation::ai_automated_download,
             metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,
             task_progress::get_metadata_task_progress,
