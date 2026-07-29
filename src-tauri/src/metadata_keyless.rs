@@ -4,7 +4,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const MAX_ARTWORK_BYTES: usize = 25 * 1024 * 1024;
-const USER_AGENT: &str = "CinaVault-Premium/2.0.4 metadata-enrichment";
+const USER_AGENT: &str = concat!(
+    "CinaVault-Premium/",
+    env!("CARGO_PKG_VERSION"),
+    " metadata-enrichment"
+);
+const CINEMETA_BASE_URL: &str = "https://v3-cinemeta.strem.io";
 
 #[derive(Debug, Clone, Default)]
 pub struct KeylessMetadataMatch {
@@ -41,7 +46,10 @@ fn portable_file_stem(file_path: &str) -> &str {
         .rsplit(['/', '\\'])
         .find(|segment| !segment.is_empty())
         .unwrap_or(file_path);
-    file_name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(file_name)
+    file_name
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .unwrap_or(file_name)
 }
 
 pub fn metadata_query(title: &str, file_path: &str) -> String {
@@ -63,6 +71,40 @@ pub fn metadata_query(title: &str, file_path: &str) -> String {
         title_candidate
     } else {
         file_candidate
+    }
+}
+
+pub async fn fetch_keyless_match(
+    client: &reqwest::Client,
+    query: &str,
+    media_type: &str,
+) -> Result<Option<KeylessMetadataMatch>, String> {
+    match media_type.trim().to_ascii_lowercase().as_str() {
+        "episode" | "series" | "show" | "tv" => {
+            match fetch_tvmaze_match(client, query).await {
+                Ok(Some(result)) => Ok(Some(result)),
+                Ok(None) => fetch_cinemeta_match(client, query, "series").await,
+                Err(tvmaze_error) => match fetch_cinemeta_match(client, query, "series").await {
+                    Ok(Some(result)) => Ok(Some(result)),
+                    Ok(None) => Err(tvmaze_error),
+                    Err(cinemeta_error) => Err(format!(
+                        "TVMaze failed: {tvmaze_error}; Cinemeta series fallback failed: {cinemeta_error}"
+                    )),
+                },
+            }
+        }
+        "movie" => fetch_cinemeta_match(client, query, "movie").await,
+        _ => match fetch_cinemeta_match(client, query, "movie").await {
+            Ok(Some(result)) => Ok(Some(result)),
+            Ok(None) => fetch_tvmaze_match(client, query).await,
+            Err(cinemeta_error) => match fetch_tvmaze_match(client, query).await {
+                Ok(Some(result)) => Ok(Some(result)),
+                Ok(None) => Err(cinemeta_error),
+                Err(tvmaze_error) => Err(format!(
+                    "Cinemeta movie lookup failed: {cinemeta_error}; TVMaze fallback failed: {tvmaze_error}"
+                )),
+            },
+        },
     }
 }
 
@@ -119,29 +161,105 @@ pub async fn fetch_tvmaze_match(
     let rating = show
         .get("rating")
         .and_then(|value| value.get("average"))
-        .and_then(|value| value.as_f64())
+        .and_then(parse_rating_value)
         .filter(|value| *value > 0.0);
-    let genre = show
-        .get("genres")
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
-        .filter(|value| !value.is_empty());
+    let genre = join_string_array(show.get("genres"));
     let imdb_id = show
         .get("externals")
         .and_then(|value| value.get("imdb"))
         .and_then(|value| value.as_str())
-        .and_then(|value| clean_string(Some(value)));
+        .and_then(|value| clean_string(Some(value)))
+        .filter(|value| value.starts_with("tt"));
 
     Ok(Some(KeylessMetadataMatch {
         provider: "tvmaze".to_string(),
+        title,
+        overview,
+        poster_url,
+        year,
+        rating,
+        genre,
+        imdb_id,
+    }))
+}
+
+pub async fn fetch_cinemeta_match(
+    client: &reqwest::Client,
+    query: &str,
+    content_type: &str,
+) -> Result<Option<KeylessMetadataMatch>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(None);
+    }
+    let content_type = match content_type {
+        "series" => "series",
+        _ => "movie",
+    };
+    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
+    let url = format!(
+        "{CINEMETA_BASE_URL}/catalog/{content_type}/top/search={encoded}.json"
+    );
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("Cinemeta request failed: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Cinemeta returned an error: {error}"))?;
+    let data = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| format!("Cinemeta JSON decode failed: {error}"))?;
+    let Some(results) = data.get("metas").and_then(|value| value.as_array()) else {
+        return Ok(None);
+    };
+
+    let selected = results.iter().find(|entry| {
+        entry
+            .get("name")
+            .and_then(|value| value.as_str())
+            .is_some_and(|name| title_matches(query, name))
+    });
+    let Some(meta) = selected else {
+        return Ok(None);
+    };
+
+    let title = clean_string(meta.get("name").and_then(|value| value.as_str()));
+    let overview = clean_string(
+        meta.get("description")
+            .or_else(|| meta.get("overview"))
+            .and_then(|value| value.as_str()),
+    );
+    let poster_url = meta
+        .get("poster")
+        .or_else(|| meta.get("posterShape"))
+        .and_then(|value| value.as_str())
+        .and_then(|value| clean_string(Some(value)))
+        .filter(|value| value.starts_with("https://"));
+    let year = meta
+        .get("releaseInfo")
+        .and_then(|value| value.as_str())
+        .and_then(|value| parse_year(Some(value)))
+        .or_else(|| {
+            meta.get("released")
+                .and_then(|value| value.as_str())
+                .and_then(|value| parse_year(Some(value)))
+        });
+    let rating = meta
+        .get("imdbRating")
+        .or_else(|| meta.get("rating"))
+        .and_then(parse_rating_value)
+        .filter(|value| *value > 0.0);
+    let genre = join_string_array(meta.get("genres"));
+    let imdb_id = meta
+        .get("id")
+        .and_then(|value| value.as_str())
+        .and_then(|value| clean_string(Some(value)))
+        .filter(|value| value.starts_with("tt"));
+
+    Ok(Some(KeylessMetadataMatch {
+        provider: "cinemeta".to_string(),
         title,
         overview,
         poster_url,
@@ -298,7 +416,13 @@ fn words(value: &str) -> Vec<String> {
     value
         .to_ascii_lowercase()
         .chars()
-        .map(|character| if character.is_ascii_alphanumeric() { character } else { ' ' })
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .filter(|word| word.len() > 1)
@@ -319,6 +443,29 @@ fn parse_year(value: Option<&str>) -> Option<i32> {
         return None;
     }
     value[..4].parse::<i32>().ok()
+}
+
+fn parse_rating_value(value: &serde_json::Value) -> Option<f64> {
+    value.as_f64().or_else(|| {
+        value
+            .as_str()
+            .and_then(|text| text.trim().parse::<f64>().ok())
+    })
+}
+
+fn join_string_array(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|value| !value.is_empty())
 }
 
 fn strip_html(value: &str) -> String {
@@ -379,8 +526,19 @@ mod tests {
     #[test]
     fn release_name_is_reduced_to_show_title() {
         assert_eq!(
-            metadata_query("Breaking.Bad.S01E01.1080p", r"C:\\TV\\Breaking.Bad.S01E01.1080p.mkv"),
+            metadata_query(
+                "Breaking.Bad.S01E01.1080p",
+                r"C:\TV\Breaking.Bad.S01E01.1080p.mkv"
+            ),
             "Breaking Bad"
+        );
+    }
+
+    #[test]
+    fn movie_release_name_is_reduced_to_movie_title() {
+        assert_eq!(
+            metadata_query("Inception.2010.1080p", r"C:\Movies\Inception.2010.1080p.mkv"),
+            "Inception"
         );
     }
 
@@ -388,7 +546,7 @@ mod tests {
     fn unix_and_windows_paths_normalize_identically() {
         assert_eq!(
             metadata_query("Unknown", "/TV/Breaking.Bad.S01E01.1080p.mkv"),
-            metadata_query("Unknown", r"C:\\TV\\Breaking.Bad.S01E01.1080p.mkv")
+            metadata_query("Unknown", r"C:\TV\Breaking.Bad.S01E01.1080p.mkv")
         );
     }
 
