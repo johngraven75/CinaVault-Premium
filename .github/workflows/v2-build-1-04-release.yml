@@ -54,6 +54,17 @@ jobs:
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
 
+      - name: Protect immutable release tag
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release tag $env:TAG_NAME already exists. Advance the build identity instead of replacing a published release."
+          }
+          exit 0
+
       - name: Master candidate gate
         run: npm run verify:master-build
 
