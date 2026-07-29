@@ -114,8 +114,6 @@ fn build_yt_dlp_args(
         "--convert-subs".into(),
         "srt".into(),
         "--newline".into(),
-        "--print".into(),
-        "after_move:CINAVAULT_FILE:%(filepath)s".into(),
         "-o".into(),
         format!("{}/%(title)s.%(ext)s", out_dir),
     ];
@@ -383,35 +381,13 @@ pub async fn start_media_download(
                 .unwrap_or_else(|| l.to_string())
         });
 
-    let downloaded_files = stdout
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("CINAVAULT_FILE:"))
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-
-    let mut metadata_reports = Vec::new();
-    if success {
-        for file_path in &downloaded_files {
-            match crate::enrichment::enrich_downloaded_adult_file(&state, &url, file_path).await {
-                Ok(report) => metadata_reports.push(serde_json::json!(report)),
-                Err(error) => metadata_reports.push(serde_json::json!({
-                    "status": "metadata_error",
-                    "file_path": file_path,
-                    "error": error,
-                })),
-            }
-        }
-    }
-
     let completed_at = chrono::Utc::now().to_rfc3339();
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         if success {
             db.conn.execute(
-                "UPDATE download_history SET status = 'completed', title = ?1, file_path = ?2, completed_at = ?3 WHERE id = ?4",
-                params![title, downloaded_files.first(), completed_at, db_id],
+                "UPDATE download_history SET status = 'completed', title = ?1, completed_at = ?2 WHERE id = ?3",
+                params![title, completed_at, db_id],
             ).map_err(|e| e.to_string())?;
         } else {
             db.conn.execute(
@@ -429,8 +405,6 @@ pub async fn start_media_download(
         "media_kind": media_kind(&url),
         "title": title,
         "output_dir": out_dir,
-        "downloaded_files": downloaded_files,
-        "metadata_automation": metadata_reports,
         "yt_dlp_args": args,
         "output": stdout,
         "error": if stderr.is_empty() { None } else { Some(stderr) },
