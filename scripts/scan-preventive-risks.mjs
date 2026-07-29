@@ -230,6 +230,8 @@ if (!Array.isArray(assetProtocol?.scope) || !assetProtocol.scope.includes("$APPD
 
 for (const [marker, reason] of [
   ["https://api.tvmaze.com/search/shows", "Keyless TV metadata provider is missing"],
+  ["https://v3-cinemeta.strem.io", "Keyless movie metadata provider is missing"],
+  ["fetch_keyless_match", "Media-type-aware keyless provider routing is missing"],
   ['app_data_dir.join("artwork")', "Artwork is not cached under application-owned storage"],
   ["Remote artwork must use HTTPS", "Artwork cache no longer enforces encrypted provider transport"],
 ]) {
@@ -237,12 +239,25 @@ for (const [marker, reason] of [
 }
 for (const [marker, reason] of [
   ["run_keyless_prepass", "Bulk enrichment no longer performs the keyless metadata prepass"],
+  ["fetch_keyless_match", "Metadata runtime no longer routes by media type to keyless providers"],
   ["cache_remote_artwork", "Metadata runtime no longer persists provider poster bytes"],
   ["update_media_metadata_data", "Metadata runtime no longer writes resolved metadata back to SQLite"],
-  ["live_tvmaze_metadata_poster_acceptance", "Live metadata/poster acceptance test is missing"],
+  [
+    "live_metadata_poster_acceptance_tvmaze_series",
+    "Live TV metadata/poster acceptance test is missing",
+  ],
+  [
+    "live_metadata_poster_acceptance_cinemeta_movie",
+    "Live movie metadata/poster acceptance test is missing",
+  ],
 ]) {
   requireMarker("src-tauri/src/metadata_enrichment_runtime.rs", marker, reason);
 }
+requireMarker(
+  "package.json",
+  "live_metadata_poster_acceptance_",
+  "Live metadata command must execute both TVMaze and Cinemeta acceptance fixtures",
+);
 requireMarker(
   "src/components/tabs/HomeTab.tsx",
   "convertFileSrc(path)",
