@@ -29,3 +29,12 @@ test("existing Mistral defaults migrate without overriding a user-selected model
   assert.match(db, /WHERE key = 'ai_model' AND value = \?2/);
   assert.match(db, /mistralai\/Mistral-7B-Instruct-v0\.3/);
 });
+
+
+test("AI Agent restores persisted Hugging Face credentials before status loading", () => {
+  const diagnostics = read("src/components/tabs/AIDiagnosticsTab.tsx");
+  const ensureCall = diagnostics.indexOf('invoke("ensure_hf_token")');
+  const configCall = diagnostics.indexOf('invoke<AiConfig>("get_ai_config")');
+  assert.ok(ensureCall >= 0, "AI Agent must invoke secure token recovery");
+  assert.ok(configCall > ensureCall, "token recovery must run before status loading");
+});
