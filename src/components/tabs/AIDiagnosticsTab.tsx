@@ -259,6 +259,10 @@ export default function AIDiagnosticsTab() {
 
   const loadAiConfig = useCallback(async () => {
     try {
+      // Recover a previously saved environment or Hugging Face CLI credential
+      // before reading status. The backend persists any recovered token in the
+      // app database so upgrades and reinstalls keep AI inference configured.
+      await invoke("ensure_hf_token");
       const config = await invoke<AiConfig>("get_ai_config");
       setModel(config.model || config.default_model || DEFAULT_HF_MODEL);
       setHasHfToken(Boolean(config.has_token));
