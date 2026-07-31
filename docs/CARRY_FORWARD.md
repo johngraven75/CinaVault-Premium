@@ -196,3 +196,16 @@ Each new build must:
 - Publishes both MSI and NSIS EXE installers with SHA-256 checksums.
 
 *Last updated: Build 166 — verified by CI carry-forward governance, live Hugging Face inference, and installer tests.*
+
+
+### v2.0.6 (Persistent AI, Metadata Providers, and Media Cards)
+
+| Feature | Token to Verify | Source File |
+|---|---|---|
+| Secure Hugging Face token recovery before AI status | `ensure_hf_token` | `src/components/tabs/AIDiagnosticsTab.tsx` |
+| Metadata provider initialization at every launch | `initialize_metadata_providers(&database)` | `src-tauri/src/lib.rs` |
+| Provider readiness and environment-key import | `metadata_provider_startup_status` | `src-tauri/src/metadata_ext.rs` |
+| Kodi media-card metadata response contract | `const updated = result.updated_item` | `src/components/kodi/KodiHomeLayout.tsx` |
+| Metadata/poster card state merge | `{ ...media, ...updated }` | `src/components/kodi/KodiHomeLayout.tsx` |
+
+> These v2.0.6 contracts are permanent carry-forward requirements. Removal requires the owner's explicit instruction and a documented release-note removal entry.
