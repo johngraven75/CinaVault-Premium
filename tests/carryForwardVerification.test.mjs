@@ -475,6 +475,36 @@ const FEATURE_REGISTRY = [
     token: "Carry-Forward Verification Test",
     file: "tests/carryForwardVerification.test.mjs",
   },
+  {
+    build: "2.0.6",
+    feature: "Secure Hugging Face token recovery before AI status",
+    token: 'invoke("ensure_hf_token")',
+    file: "src/components/tabs/AIDiagnosticsTab.tsx",
+  },
+  {
+    build: "2.0.6",
+    feature: "Metadata provider initialization at every launch",
+    token: "initialize_metadata_providers(&database)",
+    file: "src-tauri/src/lib.rs",
+  },
+  {
+    build: "2.0.6",
+    feature: "Provider readiness persistence",
+    token: "metadata_provider_startup_status",
+    file: "src-tauri/src/metadata_ext.rs",
+  },
+  {
+    build: "2.0.6",
+    feature: "Kodi metadata response envelope handling",
+    token: "const updated = result.updated_item",
+    file: "src/components/kodi/KodiHomeLayout.tsx",
+  },
+  {
+    build: "2.0.6",
+    feature: "Kodi metadata and poster card state merge",
+    token: "{ ...media, ...updated }",
+    file: "src/components/kodi/KodiHomeLayout.tsx",
+  },
 ];
 
 // ─── Test: Every feature token must be present in its source file ────────────
