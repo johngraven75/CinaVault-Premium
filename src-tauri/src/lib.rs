@@ -120,6 +120,14 @@ pub fn run() {
                 }
             }
 
+            // Initialize the full metadata-provider catalog on every launch. Existing
+            // database credentials are retained, supported environment credentials are
+            // imported once, and a provider-by-provider readiness report is persisted.
+            match metadata_ext::initialize_metadata_providers(&database) {
+                Ok(status) => log::info!("Metadata providers initialized at startup: {status}"),
+                Err(error) => log::warn!("Metadata provider startup initialization failed: {error}"),
+            }
+
             let resource_dir = app.path().resource_dir().unwrap_or_else(|_| app_dir.clone());
             remote_connectivity::configure(
                 resource_dir
