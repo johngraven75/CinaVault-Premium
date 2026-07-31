@@ -5,6 +5,7 @@ use crate::adult_site_provider::{
     porn_site_nuxt_search_url, PORN_SITE_NUXT_DEFAULT_BASE_URL,
 };
 use crate::metadata::MetadataProvider;
+use crate::db::Database;
 use crate::AppState;
 use rusqlite::params;
 use tauri::State;
@@ -210,6 +211,97 @@ pub async fn check_media_item_metadata(
     id: i64,
 ) -> Result<serde_json::Value, String> {
     crate::metadata::check_media_item_metadata(state, id).await
+}
+
+pub fn initialize_metadata_providers(database: &Database) -> Result<serde_json::Value, String> {
+    const ENV_PROVIDER_KEYS: &[(&str, &[&str])] = &[
+        ("tmdb", &["CINAVAULT_TMDB_API_KEY", "TMDB_API_KEY"]),
+        ("omdb", &["CINAVAULT_OMDB_API_KEY", "OMDB_API_KEY"]),
+        ("tvdb", &["CINAVAULT_TVDB_API_KEY", "TVDB_API_KEY"]),
+        ("fanart", &["CINAVAULT_FANART_API_KEY", "FANART_API_KEY"]),
+        ("audiodb", &["CINAVAULT_AUDIODB_API_KEY", "AUDIODB_API_KEY"]),
+        ("tpdb", &["CINAVAULT_TPDB_API_KEY", "TPDB_API_KEY"]),
+        ("stashdb", &["CINAVAULT_STASHDB_API_KEY", "STASHDB_API_KEY"]),
+        ("anidb", &["CINAVAULT_ANIDB_API_KEY", "ANIDB_API_KEY"]),
+        ("mal", &["CINAVAULT_MAL_API_KEY", "MAL_API_KEY"]),
+        ("igdb", &["CINAVAULT_IGDB_API_KEY", "IGDB_API_KEY"]),
+        ("goodreads", &["CINAVAULT_GOODREADS_API_KEY", "GOODREADS_API_KEY"]),
+        ("lastfm", &["CINAVAULT_LASTFM_API_KEY", "LASTFM_API_KEY"]),
+        ("discogs", &["CINAVAULT_DISCOGS_API_KEY", "DISCOGS_API_KEY"]),
+        ("trakt", &["CINAVAULT_TRAKT_API_KEY", "TRAKT_API_KEY"]),
+        ("opensubtitles", &["CINAVAULT_OPENSUBTITLES_API_KEY", "OPENSUBTITLES_API_KEY"]),
+    ];
+
+    let mut configured = std::collections::HashSet::new();
+    {
+        let mut stmt = database
+            .conn
+            .prepare("SELECT provider FROM api_keys WHERE trim(api_key) <> ''")
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            configured.insert(normalize_provider_key(&row.map_err(|error| error.to_string())?));
+        }
+    }
+
+    let mut imported_from_environment = Vec::new();
+    for (provider, names) in ENV_PROVIDER_KEYS {
+        if configured.contains(*provider) {
+            continue;
+        }
+        let token = names
+            .iter()
+            .find_map(|name| std::env::var(name).ok())
+            .filter(|value| !value.trim().is_empty());
+        if let Some(token) = token {
+            database
+                .conn
+                .execute(
+                    "INSERT OR REPLACE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
+                    params![provider, token.trim()],
+                )
+                .map_err(|error| error.to_string())?;
+            configured.insert((*provider).to_string());
+            imported_from_environment.push((*provider).to_string());
+        }
+    }
+
+    let providers = get_metadata_providers();
+    let provider_status = providers
+        .iter()
+        .map(|provider| {
+            let ready = !provider.requires_key || configured.contains(&provider.key);
+            serde_json::json!({
+                "key": provider.key,
+                "name": provider.name,
+                "category": provider.category,
+                "enabled": true,
+                "requires_key": provider.requires_key,
+                "configured": configured.contains(&provider.key),
+                "ready": ready,
+                "base_url": provider.base_url,
+            })
+        })
+        .collect::<Vec<_>>();
+    let ready_count = provider_status
+        .iter()
+        .filter(|status| status.get("ready").and_then(serde_json::Value::as_bool) == Some(true))
+        .count();
+    let report = serde_json::json!({
+        "initialized": true,
+        "total_providers": providers.len(),
+        "enabled_providers": providers.len(),
+        "ready_providers": ready_count,
+        "providers_needing_keys": providers.len().saturating_sub(ready_count),
+        "environment_keys_imported": imported_from_environment,
+        "providers": provider_status,
+    });
+    database
+        .set_setting_data("metadata_provider_startup_status", &report.to_string())
+        .map_err(|error| error.to_string())?;
+    Ok(report)
 }
 
 #[tauri::command]
