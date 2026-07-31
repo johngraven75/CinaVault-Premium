@@ -201,6 +201,11 @@ function KodiHero({ items, onPlay, onSelect }: HeroProps): JSX.Element {
 
 // ─── Poster Card ──────────────────────────────────────────────────────────
 
+type MetadataCheckResult = {
+  message?: string;
+  updated_item?: MediaItem;
+};
+
 interface CardProps {
   item: MediaItem;
   onSelect: (item: MediaItem) => void;
@@ -538,14 +543,27 @@ export default function KodiHomeLayout(): JSX.Element {
     async (item: MediaItem) => {
       setCheckingId(item.id ?? null);
       try {
-        const updated = await invoke<MediaItem>("check_media_item_metadata", {
-          id: item.id,
-        });
-        setMediaItems(
-          mediaItems.map((m) => (m.id === updated.id ? updated : m)),
+        const result = await invoke<MetadataCheckResult>(
+          "check_media_item_metadata",
+          { id: item.id },
         );
-        if (selectedMedia?.id === updated.id) setSelectedMedia(updated);
-        addStatusMessage(`Metadata updated: ${updated.title}`);
+        const updated = result.updated_item;
+        if (!updated) {
+          throw new Error(
+            result.message || "Metadata provider returned no updated media item",
+          );
+        }
+        setMediaItems(
+          mediaItems.map((media) =>
+            media.id === updated.id ? { ...media, ...updated } : media,
+          ),
+        );
+        if (selectedMedia?.id === updated.id) {
+          setSelectedMedia({ ...selectedMedia, ...updated });
+        }
+        addStatusMessage(
+          result.message || `Metadata updated: ${updated.title}`,
+        );
       } catch (err) {
         addStatusMessage(`Metadata error: ${err}`);
       } finally {
