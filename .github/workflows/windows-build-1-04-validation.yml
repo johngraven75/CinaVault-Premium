@@ -12,6 +12,9 @@ concurrency:
   group: cinavault-premium-v2-08-build-1-08-windows-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
+
 jobs:
   validate-windows:
     runs-on: windows-latest
@@ -59,6 +62,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build 2>&1 | Tee-Object validation-logs/frontend-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare genuine Windows bundle resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
+          $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
+          if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
+          New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
+          $target = (Resolve-Path .\wireguard-extracted).Path
+          $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed: $($process.ExitCode)" }
+          $wireGuard = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
+          if (-not $wireGuard) { throw 'wireguard.exe was not found.' }
+          New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
+          Copy-Item $wireGuard.FullName src-tauri\tools\wireguard\wireguard.exe -Force
+          New-Item -ItemType Directory -Path src-tauri\tools\cloudflared -Force | Out-Null
+          Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile src-tauri\tools\cloudflared\cloudflared.exe
+          if ((Get-Item src-tauri\tools\cloudflared\cloudflared.exe).Length -lt 10000000) { throw 'cloudflared binary is unexpectedly small.' }
 
       - name: Live TVMaze and Cinemeta metadata poster acceptance
         shell: pwsh
