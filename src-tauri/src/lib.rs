@@ -50,6 +50,7 @@ mod task_progress;
 mod vpn;
 mod vpn_profile_store;
 
+use base64::Engine;
 use db::Database;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -171,6 +172,7 @@ pub fn run() {
             db::get_remote_access_security_status,
             db::get_media_items,
             db::get_media_item,
+            get_poster_data_url,
             db::add_media_item,
             db::update_media_item,
             db::delete_media_item,
@@ -300,6 +302,57 @@ fn get_system_info() -> serde_json::Value {
         "arch": std::env::consts::ARCH,
         "family": std::env::consts::FAMILY
     })
+}
+
+#[tauri::command]
+fn get_poster_data_url(state: tauri::State<AppState>, path: String) -> Result<String, String> {
+    const MAX_POSTER_BYTES: u64 = 25 * 1024 * 1024;
+    let requested = path.trim();
+    if requested.is_empty()
+        || requested.starts_with("http://")
+        || requested.starts_with("https://")
+    {
+        return Err("A local poster path is required".to_string());
+    }
+
+    let authorized = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        db.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM media_items WHERE poster_path = ?1 OR backdrop_path = ?1)",
+                rusqlite::params![requested],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|error| error.to_string())?
+            == 1
+    };
+    if !authorized {
+        return Err("Poster is not attached to a library item".to_string());
+    }
+
+    let candidate = std::path::Path::new(requested);
+    let metadata =
+        std::fs::metadata(candidate).map_err(|error| format!("Poster unavailable: {error}"))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_POSTER_BYTES {
+        return Err("Poster file is empty, oversized, or not a regular file".to_string());
+    }
+    let bytes =
+        std::fs::read(candidate).map_err(|error| format!("Poster read failed: {error}"))?;
+    let extension = candidate
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "image/jpeg",
+    };
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 #[tauri::command]

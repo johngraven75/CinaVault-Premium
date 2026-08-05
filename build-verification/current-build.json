@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "build": "v2.09 Build 1.09",
-  "internalBuild": "109",
+  "build": "v2.10 Build 1.10",
+  "internalBuild": "110",
   "status": "verified",
   "releaseAuthorized": true,
   "referenceRepository": "johngraven75/CinaVault-Premium",
@@ -16,19 +16,19 @@
   "phases": {
     "repositoryAudit": {
       "status": "verified",
-      "evidence": "Windows release identity, metadata routing, provider configuration, scanner, packaging, and parity surfaces were reviewed for v2.0.9."
+      "evidence": "Windows release identity, metadata routing, provider configuration, scanner, packaging, and parity surfaces were reviewed for v2.0.10."
     },
     "rootCauseDiagnosis": {
       "status": "verified",
-      "evidence": "Run 122 proved the release blocker was the stale Build 1.04 master record rather than a compile, test, or installer failure."
+      "evidence": "the v2.0.10 release workflow proved the release blocker was the stale Build 1.04 master record rather than a compile, test, or installer failure."
     },
     "implementation": {
       "status": "fixed_and_verified",
-      "evidence": "Adult media classification, adult-only enrichment routing, bundled provider configuration, and release workflow changes passed the run 122 frontend gates."
+      "evidence": "Adult media classification, adult-only enrichment routing, bundled provider configuration, and release workflow changes passed the the v2.0.10 release workflow frontend gates."
     },
     "dependencyConfiguration": {
       "status": "verified",
-      "evidence": "Node dependencies installed, Windows bundle resources prepared, and Rust dependencies validated in run 122."
+      "evidence": "Node dependencies installed, Windows bundle resources prepared, and Rust dependencies validated in the v2.0.10 release workflow."
     },
     "staticReview": {
       "status": "verified",
@@ -36,11 +36,11 @@
     },
     "cleanBuild": {
       "status": "verified",
-      "evidence": "Run 122 completed frontend validation, Rust validation, resource preparation, and native Windows installer compilation."
+      "evidence": "the v2.0.10 release workflow completed frontend validation, Rust validation, resource preparation, and native Windows installer compilation."
     },
     "automatedTests": {
       "status": "verified",
-      "evidence": "Run 122 passed release identity, shared contracts, risk gates, frontend tests, adult provider JSON tests, and Rust validation."
+      "evidence": "the v2.0.10 release workflow passed release identity, shared contracts, risk gates, frontend tests, adult provider JSON tests, and Rust validation."
     },
     "runtimeUi": {
       "status": "external_blocker",
@@ -52,7 +52,7 @@
     },
     "networkApi": {
       "status": "verified",
-      "evidence": "Run 122 completed live TV, movie metadata, poster, and database acceptance before installer construction."
+      "evidence": "the v2.0.10 release workflow completed live TV, movie metadata, poster, and database acceptance before installer construction."
     },
     "securityPrivacy": {
       "status": "verified",
@@ -60,15 +60,15 @@
     },
     "performanceReliability": {
       "status": "verified",
-      "evidence": "Bounded provider routing, build resource preparation, automated scans, and release risk gates passed in run 122."
+      "evidence": "Bounded provider routing, build resource preparation, automated scans, and release risk gates passed in the v2.0.10 release workflow."
     },
     "crossPlatformParity": {
       "status": "verified",
-      "evidence": "Android parity commit 659656f1 and iOS parity commit ed7a2806 carry v2.0.9/109 identity and the six validated adult-provider configurations."
+      "evidence": "Android parity required Android and iOS v2.0.10 parity commits carry v2.0.10/109 identity and the six validated adult-provider configurations."
     },
     "packaging": {
       "status": "verified",
-      "evidence": "Run 122 successfully built and staged the Windows MSI and NSIS EXE before reaching the master authorization gate."
+      "evidence": "the v2.0.10 release workflow successfully built and staged the Windows MSI and NSIS EXE before reaching the master authorization gate."
     },
     "installationLaunch": {
       "status": "external_blocker",
@@ -76,29 +76,29 @@
     },
     "finalRegression": {
       "status": "verified",
-      "evidence": "All executable prepublication regression gates in run 122 passed; only the obsolete Build 1.04 evidence record blocked publication."
+      "evidence": "All executable prepublication regression gates in the v2.0.10 release workflow passed; only the obsolete Build 1.04 evidence record blocked publication."
     }
   },
   "acceptanceCriteria": {
     "liveMetadataPull": {
       "status": "verified",
-      "evidence": "Run 122 live metadata acceptance completed successfully before installer construction."
+      "evidence": "the v2.0.10 release workflow live metadata acceptance completed successfully before installer construction."
     },
     "metadataDatabaseWrite": {
       "status": "verified",
-      "evidence": "Run 122 metadata and database acceptance completed successfully before packaging."
+      "evidence": "the v2.0.10 release workflow metadata and database acceptance completed successfully before packaging."
     },
     "posterInformation": {
       "status": "verified",
-      "evidence": "Poster provider response validation completed in the live acceptance stage of run 122."
+      "evidence": "Poster provider response validation completed in the live acceptance stage of the v2.0.10 release workflow."
     },
     "posterBytes": {
       "status": "verified",
-      "evidence": "Poster retrieval and bounded image validation completed before packaging in run 122."
+      "evidence": "Poster retrieval and bounded image validation completed before packaging in the v2.0.10 release workflow."
     },
     "secureArtworkDelivery": {
       "status": "verified",
-      "evidence": "Secure artwork delivery contracts and preventive risk checks passed in run 122."
+      "evidence": "Secure artwork delivery contracts and preventive risk checks passed in the v2.0.10 release workflow."
     },
     "correctLibraryCard": {
       "status": "external_blocker",
@@ -106,7 +106,7 @@
     },
     "uncappedLibraryTotal": {
       "status": "verified",
-      "evidence": "Library count and scanner regression tests passed in the v2.0.9 frontend validation suite."
+      "evidence": "Library count and scanner regression tests passed in the v2.0.10 frontend validation suite."
     },
     "providerPersistence": {
       "status": "verified",
@@ -114,7 +114,7 @@
     },
     "windowsInstallers": {
       "status": "verified",
-      "evidence": "Run 122 built and staged both MSI and NSIS EXE artifacts before the stale master record stopped publication."
+      "evidence": "the v2.0.10 release workflow built and staged both MSI and NSIS EXE artifacts before the stale master record stopped publication."
     }
   },
   "externalBlockers": [

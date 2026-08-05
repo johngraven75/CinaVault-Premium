@@ -37,6 +37,13 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
+const HF_FREE_MODELS = [
+  { id: "Qwen/Qwen3-4B-Instruct-2507", name: "Qwen3 4B Instruct", reasoning: true, note: "Fast structured library automation" },
+  { id: "HuggingFaceTB/SmolLM3-3B", name: "SmolLM3 3B", reasoning: true, note: "Compact open reasoning model" },
+  { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", name: "DeepSeek R1 Distill 7B", reasoning: true, note: "Deeper multi-step reasoning" },
+  { id: "microsoft/Phi-3.5-mini-instruct", name: "Phi 3.5 Mini", reasoning: false, note: "Efficient instruction following" },
+  { id: "katanemo/Arch-Router-1.5B:hf-inference", name: "Arch Router 1.5B", reasoning: true, note: "Routes tool and library tasks" },
+] as const;
 const BULK_METADATA_BATCH_LIMIT = 500;
 const MAX_VISIBLE_PROVIDER_ERRORS = 40;
 
@@ -251,6 +258,7 @@ export default function AIDiagnosticsTab() {
     "https://router.huggingface.co/v1/chat/completions",
   );
   const [showConfig, setShowConfig] = useState(false);
+  const [showModelCatalog, setShowModelCatalog] = useState(false);
   const [history, setHistory] = useState<
     { query: string; result: any; time: string }[]
   >([]);
@@ -976,6 +984,12 @@ export default function AIDiagnosticsTab() {
                 >
                   <Cpu size={12} /> Set
                 </button>
+                <button
+                  onClick={() => setShowModelCatalog(true)}
+                  className="cv-btn cv-btn-gold text-xs"
+                >
+                  <Sparkles size={12} /> Browse Free Models
+                </button>
               </div>
               <div className="text-[10px] text-cv-subtext mt-1">
                 Default: {DEFAULT_HF_MODEL}
@@ -986,6 +1000,27 @@ export default function AIDiagnosticsTab() {
             Inference URL: {inferenceUrl}
           </div>
         </motion.div>
+      )}
+
+      {showModelCatalog && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="Hugging Face model selection">
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="glass-panel w-full max-w-3xl p-5">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div><h3 className="text-base font-bold">Hugging Face Free Model Catalog</h3><p className="mt-1 text-xs text-cv-subtext">Public, ungated choices only. Reasoning-capable models are labeled.</p></div>
+              <button onClick={() => setShowModelCatalog(false)} className="cv-btn cv-btn-secondary text-xs">Close</button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {HF_FREE_MODELS.map((candidate) => (
+                <button key={candidate.id} onClick={() => { setModel(candidate.id); setShowModelCatalog(false); }} className={`glass-panel-2 rounded-xl border p-4 text-left transition-colors ${model === candidate.id ? "border-cv-accent" : "border-white/10 hover:border-white/25"}`}>
+                  <div className="flex items-center justify-between gap-2"><span className="text-sm font-bold">{candidate.name}</span>{candidate.reasoning && <span className="rounded bg-cv-accent/15 px-2 py-1 text-[9px] font-bold text-cv-accent">REASONING</span>}</div>
+                  <div className="mt-2 break-all font-mono text-[10px] text-cv-subtext">{candidate.id}</div>
+                  <div className="mt-2 text-xs text-cv-subtext">{candidate.note}</div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 text-[10px] text-cv-subtext">Selecting a card fills the model field. Press Set to save it permanently.</div>
+          </motion.div>
+        </div>
       )}
 
       {(aiResult || history.length > 0) && (

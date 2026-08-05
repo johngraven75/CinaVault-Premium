@@ -82,7 +82,8 @@ fn has_adult_media_hint(value: &str) -> bool {
 
 fn scanned_media_type(source: &MediaSource, file_path: &str, detected: &str) -> String {
     if detected == "movie"
-        && (has_adult_media_hint(&source.name)
+        && (source.source_type.eq_ignore_ascii_case("adult")
+            || has_adult_media_hint(&source.name)
             || has_adult_media_hint(&source.path)
             || has_adult_media_hint(file_path))
     {
@@ -246,7 +247,22 @@ fn looks_like_media_directory(path: &Path) -> bool {
 fn discover_media_directories(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = BTreeSet::new();
     for root in roots {
-        if root.is_dir() && looks_like_media_directory(root) {
+        if root.is_dir()
+            && (looks_like_media_directory(root)
+                || std::fs::read_dir(root)
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Result::ok)
+                    .any(|entry| {
+                        entry
+                            .path()
+                            .extension()
+                            .and_then(|value| value.to_str())
+                            .and_then(detect_media_type)
+                            .is_some()
+                    }))
+        {
             found.insert(root.clone());
         }
         let Ok(entries) = std::fs::read_dir(root) else {

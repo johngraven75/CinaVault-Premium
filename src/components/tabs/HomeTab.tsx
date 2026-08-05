@@ -91,10 +91,23 @@ function MediaPosterImage({
   fallbackClassName: string;
   fallbackSize?: number;
 }): JSX.Element {
-  const imageSrc = resolveMediaImageSrc(path);
+  const directSrc = resolveMediaImageSrc(path);
+  const [imageSrc, setImageSrc] = useState<string | undefined>(directSrc);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => setFailed(false), [imageSrc]);
+  useEffect(() => {
+    let active = true;
+    setFailed(false);
+    if (!path || /^(https?:|data:|asset:)/i.test(path)) {
+      setImageSrc(directSrc);
+      return () => { active = false; };
+    }
+    setImageSrc(undefined);
+    void invoke<string>("get_poster_data_url", { path })
+      .then((value) => { if (active) setImageSrc(value); })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [path, directSrc]);
 
   if (!imageSrc || failed) {
     return (

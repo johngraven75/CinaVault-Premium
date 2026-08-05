@@ -106,7 +106,7 @@ pub struct LibraryEnrichmentReport {
 }
 
 pub(crate) fn has_adult_hint(text: &str) -> bool {
-    let lower = text.replace(['\\', '/', '_', '-'], " ").to_lowercase();
+    let lower = text.replace(['\\', '/', '_', '-', '.'], " ").to_lowercase();
 
     [
         "adult",
@@ -117,6 +117,16 @@ pub(crate) fn has_adult_hint(text: &str) -> bool {
         "x library",
         "vids x",
         "videos x",
+        "18 plus",
+        "18+",
+        "erotic",
+        "explicit",
+        "onlyfans",
+        "fansly",
+        "brazzers",
+        "pornhub",
+        "xvideos",
+        "xnxx",
     ]
     .iter()
     .any(|hint| lower.contains(hint))

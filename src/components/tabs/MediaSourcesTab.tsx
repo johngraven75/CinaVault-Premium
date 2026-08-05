@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { motion } from "framer-motion";
 import { useAppStore, type LibraryEnrichmentResult } from "../../store/appStore";
 import { ExternalLink, File, FolderOpen, HardDrive, Link, Plus, RefreshCw, Scan, Sparkles, Trash2 } from "lucide-react";
@@ -35,6 +36,24 @@ export default function MediaSourcesTab() {
   const [savingOption, setSavingOption] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [addingSource, setAddingSource] = useState(false);
+
+  const browseForSource = async () => {
+    try {
+      const selected = await open({
+        directory: newSourceType !== "file",
+        multiple: false,
+        title: newSourceType === "file" ? "Select media file" : "Select media folder or external drive",
+      });
+      if (typeof selected === "string" && selected.trim()) {
+        setNewSourcePath(selected);
+        if (!newSourceName.trim()) {
+          setNewSourceName(selected.split(/[\\/]/).filter(Boolean).pop() || selected);
+        }
+      }
+    } catch (error) {
+      addStatusMessage(`Source picker failed: ${error}`);
+    }
+  };
 
   const loadSources = async (): Promise<SourceLike[]> => {
     try { const loaded = await invoke<SourceLike[]>("get_sources"); setSources(loaded); return loaded; }
@@ -74,6 +93,8 @@ export default function MediaSourcesTab() {
     const name = newSourceName.trim() || path.split(/[\\/]/).filter(Boolean).pop() || (newSourceType === "drive" ? path : "New Source");
     setAddingSource(true);
     try {
+      const health = await invoke<{ readable: boolean; message: string }>("validate_source_path", { path, sourceType: newSourceType });
+      if (!health.readable) throw new Error(health.message);
       const sourceId = await invoke<number>("add_source", { path, sourceType: newSourceType, name });
       setNewSourcePath(""); setNewSourceName(""); addStatusMessage(`Source added: ${name}`); await loadSources(); await runSourcePipeline(sourceId, name);
     } catch (error) { addStatusMessage(`Failed to add source: ${error}`); }
@@ -116,8 +137,9 @@ export default function MediaSourcesTab() {
   return <div className="space-y-5">
     <section className="glass-panel p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-bold"><Plus size={16} className="text-cv-accent" /> Add, Scan, and Enrich</h3><p className="mt-1 text-xs text-cv-subtext">Add a folder or external drive. Scans index quickly, attach local artwork, then enrich metadata.</p></div><button type="button" onClick={() => window.dispatchEvent(new Event("cinavault:ai-autopilot-run"))} className="cv-btn cv-btn-gold text-xs"><Sparkles size={13} /> Run AI Autopilot</button></div>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4"><div className="md:col-span-2"><label className="section-label">Local path</label><input value={newSourcePath} onChange={(e) => setNewSourcePath(e.target.value)} placeholder="E:\\ or E:\\Movies" className="cv-input" /></div><div><label className="section-label">Display name</label><input value={newSourceName} onChange={(e) => setNewSourceName(e.target.value)} placeholder="External Movies" className="cv-input" /></div><div><label className="section-label">Source type</label><select value={newSourceType} onChange={(e) => setNewSourceType(e.target.value)} className="cv-select w-full"><option value="folder">Folder</option><option value="drive">Drive</option><option value="file">File</option></select></div></div>
-      <div className="mt-4 flex flex-wrap gap-2"><button onClick={addSource} disabled={addingSource || scanning || !newSourcePath.trim()} className="cv-btn cv-btn-primary disabled:opacity-50"><FolderOpen size={14} />{addingSource ? "Adding and scanning..." : "Add Source"}</button><button onClick={aiDiscover} disabled={discovering || scanning} className="cv-btn cv-btn-gold disabled:opacity-50"><Sparkles size={14} className={discovering ? "animate-spin" : ""} />{discovering ? "Discovering..." : "Discover Sources"}</button><button onClick={scanAll} disabled={scanning} className="cv-btn cv-btn-secondary disabled:opacity-50"><Scan size={14} className={scanning ? "animate-spin" : ""} />{scanning ? "Scanning and enriching..." : "Scan Everything"}</button></div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4"><div className="md:col-span-2"><label className="section-label">Local path</label><div className="flex gap-2"><input value={newSourcePath} onChange={(e) => setNewSourcePath(e.target.value)} placeholder="E:\\ or E:\\Movies" className="cv-input flex-1" /><button type="button" onClick={() => void browseForSource()} className="cv-btn cv-btn-secondary shrink-0"><FolderOpen size={14} /> Browse</button></div></div><div><label className="section-label">Display name</label><input value={newSourceName} onChange={(e) => setNewSourceName(e.target.value)} placeholder="External Movies" className="cv-input" /></div><div><label className="section-label">Source type</label><select value={newSourceType} onChange={(e) => setNewSourceType(e.target.value)} className="cv-select w-full"><option value="folder">Folder</option><option value="drive">External Drive</option><option value="adult">Adult Media</option><option value="file">File</option></select></div></div>
+      <div className="mt-2 text-[10px] text-cv-subtext">Choose <b>Adult Media</b> for an adult library. Every video in that source is labeled adult and routed only to adult metadata/poster providers.</div>
+      <div className="mt-4 flex flex-wrap gap-2"><button onClick={addSource} disabled={addingSource || scanning || !newSourcePath.trim()} className="cv-btn cv-btn-primary disabled:opacity-50"><FolderOpen size={14} />{addingSource ? "Adding and scanning..." : "Add Source"}</button><button onClick={aiDiscover} disabled={discovering || scanning} className="cv-btn cv-btn-gold disabled:opacity-50"><Sparkles size={14} className={discovering ? "animate-spin" : ""} />{discovering ? "Discovering..." : "Discover Drives"}</button><button onClick={scanAll} disabled={scanning} className="cv-btn cv-btn-secondary disabled:opacity-50"><Scan size={14} className={scanning ? "animate-spin" : ""} />{scanning ? "Scanning and enriching..." : "Scan Everything"}</button></div>
     </section>
     <section className="glass-panel p-5"><h3 className="mb-4 flex items-center gap-2 text-sm font-bold"><Sparkles size={16} className="text-cv-accent" /> AI Library Policy</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-2">{[["library_auto_scan","Pull metadata and posters after scans","Automatically identify new media and refresh visible cards.",true],["prefer_embedded_titles","Prefer embedded titles","Apply container title tags as a separate post-scan pass.",false],["library_partial_scan_on_changes","Rescan changed paths","Use targeted refreshes when source contents change.",true],["library_empty_trash_after_scan","Remove missing records","Clean database entries for files no longer available.",false]].map(([key,label,description,defaultOn]) => <label key={String(key)} className="glass-panel-2 flex items-start justify-between gap-3 rounded-lg p-3"><span><span className="block text-xs font-semibold">{String(label)}</span><span className="mt-1 block text-[10px] text-cv-subtext">{String(description)}</span></span><input type="checkbox" checked={isEnabled(String(key),Boolean(defaultOn))} disabled={savingOption === key} onChange={(e) => void saveLibraryOption(String(key),e.target.checked)} /></label>)}</div></section>
     <section className="glass-panel p-5"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><Link size={16} className="text-cv-accent" /> Web or Playlist Link</h3><div className="flex gap-3"><input value={webLink} onChange={(e) => setWebLink(e.target.value)} placeholder="Paste a media or playlist URL" className="cv-input flex-1" /><button type="button" onClick={() => addStatusMessage(`Download link staged: ${webLink}`)} disabled={!webLink.trim()} className="cv-btn cv-btn-primary shrink-0 disabled:opacity-50"><ExternalLink size={14} /> Send to Downloads</button></div></section>

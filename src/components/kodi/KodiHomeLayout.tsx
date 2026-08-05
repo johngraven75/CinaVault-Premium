@@ -54,9 +54,22 @@ function KodiPosterImage({
   fallbackClassName: string;
   fallbackSize?: number;
 }): JSX.Element {
-  const src = resolveImg(path);
+  const directSrc = resolveImg(path);
+  const [src, setSrc] = useState<string | undefined>(directSrc);
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
+  useEffect(() => {
+    let active = true;
+    setFailed(false);
+    if (!path || /^(https?:|data:|asset:)/i.test(path)) {
+      setSrc(directSrc);
+      return () => { active = false; };
+    }
+    setSrc(undefined);
+    void invoke<string>("get_poster_data_url", { path })
+      .then((value) => { if (active) setSrc(value); })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [path, directSrc]);
 
   if (!src || failed) {
     return (

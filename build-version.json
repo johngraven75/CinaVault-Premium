@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "productName": "CinaVault Premium",
   "edition": "Premium",
-  "semanticVersion": "2.0.9",
-  "releaseCycle": "v2.09",
-  "displayBuild": "1.09",
-  "displayName": "v2.09 Build 1.09",
-  "releaseTag": "v2-build-1.09"
+  "semanticVersion": "2.0.10",
+  "releaseCycle": "v2.10",
+  "displayBuild": "1.10",
+  "displayName": "v2.10 Build 1.10",
+  "releaseTag": "v2-build-1.10"
 }
