@@ -10,6 +10,7 @@ import "./styles/metadata-actions.css";
 import "./styles/kodi-skin.css";
 import "./styles/ui-stability.css";
 import "./styles/command-palette-stability.css";
+import "./styles/library-card-size-fix.css";
 
 // Carry-forward compatibility marker retained for the original stability release:
 // build: "v2 Build 1.02"

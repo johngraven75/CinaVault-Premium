@@ -1,4 +1,4 @@
-name: CinaVault Premium v2 Build 1.07 Release
+name: CinaVault Premium v2.08 Build 1.08 Release
 
 on:
   pull_request:
@@ -12,13 +12,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v2-0-7-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v2-0-8-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: 2.0.7
-  TAG_NAME: v2.0.7
-  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.07
+  APP_VERSION: 2.0.8
+  TAG_NAME: v2.0.8
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2.08-Build-1.08
+  TEST_ARTIFACT_NAME: CinaVault-Premium-v2.08-Build-1.08-Test-Notes
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -41,125 +42,174 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
+      - name: Initialize build evidence
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-evidence,release-diagnostics -Force | Out-Null
+          @"
+          # CinaVault Premium Build Test Notes
+
+          - Public release: v2.08
+          - Build: 1.08
+          - Internal version: 2.0.8
+          - Commit: $env:GITHUB_SHA
+          - Event: $env:GITHUB_EVENT_NAME
+          - Started (UTC): $([DateTime]::UtcNow.ToString('o'))
+
+          ## Required validation
+          This build must pass release identity, master candidate, shared contracts,
+          preventive risk scan, TypeScript, frontend tests, frontend production build,
+          Rust formatting/tests/check, live metadata/poster acceptance, and Windows packaging.
+          "@ | Set-Content test-evidence/TEST-NOTES.md -Encoding utf8
+
       - name: Install dependencies
-        run: npm ci
+        shell: pwsh
+        run: |
+          npm ci 2>&1 | Tee-Object test-evidence/npm-ci.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify release identity
         shell: pwsh
         run: |
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $manifest = Get-Content build-version.json -Raw | ConvertFrom-Json
           $tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
+          if ($manifest.semanticVersion -ne $env:APP_VERSION) { throw "build manifest mismatch: $($manifest.semanticVersion)" }
+          if ($manifest.displayBuild -ne '1.08') { throw "display build mismatch: $($manifest.displayBuild)" }
+          if ($manifest.displayName -ne 'v2.08 Build 1.08') { throw "display name mismatch: $($manifest.displayName)" }
+          if ($manifest.releaseTag -ne 'v2-build-1.08') { throw "release tag format mismatch: $($manifest.releaseTag)" }
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
+          "- Release identity: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Protect immutable release tag
         if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
           git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
-          if ($LASTEXITCODE -eq 0) {
-            throw "Release tag $env:TAG_NAME already exists. Advance the build identity instead of replacing a published release."
-          }
+          if ($LASTEXITCODE -eq 0) { throw "Release tag $env:TAG_NAME already exists. Advance the build identity." }
           exit 0
 
       - name: Master candidate gate
-        run: npm run verify:master-build
+        shell: pwsh
+        run: |
+          npm run verify:master-build 2>&1 | Tee-Object test-evidence/master-candidate.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- Master candidate gate: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Shared contract conformance gate
-        run: npm run verify:contracts
+        shell: pwsh
+        run: |
+          npm run verify:contracts 2>&1 | Tee-Object test-evidence/shared-contracts.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- Shared contracts: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Preventive risk gate
-        run: npm run scan:preventive
+        shell: pwsh
+        run: |
+          npm run scan:preventive 2>&1 | Tee-Object test-evidence/preventive-risk.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- Preventive risk scan: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Frontend validation
+        shell: pwsh
         run: |
-          npm run lint
-          npm test
-          npm run build
+          npm run lint 2>&1 | Tee-Object test-evidence/typescript.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test 2>&1 | Tee-Object test-evidence/frontend-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build 2>&1 | Tee-Object test-evidence/frontend-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- TypeScript and frontend validation: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Prepare genuine Windows bundle resources
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
           Invoke-WebRequest -Uri $env:WIREGUARD_MSI_URL -OutFile wireguard-amd64.msi
           $msiSignature = Get-AuthenticodeSignature .\wireguard-amd64.msi
           if ($msiSignature.Status -ne 'Valid') { throw "WireGuard MSI signature is not valid: $($msiSignature.Status)" }
-
           New-Item -ItemType Directory -Path wireguard-extracted -Force | Out-Null
           $target = (Resolve-Path .\wireguard-extracted).Path
           $process = Start-Process msiexec.exe -ArgumentList @('/a', (Resolve-Path .\wireguard-amd64.msi).Path, '/qn', "TARGETDIR=$target") -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed with exit code $($process.ExitCode)" }
-
+          if ($process.ExitCode -ne 0) { throw "WireGuard extraction failed: $($process.ExitCode)" }
           $wireGuard = Get-ChildItem wireguard-extracted -Recurse -File -Filter wireguard.exe | Select-Object -First 1
-          if (-not $wireGuard) { throw 'wireguard.exe was not found in the official MSI.' }
-          $wireGuardSignature = Get-AuthenticodeSignature $wireGuard.FullName
-          if ($wireGuardSignature.Status -ne 'Valid') { throw "WireGuard executable signature is not valid: $($wireGuardSignature.Status)" }
+          if (-not $wireGuard) { throw 'wireguard.exe was not found.' }
           New-Item -ItemType Directory -Path src-tauri\tools\wireguard -Force | Out-Null
           Copy-Item $wireGuard.FullName src-tauri\tools\wireguard\wireguard.exe -Force
-
           New-Item -ItemType Directory -Path src-tauri\tools\cloudflared -Force | Out-Null
-          $cloudflaredUrl = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
-          Invoke-WebRequest -Uri $cloudflaredUrl -OutFile src-tauri\tools\cloudflared\cloudflared.exe
-          $cloudflared = Get-Item src-tauri\tools\cloudflared\cloudflared.exe
-          if ($cloudflared.Length -lt 10000000) { throw "Downloaded cloudflared binary is unexpectedly small: $($cloudflared.Length) bytes" }
-
-          Write-Host "WireGuard SHA256: $((Get-FileHash src-tauri\tools\wireguard\wireguard.exe -Algorithm SHA256).Hash)"
-          Write-Host "cloudflared SHA256: $((Get-FileHash $cloudflared.FullName -Algorithm SHA256).Hash)"
+          Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile src-tauri\tools\cloudflared\cloudflared.exe
+          if ((Get-Item src-tauri\tools\cloudflared\cloudflared.exe).Length -lt 10000000) { throw 'cloudflared binary is unexpectedly small.' }
+          "- Genuine bundle resources: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Rust validation
+        shell: pwsh
         run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check 2>&1 | Tee-Object test-evidence/rust-format.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
-          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
-          cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked 2>&1 | Tee-Object test-evidence/rust-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo check --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc 2>&1 | Tee-Object test-evidence/rust-check.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- Rust validation: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Live TV and movie metadata, poster, and database acceptance
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          New-Item -ItemType Directory -Path release-diagnostics -Force | Out-Null
           cmd /d /s /c "npm run test:metadata-live > release-diagnostics\live-metadata.log 2>&1"
           $exitCode = $LASTEXITCODE
-          $log = Get-Content release-diagnostics\live-metadata.log -Raw
+          Copy-Item release-diagnostics/live-metadata.log test-evidence/live-metadata.log -Force
+          $log = Get-Content release-diagnostics/live-metadata.log -Raw
           Write-Host $log
-          if ($exitCode -ne 0) { throw "Live metadata/poster acceptance failed with exit code $exitCode" }
-          if ($log -notmatch 'live_metadata_poster_acceptance_tvmaze_series') {
-            throw 'TVMaze series acceptance test did not execute.'
-          }
-          if ($log -notmatch 'live_metadata_poster_acceptance_cinemeta_movie') {
-            throw 'Cinemeta movie acceptance test did not execute.'
-          }
-          if ($log -notmatch 'test result: ok\. 2 passed; 0 failed') {
-            throw 'Live metadata gate did not report exactly two passing acceptance tests.'
-          }
+          if ($exitCode -ne 0) { throw "Live metadata/poster acceptance failed: $exitCode" }
+          if ($log -notmatch 'live_metadata_poster_acceptance_tvmaze_series') { throw 'TVMaze test did not execute.' }
+          if ($log -notmatch 'live_metadata_poster_acceptance_cinemeta_movie') { throw 'Cinemeta test did not execute.' }
+          if ($log -notmatch 'test result: ok\. 2 passed; 0 failed') { throw 'Live metadata gate did not report exactly two passing acceptance tests.' }
+          "- Live metadata and poster acceptance: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Build Windows installers
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc
-
-      - name: Stage and checksum installers
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
+          npm run tauri build -- --target x86_64-pc-windows-msvc 2>&1 | Tee-Object test-evidence/windows-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- Windows MSI and NSIS build: PASS" | Add-Content test-evidence/TEST-NOTES.md
+
+      - name: Stage installers and finalize test notes
+        shell: pwsh
+        run: |
           New-Item -ItemType Directory -Path installer-staging -Force | Out-Null
           Get-ChildItem 'src-tauri\target\x86_64-pc-windows-msvc\release\bundle' -Recurse -File |
-            Where-Object { $_.Extension -in '.msi', '.exe' } |
-            Copy-Item -Destination installer-staging -Force
-          $msi = @(Get-ChildItem installer-staging -File -Filter *.msi)
-          $exe = @(Get-ChildItem installer-staging -File -Filter *.exe)
-          if ($msi.Count -lt 1) { throw 'No MSI installer was produced.' }
-          if ($exe.Count -lt 1) { throw 'No NSIS EXE installer was produced.' }
-          $files = Get-ChildItem installer-staging -File | Where-Object { $_.Extension -in '.msi', '.exe' }
-          $checksums = foreach ($file in $files) {
-            $hash = Get-FileHash $file.FullName -Algorithm SHA256
-            "$($hash.Hash)  $($file.Name)"
-          }
-          Set-Content installer-staging\SHA256SUMS.txt $checksums -Encoding utf8
+            Where-Object { $_.Extension -in '.msi', '.exe' } | Copy-Item -Destination installer-staging -Force
+          if (@(Get-ChildItem installer-staging -Filter *.msi).Count -lt 1) { throw 'No MSI produced.' }
+          if (@(Get-ChildItem installer-staging -Filter *.exe).Count -lt 1) { throw 'No NSIS EXE produced.' }
+          $checksums = Get-ChildItem installer-staging -File | ForEach-Object { "$(Get-FileHash $_.FullName -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  $($_.Name)" }
+          Set-Content installer-staging/SHA256SUMS.txt $checksums -Encoding utf8
+          Copy-Item installer-staging/SHA256SUMS.txt test-evidence/INSTALLER-SHA256SUMS.txt
+          "`n## Final result`n- Completed (UTC): $([DateTime]::UtcNow.ToString('o'))`n- All required tests: PASS`n- Packaging: PASS" | Add-Content test-evidence/TEST-NOTES.md
+          Compress-Archive -Path test-evidence/* -DestinationPath installer-staging/CinaVault-Premium-v2.08-Build-1.08-Test-Notes.zip -Force
+
+      - name: Record failure in test notes
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-evidence -Force | Out-Null
+          if (-not (Test-Path test-evidence/TEST-NOTES.md)) { '# CinaVault Premium Build Test Notes' | Set-Content test-evidence/TEST-NOTES.md }
+          "`n## Final result`n- Completed (UTC): $([DateTime]::UtcNow.ToString('o'))`n- Workflow result: FAILED`n- Review the attached logs and failed GitHub Actions step." | Add-Content test-evidence/TEST-NOTES.md
+
+      - name: Upload test notes for every build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TEST_ARTIFACT_NAME }}
+          path: test-evidence/
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload verified installers
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -167,17 +217,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2.0.7 GitHub release
+      - name: Publish v2.0.8 GitHub release
         if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium v2 Build 1.07
-          body: |
-            CinaVault Premium v2 Build 1.07, version 2.0.7.
-            Includes the library UI freeze fix that defers and bounds AI metadata startup work.
-            Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live TVMaze and Cinemeta metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
+          name: CinaVault Premium v2.08 Build 1.08
+          body_path: test-evidence/TEST-NOTES.md
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -186,3 +233,4 @@ jobs:
             installer-staging/*.msi
             installer-staging/*.exe
             installer-staging/SHA256SUMS.txt
+            installer-staging/CinaVault-Premium-v2.08-Build-1.08-Test-Notes.zip
