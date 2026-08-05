@@ -1,4 +1,4 @@
-name: CinaVault Premium v2 Build 1.06 Release
+name: CinaVault Premium v2 Build 1.07 Release
 
 on:
   pull_request:
@@ -12,13 +12,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v2-0-6-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v2-0-7-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: 2.0.6
-  TAG_NAME: v2.0.6
-  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.06
+  APP_VERSION: 2.0.7
+  TAG_NAME: v2.0.7
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2-Build-1.07
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -167,15 +167,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2.0.6 GitHub release
+      - name: Publish v2.0.7 GitHub release
         if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium v2 Build 1.06
+          name: CinaVault Premium v2 Build 1.07
           body: |
-            CinaVault Premium v2 Build 1.06, version 2.0.6.
+            CinaVault Premium v2 Build 1.07, version 2.0.7.
+            Includes the library UI freeze fix that defers and bounds AI metadata startup work.
             Published only after candidate gate, contract checks, preventive scan, frontend validation, genuine bundle-resource staging, Rust validation, live TVMaze and Cinemeta metadata/poster acceptance, and verified Windows MSI/NSIS packaging passed in this workflow run.
           draft: false
           prerelease: false
