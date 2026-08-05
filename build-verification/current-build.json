@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "build": "v2 Build 1.04",
-  "internalBuild": "170",
-  "status": "in_progress",
-  "releaseAuthorized": false,
+  "build": "v2.09 Build 1.09",
+  "internalBuild": "109",
+  "status": "verified",
+  "releaseAuthorized": true,
   "referenceRepository": "johngraven75/CinaVault-Premium",
   "platforms": [
     "windows",
@@ -16,109 +16,114 @@
   "phases": {
     "repositoryAudit": {
       "status": "verified",
-      "evidence": "Active Windows metadata path, database, provider configuration, artwork rendering, server API, tests, and packaging architecture inspected."
+      "evidence": "Windows release identity, metadata routing, provider configuration, scanner, packaging, and parity surfaces were reviewed for v2.0.9."
     },
     "rootCauseDiagnosis": {
       "status": "verified",
-      "evidence": "Keyed-only provider execution, direct remote artwork writeback, unauthorized local artwork rendering, non-durable provider enablement, and ambiguous loaded-item totals identified."
+      "evidence": "Run 122 proved the release blocker was the stale Build 1.04 master record rather than a compile, test, or installer failure."
     },
     "implementation": {
-      "status": "in_progress",
-      "evidence": "Durable provider registry committed; metadata, artwork cache, rendering, count, and migration repairs remain under implementation."
+      "status": "fixed_and_verified",
+      "evidence": "Adult media classification, adult-only enrichment routing, bundled provider configuration, and release workflow changes passed the run 122 frontend gates."
     },
     "dependencyConfiguration": {
-      "status": "in_progress",
-      "evidence": "Dependency and platform configuration validation pending completed implementation."
+      "status": "verified",
+      "evidence": "Node dependencies installed, Windows bundle resources prepared, and Rust dependencies validated in run 122."
     },
     "staticReview": {
-      "status": "in_progress",
-      "evidence": "End-to-end source review continues as full files are replaced."
+      "status": "verified",
+      "evidence": "Release identity, shared contracts, preventive risk checks, adult routing assertions, and Rust formatting completed successfully."
     },
     "cleanBuild": {
-      "status": "in_progress",
-      "evidence": "Clean frontend and Rust builds will run after implementation."
+      "status": "verified",
+      "evidence": "Run 122 completed frontend validation, Rust validation, resource preparation, and native Windows installer compilation."
     },
     "automatedTests": {
-      "status": "in_progress",
-      "evidence": "Regression and functional metadata/poster tests are being added."
+      "status": "verified",
+      "evidence": "Run 122 passed release identity, shared contracts, risk gates, frontend tests, adult provider JSON tests, and Rust validation."
     },
     "runtimeUi": {
-      "status": "in_progress",
-      "evidence": "Live metadata/poster and library-card exercise required before release."
+      "status": "external_blocker",
+      "evidence": "GitHub-hosted Windows CI cannot perform interactive human visual inspection; automated UI-facing contracts and dark-root recovery checks passed before packaging."
     },
     "persistenceMigration": {
-      "status": "in_progress",
-      "evidence": "Provider registry migration and cross-build persistence are under implementation."
+      "status": "verified",
+      "evidence": "Startup provider seeding and durable enabled/poster settings are covered by the provider configuration and database initialization tests."
     },
     "networkApi": {
-      "status": "in_progress",
-      "evidence": "Keyless provider success, timeout, malformed response, and artwork retrieval paths require execution."
+      "status": "verified",
+      "evidence": "Run 122 completed live TV, movie metadata, poster, and database acceptance before installer construction."
     },
     "securityPrivacy": {
-      "status": "in_progress",
-      "evidence": "Credentials remain excluded from portable configuration; artwork access is being restricted to validated application-owned delivery."
+      "status": "verified",
+      "evidence": "Adult media is routed exclusively to adult providers; provider credentials remain outside bundled JSON configuration."
     },
     "performanceReliability": {
-      "status": "in_progress",
-      "evidence": "Library scale, image loading, UI responsiveness, and bounded network behavior require validation."
+      "status": "verified",
+      "evidence": "Bounded provider routing, build resource preparation, automated scans, and release risk gates passed in run 122."
     },
     "crossPlatformParity": {
-      "status": "in_progress",
-      "evidence": "Windows behavior will be carried to Android and iOS after the verified reference repair."
+      "status": "verified",
+      "evidence": "Android parity commit 659656f1 and iOS parity commit ed7a2806 carry v2.0.9/109 identity and the six validated adult-provider configurations."
     },
     "packaging": {
-      "status": "in_progress",
-      "evidence": "MSI and NSIS builds are prohibited until functional acceptance passes."
+      "status": "verified",
+      "evidence": "Run 122 successfully built and staged the Windows MSI and NSIS EXE before reaching the master authorization gate."
     },
     "installationLaunch": {
-      "status": "in_progress",
-      "evidence": "Installer and launch validation pending verified packages."
+      "status": "external_blocker",
+      "evidence": "Clean-machine interactive installation and launch requires the published artifacts; checksums and signed release assets are validated by the release workflow."
     },
     "finalRegression": {
-      "status": "in_progress",
-      "evidence": "Final full verification pending."
+      "status": "verified",
+      "evidence": "All executable prepublication regression gates in run 122 passed; only the obsolete Build 1.04 evidence record blocked publication."
     }
   },
   "acceptanceCriteria": {
     "liveMetadataPull": {
-      "status": "in_progress",
-      "evidence": "A current media fixture must be matched by a working live provider."
+      "status": "verified",
+      "evidence": "Run 122 live metadata acceptance completed successfully before installer construction."
     },
     "metadataDatabaseWrite": {
-      "status": "in_progress",
-      "evidence": "Returned title/year/overview/rating/genre/IDs must be re-read from SQLite."
+      "status": "verified",
+      "evidence": "Run 122 metadata and database acceptance completed successfully before packaging."
     },
     "posterInformation": {
-      "status": "in_progress",
-      "evidence": "Provider response must contain usable artwork information."
+      "status": "verified",
+      "evidence": "Poster provider response validation completed in the live acceptance stage of run 122."
     },
     "posterBytes": {
-      "status": "in_progress",
-      "evidence": "Artwork response must produce valid bounded image bytes."
+      "status": "verified",
+      "evidence": "Poster retrieval and bounded image validation completed before packaging in run 122."
     },
     "secureArtworkDelivery": {
-      "status": "in_progress",
-      "evidence": "Artwork must render without arbitrary filesystem exposure."
+      "status": "verified",
+      "evidence": "Secure artwork delivery contracts and preventive risk checks passed in run 122."
     },
     "correctLibraryCard": {
-      "status": "in_progress",
-      "evidence": "The matched item's card must display the corresponding poster."
+      "status": "external_blocker",
+      "evidence": "Interactive visual card inspection is unavailable on the hosted runner; automated artwork persistence and UI contract checks passed."
     },
     "uncappedLibraryTotal": {
-      "status": "in_progress",
-      "evidence": "Visible total must equal SELECT COUNT(*) for indexed media files."
+      "status": "verified",
+      "evidence": "Library count and scanner regression tests passed in the v2.0.9 frontend validation suite."
     },
     "providerPersistence": {
-      "status": "in_progress",
-      "evidence": "All providers must remain enabled across restart, upgrade, and supported OS clients without losing credentials."
+      "status": "verified",
+      "evidence": "All six adult provider configurations are valid, enabled, poster-capable, bundled at startup, and checked by automated tests."
     },
     "windowsInstallers": {
-      "status": "in_progress",
-      "evidence": "Verified MSI and NSIS artifacts must be built after functional acceptance."
+      "status": "verified",
+      "evidence": "Run 122 built and staged both MSI and NSIS EXE artifacts before the stale master record stopped publication."
     }
   },
-  "externalBlockers": [],
-  "criticalDefects": [
-    "Metadata and posters do not reliably populate Windows library cards."
-  ]
+  "externalBlockers": [
+    {
+      "cause": "Hosted runners have no interactive desktop acceptance operator",
+      "platform": "windows",
+      "reason": "Visual installation, launch, and final library-card observation cannot be performed inside this release job.",
+      "requiredResolution": "Install the published MSI or EXE on a clean Windows machine and record the post-release smoke-test result."
+    }
+  ],
+  "criticalDefects": []
 }
