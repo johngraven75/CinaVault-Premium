@@ -63,7 +63,9 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
 }
 
 fn has_adult_media_hint(value: &str) -> bool {
-    let normalized = value.replace(['\\', '/', '_', '-', '.'], " ").to_ascii_lowercase();
+    let normalized = value
+        .replace(['\\', '/', '_', '-', '.'], " ")
+        .to_ascii_lowercase();
     [
         "adult",
         "porn",
