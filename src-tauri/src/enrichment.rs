@@ -659,16 +659,6 @@ async fn resolve_provider_match(
                         Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
                     }
                 }
-                if matches.is_empty() {
-                    fetch_standard_metadata(
-                        client,
-                        provider_keys,
-                        query,
-                        provider_errors,
-                        &mut matches,
-                    )
-                    .await;
-                }
             }
             SourceKind::StandardVideo => {
                 fetch_standard_metadata(

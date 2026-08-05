@@ -39,7 +39,8 @@
     "targets": ["msi", "nsis"],
     "resources": [
       "tools/wireguard/wireguard.exe",
-      "tools/cloudflared/*"
+      "tools/cloudflared/*",
+      "../plugins/configs/*.json"
     ],
     "icon": [
       "icons/32x32.png",

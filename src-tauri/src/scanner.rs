@@ -62,6 +62,34 @@ fn detect_media_type(ext: &str) -> Option<&'static str> {
     }
 }
 
+fn has_adult_media_hint(value: &str) -> bool {
+    let normalized = value.replace(['\\', '/', '_', '-', '.'], " ").to_ascii_lowercase();
+    [
+        "adult",
+        "porn",
+        "xxx",
+        "nsfw",
+        "personal x",
+        "x library",
+        "vids x",
+        "videos x",
+    ]
+    .iter()
+    .any(|hint| normalized.contains(hint))
+}
+
+fn scanned_media_type(source: &MediaSource, file_path: &str, detected: &str) -> String {
+    if detected == "movie"
+        && (has_adult_media_hint(&source.name)
+            || has_adult_media_hint(&source.path)
+            || has_adult_media_hint(file_path))
+    {
+        "adult".to_string()
+    } else {
+        detected.to_string()
+    }
+}
+
 fn should_index_path(path: &Path) -> bool {
     if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
         return false;
@@ -367,7 +395,7 @@ fn scan_directory(
             id: None,
             title: title_from_filename(Path::new(file_path)),
             file_path: file_path.clone(),
-            media_type: media_type.clone(),
+            media_type: scanned_media_type(source, file_path, media_type),
             year: None,
             rating: None,
             overview: None,
@@ -611,7 +639,8 @@ pub async fn apply_embedded_titles(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_media_files, should_index_path};
+    use super::{collect_media_files, scanned_media_type, should_index_path};
+    use crate::db::MediaSource;
     use std::path::Path;
 
     #[test]
@@ -624,5 +653,36 @@ mod tests {
     fn missing_drive_reports_clear_error() {
         let error = collect_media_files(Path::new("/path/that/does/not/exist")).unwrap_err();
         assert!(error.contains("offline") || error.contains("does not exist"));
+    }
+
+    #[test]
+    fn adult_sources_and_paths_are_labeled_at_ingestion() {
+        let source = MediaSource {
+            id: Some(1),
+            name: "Adult Library".to_string(),
+            path: r"D:\\Media\\Adult".to_string(),
+            source_type: "local".to_string(),
+            enabled: true,
+            last_scanned: None,
+            item_count: 0,
+        };
+        assert_eq!(
+            scanned_media_type(&source, r"D:\\Media\\Adult\\scene.mkv", "movie"),
+            "adult"
+        );
+
+        let standard = MediaSource {
+            id: Some(2),
+            name: "Movies".to_string(),
+            path: r"D:\\Movies".to_string(),
+            source_type: "local".to_string(),
+            enabled: true,
+            last_scanned: None,
+            item_count: 0,
+        };
+        assert_eq!(
+            scanned_media_type(&standard, r"D:\\Movies\\Feature.mkv", "movie"),
+            "movie"
+        );
     }
 }
