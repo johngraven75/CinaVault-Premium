@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::State;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 static SCANNING: AtomicBool = AtomicBool::new(false);
 static SCAN_TOTAL: AtomicU64 = AtomicU64::new(0);
@@ -50,6 +50,20 @@ const AUDIO_EXTS: &[&str] = &[
     "mp3", "flac", "aac", "ogg", "wma", "wav", "m4a", "opus", "alac", "aiff",
 ];
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg"];
+const SKIPPED_DIRS: &[&str] = &[
+    "$recycle.bin",
+    "system volume information",
+    "windows",
+    "program files",
+    "program files (x86)",
+    "programdata",
+    "recovery",
+    "msocache",
+    "config.msi",
+    "found.000",
+    ".git",
+    "node_modules",
+];
 
 fn detect_media_type(ext: &str) -> Option<&'static str> {
     let ext = ext.to_ascii_lowercase();
@@ -72,6 +86,14 @@ fn should_index_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn should_descend(entry: &DirEntry) -> bool {
+    if entry.depth() == 0 || !entry.file_type().is_dir() {
+        return true;
+    }
+    let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+    !SKIPPED_DIRS.iter().any(|blocked| name == *blocked)
+}
+
 fn title_from_filename(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -89,7 +111,7 @@ fn normalize_source_path(raw: &str) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
-fn collect_media_files(path: &Path) -> Result<ScanFileCollection, String> {
+fn validate_source_path(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(format!(
             "Source path does not exist or drive is offline: {}",
@@ -97,14 +119,19 @@ fn collect_media_files(path: &Path) -> Result<ScanFileCollection, String> {
         ));
     }
     if !path.is_dir() {
-        return Err(format!(
-            "Source path is not a directory: {}",
-            path.display()
-        ));
+        return Err(format!("Source path is not a directory: {}", path.display()));
     }
+    Ok(())
+}
 
+fn collect_media_files(path: &Path) -> Result<ScanFileCollection, String> {
+    validate_source_path(path)?;
     let mut result = ScanFileCollection::default();
-    for entry in WalkDir::new(path).follow_links(false).into_iter() {
+    for entry in WalkDir::new(path)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(should_descend)
+    {
         if CANCEL_FLAG.load(Ordering::Relaxed) {
             break;
         }
@@ -125,7 +152,6 @@ fn collect_media_files(path: &Path) -> Result<ScanFileCollection, String> {
         let Some(media_type) = detect_media_type(extension) else {
             continue;
         };
-
         match entry.metadata() {
             Ok(metadata) => result.files.push((
                 current_path.to_string_lossy().to_string(),
@@ -154,12 +180,10 @@ fn extract_embedded_title(file_path: &str) -> Option<String> {
     ]);
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
-
     let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
-
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(str::trim)
@@ -195,19 +219,8 @@ fn looks_like_media_directory(path: &Path) -> bool {
         .unwrap_or_default()
         .to_ascii_lowercase();
     [
-        "movie",
-        "film",
-        "cinema",
-        "video",
-        "tv",
-        "television",
-        "series",
-        "show",
-        "music",
-        "audio",
-        "media",
-        "adult",
-        "personal vids",
+        "movie", "film", "cinema", "video", "tv", "television", "series", "show",
+        "music", "audio", "media", "adult", "personal vids",
     ]
     .iter()
     .any(|keyword| name.contains(keyword))
@@ -234,7 +247,6 @@ fn discover_media_directories(roots: &[PathBuf]) -> Vec<PathBuf> {
 
 fn platform_discovery_roots() -> Vec<PathBuf> {
     let mut roots = BTreeSet::new();
-
     #[cfg(target_os = "windows")]
     for drive in b'C'..=b'Z' {
         let path = PathBuf::from(format!("{}:\\", drive as char));
@@ -242,10 +254,8 @@ fn platform_discovery_roots() -> Vec<PathBuf> {
             roots.insert(path);
         }
     }
-
     #[cfg(not(target_os = "windows"))]
     roots.insert(PathBuf::from("/"));
-
     if let Some(path) = dirs::home_dir() {
         roots.insert(path);
     }
@@ -271,14 +281,12 @@ fn discover_and_add_sources(
         .collect::<HashSet<_>>();
     let mut paths = Vec::new();
     let mut added = 0;
-
     for path in candidates {
         let value = path.to_string_lossy().to_string();
         paths.push(value.clone());
         if existing.contains(&value.to_ascii_lowercase()) {
             continue;
         }
-
         let name = path
             .file_name()
             .and_then(|value| value.to_str())
@@ -296,7 +304,6 @@ fn discover_and_add_sources(
         .map_err(|error| error.to_string())?;
         added += 1;
     }
-
     Ok((paths, added))
 }
 
@@ -318,87 +325,133 @@ pub async fn discover_media_sources(
     }))
 }
 
+fn upsert_scanned_file(
+    state: &State<AppState>,
+    source: &MediaSource,
+    file_path: &Path,
+    media_type: &str,
+    file_size: u64,
+    now: &str,
+) -> Result<bool, String> {
+    let file_path_string = file_path.to_string_lossy().to_string();
+    let sidecar = sidecar_poster_path_for_video(file_path)
+        .map(|path| path.to_string_lossy().to_string());
+    let existing = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        db.conn
+            .query_row(
+                "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                rusqlite::params![file_path_string],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?
+            .flatten()
+    };
+    let poster_path = if existing
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        None
+    } else {
+        sidecar
+    };
+    let item = MediaItem {
+        id: None,
+        title: title_from_filename(file_path),
+        file_path: file_path_string,
+        media_type: media_type.to_string(),
+        year: None,
+        rating: None,
+        overview: None,
+        poster_path,
+        backdrop_path: None,
+        genre: None,
+        duration: None,
+        file_size: Some(file_size as i64),
+        resolution: None,
+        codec: None,
+        verified: false,
+        watched: false,
+        favorite: false,
+        date_added: now.to_string(),
+        last_played: None,
+        tmdb_id: None,
+        imdb_id: None,
+        source_id: source.id,
+    };
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    db.upsert_scanned_media_item_data(&item)
+}
+
 fn scan_directory(
     state: &State<AppState>,
     source: &MediaSource,
 ) -> Result<ScanDirectoryReport, String> {
     let path = normalize_source_path(&source.path);
-    let collection = collect_media_files(&path)?;
-    SCAN_TOTAL.store(collection.files.len() as u64, Ordering::Relaxed);
+    validate_source_path(&path)?;
     let now = chrono::Utc::now().to_rfc3339();
-    let mut report = ScanDirectoryReport {
-        found: collection.files.len() as u64,
-        errors: collection.errors,
-        ..Default::default()
-    };
+    let mut report = ScanDirectoryReport::default();
+    SCAN_TOTAL.store(0, Ordering::Relaxed);
+    SCAN_CURRENT.store(0, Ordering::Relaxed);
 
-    for (index, (file_path, media_type, file_size)) in collection.files.iter().enumerate() {
+    for entry in WalkDir::new(&path)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(should_descend)
+    {
         if CANCEL_FLAG.load(Ordering::Relaxed) {
+            report.errors.push("Scan cancelled by user".into());
             break;
         }
-        SCAN_CURRENT.store(index as u64 + 1, Ordering::Relaxed);
-
-        let sidecar = sidecar_poster_path_for_video(Path::new(file_path))
-            .map(|path| path.to_string_lossy().to_string());
-        let existing = {
-            let db = state.db.lock().map_err(|error| error.to_string())?;
-            db.conn
-                .query_row(
-                    "SELECT poster_path FROM media_items WHERE file_path = ?1",
-                    rusqlite::params![file_path],
-                    |row| row.get::<_, Option<String>>(0),
-                )
-                .optional()
-                .map_err(|error| error.to_string())?
-                .flatten()
+        let entry = match entry {
+            Ok(value) => value,
+            Err(error) => {
+                report.errors.push(format!("walk error: {error}"));
+                continue;
+            }
         };
-        let poster_path = if existing
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some()
-        {
-            None
-        } else {
-            sidecar
+        let current_path = entry.path();
+        if !entry.file_type().is_file() || !should_index_path(current_path) {
+            continue;
+        }
+        let Some(extension) = current_path.extension().and_then(|e| e.to_str()) else {
+            continue;
         };
-
-        let item = MediaItem {
-            id: None,
-            title: title_from_filename(Path::new(file_path)),
-            file_path: file_path.clone(),
-            media_type: media_type.clone(),
-            year: None,
-            rating: None,
-            overview: None,
-            poster_path,
-            backdrop_path: None,
-            genre: None,
-            duration: None,
-            file_size: Some(*file_size as i64),
-            resolution: None,
-            codec: None,
-            verified: false,
-            watched: false,
-            favorite: false,
-            date_added: now.clone(),
-            last_played: None,
-            tmdb_id: None,
-            imdb_id: None,
-            source_id: source.id,
+        let Some(media_type) = detect_media_type(extension) else {
+            continue;
+        };
+        let metadata = match entry.metadata() {
+            Ok(value) => value,
+            Err(error) => {
+                report.errors.push(format!(
+                    "metadata error for {}: {error}",
+                    current_path.display()
+                ));
+                continue;
+            }
         };
 
-        let result = {
-            let db = state.db.lock().map_err(|error| error.to_string())?;
-            db.upsert_scanned_media_item_data(&item)
-        };
-        match result {
+        report.found += 1;
+        SCAN_TOTAL.store(report.found, Ordering::Relaxed);
+        match upsert_scanned_file(
+            state,
+            source,
+            current_path,
+            media_type,
+            metadata.len(),
+            &now,
+        ) {
             Ok(true) => report.added += 1,
             Ok(false) => report.updated += 1,
-            Err(error) => report
-                .errors
-                .push(format!("library upsert failed for {file_path}: {error}")),
+            Err(error) => report.errors.push(format!(
+                "library upsert failed for {}: {error}",
+                current_path.display()
+            )),
         }
+        SCAN_CURRENT.store(report.found, Ordering::Relaxed);
     }
 
     let result = {
@@ -409,11 +462,8 @@ fn scan_directory(
         )
     };
     if let Err(error) = result {
-        report
-            .errors
-            .push(format!("source status update failed: {error}"));
+        report.errors.push(format!("source status update failed: {error}"));
     }
-
     Ok(report)
 }
 
@@ -422,12 +472,10 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
     if SCANNING.swap(true, Ordering::Relaxed) {
         return Err("Scan already in progress".into());
     }
-
     let _guard = ScanGuard;
     CANCEL_FLAG.store(false, Ordering::Relaxed);
     SCAN_CURRENT.store(0, Ordering::Relaxed);
     SCAN_TOTAL.store(0, Ordering::Relaxed);
-
     let sources = {
         let db = state.db.lock().map_err(|error| error.to_string())?;
         db.get_sources_data().map_err(|error| error.to_string())?
@@ -438,7 +486,6 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
     let mut failed = 0u64;
     let mut skipped = 0u64;
     let mut reports = Vec::new();
-
     for source in &sources {
         if CANCEL_FLAG.load(Ordering::Relaxed) {
             break;
@@ -448,26 +495,16 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
             reports.push(source_report_json(source, "disabled", 0, 0, 0, &[]));
             continue;
         }
-
         match scan_directory(&state, source) {
             Ok(report) => {
                 scanned += 1;
                 totals.found += report.found;
                 totals.added += report.added;
                 totals.updated += report.updated;
-                totals.errors.extend(
-                    report
-                        .errors
-                        .iter()
-                        .map(|error| format!("{}: {error}", source.name)),
-                );
+                totals.errors.extend(report.errors.iter().map(|error| format!("{}: {error}", source.name)));
                 reports.push(source_report_json(
                     source,
-                    if report.errors.is_empty() {
-                        "success"
-                    } else {
-                        "partial"
-                    },
+                    if report.errors.is_empty() { "success" } else { "partial" },
                     report.found,
                     report.added,
                     report.updated,
@@ -481,17 +518,19 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
             }
         }
     }
-
-    let status = if failed == 0 && totals.errors.is_empty() {
+    let cancelled = CANCEL_FLAG.load(Ordering::Relaxed);
+    let status = if cancelled {
+        "cancelled"
+    } else if failed == 0 && totals.errors.is_empty() {
         "success"
     } else if scanned > 0 {
         "partial"
     } else {
         "failed"
     };
-
     Ok(serde_json::json!({
         "status": status,
+        "cancelled": cancelled,
         "total_found": totals.found,
         "total_added": totals.added,
         "total_updated": totals.updated,
@@ -513,11 +552,10 @@ pub async fn scan_single_source(
     if SCANNING.swap(true, Ordering::Relaxed) {
         return Err("Scan already in progress".into());
     }
-
     let _guard = ScanGuard;
     CANCEL_FLAG.store(false, Ordering::Relaxed);
     SCAN_CURRENT.store(0, Ordering::Relaxed);
-
+    SCAN_TOTAL.store(0, Ordering::Relaxed);
     let source = {
         let db = state.db.lock().map_err(|error| error.to_string())?;
         db.get_sources_data()
@@ -529,14 +567,11 @@ pub async fn scan_single_source(
     if !source.enabled {
         return Err("Source is disabled".into());
     }
-
     let report = scan_directory(&state, &source)?;
+    let cancelled = CANCEL_FLAG.load(Ordering::Relaxed);
     Ok(serde_json::json!({
-        "status": if report.errors.is_empty() {
-            "success"
-        } else {
-            "partial"
-        },
+        "status": if cancelled { "cancelled" } else if report.errors.is_empty() { "success" } else { "partial" },
+        "cancelled": cancelled,
         "total_found": report.found,
         "total_added": report.added,
         "total_updated": report.updated,
@@ -550,11 +585,15 @@ pub fn get_scan_progress() -> serde_json::Value {
         "scanning": SCANNING.load(Ordering::Relaxed),
         "total": SCAN_TOTAL.load(Ordering::Relaxed),
         "current": SCAN_CURRENT.load(Ordering::Relaxed),
+        "cancel_requested": CANCEL_FLAG.load(Ordering::Relaxed),
     })
 }
 
 #[tauri::command]
 pub fn cancel_scan() -> Result<(), String> {
+    if !SCANNING.load(Ordering::Relaxed) {
+        return Ok(());
+    }
     CANCEL_FLAG.store(true, Ordering::Relaxed);
     Ok(())
 }
@@ -574,11 +613,9 @@ pub async fn apply_embedded_titles(
             .map_err(|error| error.to_string())?;
         rows.filter_map(Result::ok).collect()
     };
-
     let mut checked = 0u64;
     let mut updated = 0u64;
     let mut missing_files = 0u64;
-
     for (id, file_path, current_title) in rows {
         checked += 1;
         if !Path::new(&file_path).exists() {
@@ -591,7 +628,6 @@ pub async fn apply_embedded_titles(
         if title.trim().is_empty() || title.eq_ignore_ascii_case(&current_title) {
             continue;
         }
-
         let db = state.db.lock().map_err(|error| error.to_string())?;
         db.conn
             .execute(
@@ -601,7 +637,6 @@ pub async fn apply_embedded_titles(
             .map_err(|error| error.to_string())?;
         updated += 1;
     }
-
     Ok(serde_json::json!({
         "checked": checked,
         "updated": updated,
@@ -611,8 +646,9 @@ pub async fn apply_embedded_titles(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_media_files, should_index_path};
+    use super::{collect_media_files, should_descend, should_index_path};
     use std::path::Path;
+    use walkdir::WalkDir;
 
     #[test]
     fn media_filter_excludes_artwork() {
@@ -624,5 +660,24 @@ mod tests {
     fn missing_drive_reports_clear_error() {
         let error = collect_media_files(Path::new("/path/that/does/not/exist")).unwrap_err();
         assert!(error.contains("offline") || error.contains("does not exist"));
+    }
+
+    #[test]
+    fn system_directories_are_filtered() {
+        let root = std::env::temp_dir().join("cinavault_scanner_filter_test");
+        let blocked = root.join("$RECYCLE.BIN");
+        std::fs::create_dir_all(&blocked).unwrap();
+        let entry = WalkDir::new(&root)
+            .into_iter()
+            .find_map(Result::ok)
+            .unwrap();
+        assert!(should_descend(&entry));
+        let blocked_entry = WalkDir::new(&root)
+            .into_iter()
+            .filter_map(Result::ok)
+            .find(|entry| entry.path() == blocked)
+            .unwrap();
+        assert!(!should_descend(&blocked_entry));
+        let _ = std::fs::remove_dir_all(root);
     }
 }
