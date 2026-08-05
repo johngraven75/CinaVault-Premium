@@ -14,6 +14,7 @@ export type TabId =
   | "cloud"
   | "plugins"
   | "ai"
+  | "hf-models"
   | "settings";
 
 const VALID_TAB_IDS: readonly TabId[] = [
@@ -28,6 +29,7 @@ const VALID_TAB_IDS: readonly TabId[] = [
   "cloud",
   "plugins",
   "ai",
+  "hf-models",
   "settings",
 ];
 

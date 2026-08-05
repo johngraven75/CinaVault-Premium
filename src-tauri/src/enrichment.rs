@@ -424,6 +424,12 @@ pub async fn run_library_enrichment(
 
     let total_items = items.len();
     for (index, item) in items.into_iter().enumerate() {
+        if task_progress::stop_requested() {
+            report
+                .provider_errors
+                .push("Stopped by user before processing the next item".to_string());
+            break;
+        }
         progress.update(
             index + 1,
             format!("Enriching metadata for {} of {}", index + 1, total_items),
@@ -450,9 +456,15 @@ pub async fn run_library_enrichment(
             &mut report.provider_errors,
         )
         .await;
-        let local_title_provider = local_embedded_title_match(embedded_title.as_deref())
-            .or_else(|| local_display_title_match(&item));
-        let local_artwork_provider = local_sidecar_artwork_match(&item);
+        let local_title_provider = (source_kind != SourceKind::AdultVideo)
+            .then(|| {
+                local_embedded_title_match(embedded_title.as_deref())
+                    .or_else(|| local_display_title_match(&item))
+            })
+            .flatten();
+        let local_artwork_provider = (source_kind != SourceKind::AdultVideo)
+            .then(|| local_sidecar_artwork_match(&item))
+            .flatten();
         let provider = [
             remote_provider,
             local_title_provider,
@@ -1553,6 +1565,12 @@ pub async fn gather_adult_metadata(
         .map_err(|err| err.to_string())?;
 
     for item in items {
+        if task_progress::stop_requested() {
+            report
+                .provider_errors
+                .push("Stopped by user before processing the next item".to_string());
+            break;
+        }
         if !is_video_library_item(&item) {
             continue;
         }
@@ -1572,13 +1590,7 @@ pub async fn gather_adult_metadata(
         )
         .await;
 
-        let local_artwork = local_sidecar_artwork_match(&item);
-        let provider = [remote_provider, local_artwork]
-            .into_iter()
-            .flatten()
-            .reduce(merge_provider_matches);
-
-        let Some(provider) = provider else {
+        let Some(provider) = remote_provider else {
             continue;
         };
 

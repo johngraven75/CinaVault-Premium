@@ -265,7 +265,9 @@ pub fn run() {
             ai_automation::ai_library_manage,
             metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,
+            convert_entire_library_to_adult,
             task_progress::get_metadata_task_progress,
+            task_progress::stop_ai_agent,
             cloud_storage::cloud_auth_start,
             cloud_storage::cloud_disconnect,
             cloud_storage::cloud_sync,
@@ -350,6 +352,44 @@ fn get_poster_data_url(state: tauri::State<AppState>, path: String) -> Result<St
         "data:{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(bytes)
     ))
+}
+
+#[tauri::command]
+async fn convert_entire_library_to_adult(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let (items_labeled, poster_references_cleared) = {
+        let mut db = state.db.lock().map_err(|error| error.to_string())?;
+        let transaction = db
+            .conn
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let poster_count = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM media_items WHERE poster_path IS NOT NULL OR backdrop_path IS NOT NULL",
+                [],
+                |row| row.get::<_, u64>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        let updated = transaction
+            .execute(
+                "UPDATE media_items SET media_type = 'adult', poster_path = NULL, backdrop_path = NULL",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+        (updated, poster_count)
+    };
+
+    let enrichment = enrichment::gather_adult_metadata(state).await?;
+    Ok(serde_json::json!({
+        "type": "entire_library_adult_conversion",
+        "status": "success",
+        "items_labeled_adult": items_labeled,
+        "poster_references_cleared": poster_references_cleared,
+        "poster_files_deleted": 0,
+        "adult_enrichment": enrichment,
+    }))
 }
 
 #[tauri::command]

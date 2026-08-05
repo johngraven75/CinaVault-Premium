@@ -993,6 +993,10 @@ async fn gather_adult_metadata_assets_inner(
         ),
     ) in media_items.iter().enumerate()
     {
+        if task_progress::stop_requested() {
+            errors.push("Stopped by user before processing the next item".to_string());
+            break;
+        }
         progress.update(
             index + 1,
             format!(

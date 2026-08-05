@@ -27,6 +27,7 @@ import AdvancedTab from "./components/tabs/AdvancedTab";
 import CloudNASTab from "./components/tabs/CloudNASTab";
 import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
+import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import { pluginEngine } from "./data/pluginAdapter";
 import {
@@ -54,6 +55,7 @@ const TAB_COMPONENTS: Record<TabId, FC> = {
   cloud: CloudNASTab,
   plugins: PluginsTab,
   ai: AIDiagnosticsTab,
+  "hf-models": HFModelsTab,
   settings: SettingsTab,
 };
 
@@ -137,6 +139,12 @@ const TAB_TITLES: Record<
     subtitle:
       "Observe and guide automated scanning, identification, artwork retrieval, repair, and library optimization.",
     mode: "Neural",
+  },
+  "hf-models": {
+    eyebrow: "Public Model Intelligence",
+    title: "Hugging Face Models",
+    subtitle: "Search and select free, public, ungated reasoning models for CinaVault AI.",
+    mode: "Models",
   },
   settings: {
     eyebrow: "Experience Design",

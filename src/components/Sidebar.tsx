@@ -99,6 +99,14 @@ const NAV_ITEMS: NavItem[] = [
     accent: "from-fuchsia-400/34 to-cyan-400/10",
   },
   {
+    id: "hf-models",
+    label: "HF Models",
+    icon: Sparkles,
+    zone: "Intelligence",
+    detail: "Free model catalog",
+    accent: "from-amber-300/30 to-fuchsia-500/10",
+  },
+  {
     id: "plugins",
     label: "Extensions",
     icon: Puzzle,

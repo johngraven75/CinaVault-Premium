@@ -33,6 +33,7 @@ import {
   Tag,
   ShieldCheck,
   Trash2,
+  Square,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -361,6 +362,15 @@ export default function AIDiagnosticsTab() {
       percent: 0,
       message: `Starting ${label}...`,
     });
+  };
+
+  const stopAiAgent = async () => {
+    try {
+      await invoke("stop_ai_agent");
+      addStatusMessage("AI agent stop requested; the current item will finish safely.");
+    } catch (error) {
+      addStatusMessage(`Unable to stop AI agent: ${error}`);
+    }
   };
 
   const updateLocalProgress = (
@@ -865,6 +875,9 @@ export default function AIDiagnosticsTab() {
               <div className="mt-1 truncate text-sm font-bold text-cv-text">
                 {model}
               </div>
+              <button onClick={() => setShowModelCatalog(true)} className="cv-btn cv-btn-gold mt-3 text-xs">
+                <Sparkles size={12} /> Select Free HF Model
+              </button>
             </div>
           </div>
 
@@ -901,6 +914,15 @@ export default function AIDiagnosticsTab() {
             >
               <Sparkles size={14} /> Inference
             </button>
+            {aiProcessing && (
+              <button
+                onClick={() => void stopAiAgent()}
+                className="cv-btn cv-btn-danger"
+                title="Stop the active AI or metadata operation"
+              >
+                <Square size={14} /> Stop AI Agent
+              </button>
+            )}
           </div>
           <div className="mt-2">
             <input
@@ -924,6 +946,25 @@ export default function AIDiagnosticsTab() {
               </button>
             ))}
           </div>
+          <button
+            disabled={aiProcessing}
+            onClick={async () => {
+              if (!window.confirm("Mark every indexed item adult and clear all CinaVault poster/backdrop references? Poster files on disk will not be deleted.")) return;
+              setAiProcessing(true);
+              try {
+                const result = await invoke<any>("convert_entire_library_to_adult");
+                await handleTrackedResult("Convert Entire Library to Adult", "Convert entire library to adult", result);
+                await refreshLoadedLibraryPage();
+              } catch (error) {
+                addStatusMessage(`Adult library conversion failed: ${error}`);
+              } finally {
+                setAiProcessing(false);
+              }
+            }}
+            className="cv-btn cv-btn-danger mt-3 text-xs disabled:opacity-50"
+          >
+            Convert Entire Library to Adult (CinaVault Only)
+          </button>
         </div>
       </div>
 
