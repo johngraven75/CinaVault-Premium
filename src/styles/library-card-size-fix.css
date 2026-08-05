@@ -1,0 +1,53 @@
+/* Larger library cards with fewer cards per row. Loaded after the base HUD styles. */
+.cyber-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+.cyber-grid .cyber-card {
+  min-width: 0;
+  min-height: 390px;
+}
+
+.cyber-grid .cyber-card img,
+.cyber-grid .cyber-card [data-poster-fallback="true"] {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  min-height: 300px;
+  object-fit: cover;
+}
+
+@media (min-width: 1280px) {
+  .cyber-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1680px) {
+  .cyber-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1279px) and (min-width: 768px) {
+  .cyber-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .cyber-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cyber-grid .cyber-card {
+    min-height: 320px;
+  }
+
+  .cyber-grid .cyber-card img,
+  .cyber-grid .cyber-card [data-poster-fallback="true"] {
+    min-height: 230px;
+  }
+}
