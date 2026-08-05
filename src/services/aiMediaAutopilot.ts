@@ -18,6 +18,9 @@ export interface AiMediaAutopilotCycle {
   warnings: string[];
 }
 
+const STARTUP_IDLE_DELAY_MS = 30_000;
+const REPAIR_SAMPLE_SIZE = 96;
+
 let cycleRunning = false;
 let cycleQueued = false;
 
@@ -74,6 +77,9 @@ async function repairMetadataCandidates(
         );
       }
     });
+
+    // Yield between provider batches so React/WebView input and paint work stays responsive.
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
   }
 
   return repaired;
@@ -127,24 +133,26 @@ async function runCycle(
 
     await invokeSafely("purge_photo_items", undefined, warnings);
 
-    const initialItems =
+    // Never pull the entire library into the WebView for an automated repair pass.
+    // A bounded sample avoids huge JSON serialization, memory pressure, and React updates.
+    const repairItems =
       (await invokeSafely<MediaItem[]>(
         "get_media_items",
-        { mediaType: null, limit: null, offset: null },
+        { mediaType: null, limit: REPAIR_SAMPLE_SIZE, offset: 0 },
         warnings,
       )) || [];
 
-    targetedRepairs = await repairMetadataCandidates(initialItems, warnings);
+    targetedRepairs = await repairMetadataCandidates(repairItems, warnings);
 
-    const finalItems =
-      (await invokeSafely<MediaItem[]>(
-        "get_media_items",
-        { mediaType: null, limit: null, offset: null },
-        warnings,
-      )) || initialItems;
-    libraryCount = finalItems.length;
-    options.setMediaItems(finalItems);
+    const count = await invokeSafely<{ total?: number }>(
+      "get_library_count",
+      { mediaType: null },
+      warnings,
+    );
+    libraryCount = Number(count?.total || 0);
 
+    // Let the library screen refresh its own paginated view. Replacing the global
+    // store with every media row was the main UI-freeze path in v1.0.06.
     window.dispatchEvent(
       new CustomEvent("cinavault:library-refresh", {
         detail: {
@@ -157,8 +165,8 @@ async function runCycle(
 
     options.addStatusMessage(
       warnings.length
-        ? `AI Media Autopilot completed with ${warnings.length} warning(s); ${libraryCount} cards refreshed`
-        : `AI Media Autopilot completed: ${libraryCount} cards refreshed and ${targetedRepairs} targeted repairs applied`,
+        ? `AI Media Autopilot completed with ${warnings.length} warning(s); ${libraryCount} records remain available`
+        : `AI Media Autopilot completed: ${libraryCount} records indexed and ${targetedRepairs} targeted repairs applied`,
     );
   } finally {
     cycleRunning = false;
@@ -186,17 +194,33 @@ export function startAiMediaAutopilot(
   options: AiMediaAutopilotOptions,
 ): () => void {
   const intervalMinutes = Math.max(10, options.intervalMinutes || 30);
-  const startupTimer = window.setTimeout(
-    () => void runCycle(options, "startup health pass"),
-    4500,
-  );
+  let startupTimer: number | null = null;
+
+  const scheduleStartupPass = () => {
+    if (startupTimer !== null) return;
+    startupTimer = window.setTimeout(() => {
+      startupTimer = null;
+      void runCycle(options, "startup idle health pass");
+    }, STARTUP_IDLE_DELAY_MS);
+  };
+
+  // The library announces its first usable page before metadata automation begins.
+  // A fallback keeps maintenance available when the user starts on another tab.
+  window.addEventListener("cinavault:library-ready", scheduleStartupPass, {
+    once: true,
+  });
+  const fallbackStartupTimer = window.setTimeout(scheduleStartupPass, 90_000);
+
   const interval = window.setInterval(
     () => void runCycle(options, "scheduled maintenance"),
     intervalMinutes * 60 * 1000,
   );
 
   const handleSourceAdded = () =>
-    void runCycle(options, "new media source detected");
+    window.setTimeout(
+      () => void runCycle(options, "new media source detected"),
+      STARTUP_IDLE_DELAY_MS,
+    );
   const handleManualRun = () =>
     void runCycle(options, "manual autopilot request");
 
@@ -204,8 +228,10 @@ export function startAiMediaAutopilot(
   window.addEventListener("cinavault:ai-autopilot-run", handleManualRun);
 
   return () => {
-    window.clearTimeout(startupTimer);
+    if (startupTimer !== null) window.clearTimeout(startupTimer);
+    window.clearTimeout(fallbackStartupTimer);
     window.clearInterval(interval);
+    window.removeEventListener("cinavault:library-ready", scheduleStartupPass);
     window.removeEventListener("cinavault:source-added", handleSourceAdded);
     window.removeEventListener("cinavault:ai-autopilot-run", handleManualRun);
   };
