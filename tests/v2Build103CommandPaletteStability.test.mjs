@@ -23,7 +23,7 @@ test("v2 Build 1.03 command palette stability layer remains last", async () => {
   assert.match(buildInfo, /BUILD_INFO/);
   assert.match(main, /BUILD_INFO\.displayName/);
   assert.equal(typeof build.displayName, "string");
-  assert.ok(build.displayName.startsWith("v2 Build "));
+  assert.match(build.displayName, /^v2(?:\.\d+)? Build \d+(?:\.\d+)?$/);
   assert.equal(typeof build.releaseTag, "string");
   assert.ok(build.releaseTag.startsWith("v2-build-"));
 });
