@@ -308,9 +308,7 @@ fn get_system_info() -> serde_json::Value {
 fn get_poster_data_url(state: tauri::State<AppState>, path: String) -> Result<String, String> {
     const MAX_POSTER_BYTES: u64 = 25 * 1024 * 1024;
     let requested = path.trim();
-    if requested.is_empty()
-        || requested.starts_with("http://")
-        || requested.starts_with("https://")
+    if requested.is_empty() || requested.starts_with("http://") || requested.starts_with("https://")
     {
         return Err("A local poster path is required".to_string());
     }
@@ -336,8 +334,7 @@ fn get_poster_data_url(state: tauri::State<AppState>, path: String) -> Result<St
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_POSTER_BYTES {
         return Err("Poster file is empty, oversized, or not a regular file".to_string());
     }
-    let bytes =
-        std::fs::read(candidate).map_err(|error| format!("Poster read failed: {error}"))?;
+    let bytes = std::fs::read(candidate).map_err(|error| format!("Poster read failed: {error}"))?;
     let extension = candidate
         .extension()
         .and_then(|value| value.to_str())
