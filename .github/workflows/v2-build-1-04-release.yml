@@ -1,6 +1,11 @@
 name: CinaVault Premium v2.09 Build 1.09 Release
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/release-triggers/v2.0.9"
+      - ".github/workflows/v2-build-1-04-release.yml"
   workflow_dispatch:
 
 permissions:
