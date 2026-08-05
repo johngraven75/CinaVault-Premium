@@ -360,10 +360,7 @@ async fn convert_entire_library_to_adult(
 ) -> Result<serde_json::Value, String> {
     let (items_labeled, poster_references_cleared) = {
         let mut db = state.db.lock().map_err(|error| error.to_string())?;
-        let transaction = db
-            .conn
-            .transaction()
-            .map_err(|error| error.to_string())?;
+        let transaction = db.conn.transaction().map_err(|error| error.to_string())?;
         let poster_count = transaction
             .query_row(
                 "SELECT COUNT(*) FROM media_items WHERE poster_path IS NOT NULL OR backdrop_path IS NOT NULL",
