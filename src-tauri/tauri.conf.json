@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CinaVault Premium — v2 Build 1.08",
+        "title": "CinaVault Premium — v2.08 Build 1.08",
         "width": 1400,
         "height": 900,
         "minWidth": 1024,
@@ -38,7 +38,6 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "resources": [
-      "tools/wireguard/wireguard.exe",
       "tools/cloudflared/*"
     ],
     "icon": [
