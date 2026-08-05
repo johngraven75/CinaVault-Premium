@@ -120,7 +120,7 @@
   "externalBlockers": [
     {
       "cause": "Hosted runners have no interactive desktop acceptance operator",
-      "platform": "windows",
+      "platform": "windows-desktop",
       "reason": "Visual installation, launch, and final library-card observation cannot be performed inside this release job.",
       "requiredResolution": "Install the published MSI or EXE on a clean Windows machine and record the post-release smoke-test result."
     }
