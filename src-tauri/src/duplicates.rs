@@ -32,11 +32,10 @@ pub async fn find_duplicates(
     tolerance_mb: Option<f64>,
 ) -> Result<serde_json::Value, String> {
     let match_rule = match_by.unwrap_or_else(|| "name_size".to_string());
-    let tolerance = tolerance_mb.unwrap_or(0.0) * 1_048_576.0; // Convert MB to bytes
+    let tolerance = tolerance_mb.unwrap_or(0.0) * 1_048_576.0;
 
     let db = state.db.lock().map_err(|e| e.to_string())?;
 
-    // Clear previous results
     db.conn
         .execute("DELETE FROM duplicate_items", [])
         .map_err(|e| e.to_string())?;
@@ -44,7 +43,6 @@ pub async fn find_duplicates(
         .execute("DELETE FROM duplicate_groups", [])
         .map_err(|e| e.to_string())?;
 
-    // Get all media items
     let mut stmt = db
         .conn
         .prepare("SELECT id, title, file_path, file_size FROM media_items ORDER BY title")
@@ -70,15 +68,11 @@ pub async fn find_duplicates(
                     continue;
                 }
             }
-            "hash" => {
-                // Partial hash (first 1MB)
-                match partial_hash(path) {
-                    Ok(h) => h,
-                    Err(_) => continue,
-                }
-            }
+            "hash" => match partial_hash(path) {
+                Ok(h) => h,
+                Err(_) => continue,
+            },
             _ => {
-                // name_size (default)
                 let name_key = title.to_lowercase().trim().to_string();
                 let size_key = size.unwrap_or(0);
                 format!("{}_{}", name_key, size_key)
@@ -91,7 +85,6 @@ pub async fn find_duplicates(
             .push((*id, path.clone(), *size));
     }
 
-    // Filter to groups with 2+ items (actual duplicates)
     let now = chrono::Utc::now().to_rfc3339();
     let mut total_groups = 0u64;
     let mut total_items = 0u64;
@@ -101,16 +94,13 @@ pub async fn find_duplicates(
             continue;
         }
 
-        // Check size tolerance for name-based matches
-        if match_rule == "name_size" || match_rule == "name" {
-            if tolerance > 0.0 {
-                let sizes: Vec<i64> = group_items.iter().filter_map(|(_, _, s)| *s).collect();
-                if sizes.len() >= 2 {
-                    let max = *sizes.iter().max().unwrap_or(&0);
-                    let min = *sizes.iter().min().unwrap_or(&0);
-                    if (max - min) as f64 > tolerance {
-                        continue; // Size difference exceeds tolerance
-                    }
+        if (match_rule == "name_size" || match_rule == "name") && tolerance > 0.0 {
+            let sizes: Vec<i64> = group_items.iter().filter_map(|(_, _, s)| *s).collect();
+            if sizes.len() >= 2 {
+                let max = *sizes.iter().max().unwrap_or(&0);
+                let min = *sizes.iter().min().unwrap_or(&0);
+                if (max - min) as f64 > tolerance {
+                    continue;
                 }
             }
         }
@@ -126,10 +116,12 @@ pub async fn find_duplicates(
         total_groups += 1;
 
         for (media_id, path, size) in group_items {
-            db.conn.execute(
-                "INSERT INTO duplicate_items (group_id, media_id, file_path, file_size) VALUES (?1, ?2, ?3, ?4)",
-                params![group_id, media_id, path, size],
-            ).map_err(|e| e.to_string())?;
+            db.conn
+                .execute(
+                    "INSERT INTO duplicate_items (group_id, media_id, file_path, file_size) VALUES (?1, ?2, ?3, ?4)",
+                    params![group_id, media_id, path, size],
+                )
+                .map_err(|e| e.to_string())?;
             total_items += 1;
         }
     }
@@ -206,11 +198,10 @@ pub fn remove_duplicate(
             .prepare("SELECT file_path FROM duplicate_items WHERE id = ?1")
             .map_err(|e| e.to_string())?;
         if let Ok(path) = stmt.query_row(params![item_id], |row| row.get::<_, String>(0)) {
-            let _ = std::fs::remove_file(&path); // Best effort delete
+            let _ = std::fs::remove_file(&path);
         }
     }
 
-    // Remove from DB
     let mut stmt = db
         .conn
         .prepare("SELECT media_id FROM duplicate_items WHERE id = ?1")
@@ -230,12 +221,8 @@ pub fn remove_duplicate(
     Ok(())
 }
 
-
 #[tauri::command]
-pub fn quarantine(
-    state: State<AppState>,
-    item_id: i64,
-) -> Result<serde_json::Value, String> {
+pub fn quarantine(state: State<AppState>, item_id: i64) -> Result<serde_json::Value, String> {
     let source_path = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         db.conn
@@ -249,7 +236,10 @@ pub fn quarantine(
 
     let source = PathBuf::from(&source_path);
     if !source.is_file() {
-        return Err(format!("Duplicate file does not exist: {}", source.display()));
+        return Err(format!(
+            "Duplicate file does not exist: {}",
+            source.display()
+        ));
     }
 
     let quarantine_dir = state.app_data_dir.join("quarantine");
@@ -354,7 +344,7 @@ fn move_without_overwrite(source: &Path, destination: &Path) -> Result<(), Strin
 
 fn partial_hash(path: &str) -> Result<String, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let mut buffer = vec![0u8; 1_048_576]; // 1MB
+    let mut buffer = vec![0u8; 1_048_576];
     let bytes_read = file.read(&mut buffer).map_err(|e| e.to_string())?;
     buffer.truncate(bytes_read);
     let hash = Sha256::digest(&buffer);
