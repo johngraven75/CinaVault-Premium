@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CinaVault Premium — v2.08 Build 1.08",
+        "title": "CinaVault Premium — v2.08 Build 1.09",
         "width": 1400,
         "height": 900,
         "minWidth": 1024,
@@ -28,25 +28,15 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' asset: https: data:; connect-src 'self' https: http:",
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$APPDATA/artwork/**/*"
-        ]
+        "scope": ["$APPDATA/artwork/**/*"]
       }
     }
   },
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
-    "resources": [
-      "tools/wireguard/wireguard.exe",
-      "tools/cloudflared/*"
-    ],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.ico"
-    ],
+    "resources": ["tools/wireguard/wireguard.exe", "tools/cloudflared/*"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
     "windows": {
       "nsis": {
         "installMode": "both",
