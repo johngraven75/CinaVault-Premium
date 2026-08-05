@@ -26,7 +26,7 @@ test("adult media is labeled during external-drive ingestion", () => {
 
 test("adult enrichment never falls back to standard providers", () => {
   const adultBranch = enrichment.match(
-    /SourceKind::AdultVideo => \{([\s\S]*?)\n\s*\}\n\s*SourceKind::StandardVideo/,
+    /SourceKind::AdultVideo => \{([\s\S]*?)\r?\n\s*\}\r?\n\s*SourceKind::StandardVideo/,
   )?.[1];
   assert.ok(adultBranch, "adult provider branch is missing");
   assert.match(adultBranch, /stashdb/);
