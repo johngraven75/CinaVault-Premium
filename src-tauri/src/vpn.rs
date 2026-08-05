@@ -1,7 +1,9 @@
 // CinaVault Premium — bundled WireGuard VPN and Windows Defender integration.
 use crate::vpn_profile_store;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 #[cfg(target_os = "windows")]
@@ -15,17 +17,17 @@ fn wireguard_executable(app: &AppHandle) -> Result<PathBuf, String> {
         .resource_dir()
         .map_err(|error| format!("unable to resolve application resources: {error}"))?;
     let candidates = [
-        resource_dir
-            .join("tools")
-            .join("wireguard")
-            .join("wireguard.exe"),
+        resource_dir.join("tools").join("wireguard").join("wireguard.exe"),
         resource_dir.join("wireguard").join("wireguard.exe"),
         resource_dir.join("wireguard.exe"),
     ];
     candidates
         .into_iter()
         .find(|path| path.is_file())
-        .ok_or_else(|| "bundled WireGuard engine is missing from this installation".to_string())
+        .ok_or_else(|| format!(
+            "bundled WireGuard engine is missing from this installation (resources: {})",
+            resource_dir.display()
+        ))
 }
 
 #[cfg(target_os = "windows")]
@@ -65,6 +67,51 @@ fn service_is_running(profile_name: &str) -> bool {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn powershell_quote(value: &Path) -> String {
+    value.to_string_lossy().replace(''', "''")
+}
+
+#[cfg(target_os = "windows")]
+fn run_wireguard_elevated(executable: &Path, arguments: &[String]) -> Result<(), String> {
+    let quoted_executable = powershell_quote(executable);
+    let argument_list = arguments
+        .iter()
+        .map(|value| format!("'{}'", value.replace(''', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        "$p = Start-Process -FilePath '{}' -ArgumentList @({}) -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
+        quoted_executable, argument_list
+    );
+    let output = hidden_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .output()
+        .map_err(|error| format!("unable to request administrator permission for WireGuard: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "WireGuard administrator request was denied or the tunnel command failed".to_string()
+        } else {
+            format!("WireGuard elevated command failed: {stderr}")
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_service(profile_name: &str, expected_running: bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if service_is_running(profile_name) == expected_running {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    service_is_running(profile_name) == expected_running
+}
+
 #[tauri::command]
 pub async fn vpn_import_profile(
     app: AppHandle,
@@ -93,15 +140,29 @@ pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::
     {
         let executable = wireguard_executable(&app)?;
         let profile_path = vpn_profile_store::profile_path(&app, &profile)?;
-        let output = hidden_command(&executable)
-            .arg("/installtunnelservice")
-            .arg(&profile_path)
-            .output()
-            .map_err(|error| format!("failed to start bundled WireGuard engine: {error}"))?;
-        if !output.status.success() && !service_is_running(&profile) {
+        if !profile_path.is_file() {
+            return Err(format!("VPN profile file is missing: {}", profile_path.display()));
+        }
+        if service_is_running(&profile) {
+            return Ok(serde_json::json!({
+                "status": "connected",
+                "profile": profile,
+                "service": tunnel_service_name(&profile),
+                "engine": executable.to_string_lossy(),
+                "alreadyRunning": true,
+            }));
+        }
+        run_wireguard_elevated(
+            &executable,
+            &[
+                "/installtunnelservice".to_string(),
+                profile_path.to_string_lossy().to_string(),
+            ],
+        )?;
+        if !wait_for_service(&profile, true) {
             return Err(format!(
-                "WireGuard tunnel failed to start: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
+                "WireGuard accepted the request but tunnel service '{}' did not reach RUNNING state. Check the profile keys, endpoint, and administrator approval.",
+                tunnel_service_name(&profile)
             ));
         }
         Ok(serde_json::json!({
@@ -109,6 +170,7 @@ pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::
             "profile": profile,
             "service": tunnel_service_name(&profile),
             "engine": executable.to_string_lossy(),
+            "alreadyRunning": false,
         }))
     }
     #[cfg(not(target_os = "windows"))]
@@ -130,15 +192,14 @@ pub async fn vpn_disconnect(app: AppHandle) -> Result<serde_json::Value, String>
             .map(|profile| profile.name)
             .collect();
         for profile in &active {
-            let output = hidden_command(&executable)
-                .arg("/uninstalltunnelservice")
-                .arg(profile)
-                .output()
-                .map_err(|error| format!("failed to stop WireGuard tunnel '{profile}': {error}"))?;
-            if !output.status.success() && service_is_running(profile) {
+            run_wireguard_elevated(
+                &executable,
+                &["/uninstalltunnelservice".to_string(), profile.clone()],
+            )?;
+            if !wait_for_service(profile, false) {
                 return Err(format!(
-                    "WireGuard tunnel '{profile}' failed to stop: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
+                    "WireGuard tunnel '{}' did not stop after administrator approval",
+                    profile
                 ));
             }
         }
@@ -175,11 +236,12 @@ pub async fn vpn_status(app: AppHandle) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "installed": engine.is_some(),
         "engineBundled": engine.is_some(),
+        "enginePath": engine.as_ref().map(|path| path.to_string_lossy().to_string()),
         "connected": active_profile.is_some(),
         "activeProfile": active_profile,
         "profiles": profile_values,
         "details": if engine.is_some() {
-            "Bundled WireGuard engine ready"
+            "Bundled WireGuard engine ready; connecting will request administrator approval"
         } else {
             "Bundled WireGuard engine missing from installation"
         },
@@ -238,7 +300,7 @@ pub async fn install_security_tools(app: AppHandle) -> Result<serde_json::Value,
     let executable = wireguard_executable(&app)?;
     Ok(serde_json::json!({
         "status": "bundled",
-        "message": "WireGuard is already bundled with CinaVault; no host installation is required.",
+        "message": "WireGuard is bundled with CinaVault. Connecting a tunnel requests Windows administrator approval.",
         "engine": executable.to_string_lossy(),
     }))
 }
