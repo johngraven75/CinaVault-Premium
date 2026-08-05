@@ -43,8 +43,8 @@ struct ScanDirectoryReport {
 }
 
 const VIDEO_EXTS: &[&str] = &[
-    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ts", "m2ts",
-    "vob", "ogv", "3gp", "divx", "rm", "rmvb", "asf",
+    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ts", "m2ts", "vob",
+    "ogv", "3gp", "divx", "rm", "rmvb", "asf",
 ];
 const AUDIO_EXTS: &[&str] = &[
     "mp3", "flac", "aac", "ogg", "wma", "wav", "m4a", "opus", "alac", "aiff",
