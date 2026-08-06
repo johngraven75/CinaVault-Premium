@@ -6,10 +6,18 @@ const read = (path) => fs.readFileSync(path, "utf8");
 
 test("external drives use a native picker, health validation, and root discovery", () => {
   const ui = read("src/components/tabs/MediaSourcesTab.tsx");
+  const backend = read("src-tauri/src/lib.rs");
+  const health = read("src-tauri/src/source_health.rs");
   const scanner = read("src-tauri/src/scanner.rs");
   assert.match(ui, /plugin-dialog/);
   assert.match(ui, /directory: newSourceType !== "file"/);
   assert.match(ui, /validate_source_path/);
+  assert.match(backend, /mod source_health;/);
+  assert.match(backend, /source_health::validate_source_path/);
+  assert.match(backend, /source_health::explore_source_path/);
+  assert.match(health, /pub fn explore_source_path/);
+  assert.match(ui, /Explore Source/);
+  assert.match(ui, /invoke\("explore_source_path"/);
   assert.match(ui, /Discover Drives/);
   assert.match(scanner, /platform_discovery_roots/);
   assert.match(scanner, /extension\(\).*detect_media_type/s);
@@ -47,9 +55,9 @@ test("explicit adult sources classify every video as adult and keep adult-only r
 
 test("all Windows version sources advance together for the current release", () => {
   const manifest = JSON.parse(read("build-version.json"));
-  assert.equal(manifest.semanticVersion, "2.0.11");
-  assert.equal(manifest.displayBuild, "1.11");
+  assert.equal(manifest.semanticVersion, "2.0.12");
+  assert.equal(manifest.displayBuild, "1.12");
   assert.equal(JSON.parse(read("package.json")).version, manifest.semanticVersion);
-  assert.match(read("src-tauri/Cargo.toml"), /version = "2\.0\.11"/);
+  assert.match(read("src-tauri/Cargo.toml"), /version = "2\.0\.12"/);
   assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, manifest.semanticVersion);
 });
