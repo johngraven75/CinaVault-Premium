@@ -1,5 +1,7 @@
 use serde::Serialize;
 use std::path::Path;
+#[cfg(desktop)]
+use std::process::Command;
 
 #[derive(Debug, Serialize)]
 pub struct SourcePathHealth {
@@ -68,9 +70,68 @@ pub fn validate_source_path(path: String, source_type: String) -> SourcePathHeal
     }
 }
 
+#[tauri::command]
+pub fn explore_source_path(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("A source path is required".to_string());
+    }
+
+    let candidate = Path::new(trimmed);
+    if !candidate.exists() {
+        return Err("Source path does not exist or the external drive is disconnected".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = Command::new("explorer.exe");
+        if candidate.is_file() {
+            command.arg(format!("/select,{}", candidate.to_string_lossy()));
+        } else {
+            command.arg(candidate);
+        }
+        command
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Windows Explorer failed to open: {error}"))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = Command::new("open");
+        if candidate.is_file() {
+            command.arg("-R");
+        }
+        command
+            .arg(candidate)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Finder failed to open: {error}"))
+    }
+
+    #[cfg(all(unix, not(target_os = "macos"), not(mobile)))]
+    {
+        let target = if candidate.is_file() {
+            candidate.parent().unwrap_or(candidate)
+        } else {
+            candidate
+        };
+        Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("File manager failed to open: {error}"))
+    }
+
+    #[cfg(mobile)]
+    {
+        Err("Explore Source is available on desktop platforms; use the native source picker on mobile".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_source_path;
+    use super::{explore_source_path, validate_source_path};
 
     #[test]
     fn missing_external_path_is_reported_as_unavailable() {
@@ -80,5 +141,11 @@ mod tests {
         );
         assert_eq!(result.status, "unavailable");
         assert!(!result.readable);
+    }
+
+    #[test]
+    fn explorer_rejects_missing_paths_without_spawning_a_process() {
+        let result = explore_source_path("Z:\\definitely-not-a-real-cinavault-drive".to_string());
+        assert!(result.is_err());
     }
 }
