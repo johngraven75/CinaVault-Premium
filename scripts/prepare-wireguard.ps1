@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Destination = (Join-Path $PSScriptRoot '..\src-tauri\tools\wireguard\wireguard.exe'),
+    [string]$Destination,
     [string]$MsiUrl = 'https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi',
     [switch]$ForceDownload
 )
@@ -10,6 +10,15 @@ $ErrorActionPreference = 'Stop'
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw 'The bundled WireGuard engine can only be prepared on Windows.'
+}
+
+if ([string]::IsNullOrWhiteSpace($Destination)) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+        throw 'Unable to resolve the WireGuard preparation script directory.'
+    }
+    $scriptDirectory = Split-Path -Parent $scriptPath
+    $Destination = Join-Path $scriptDirectory '..\src-tauri\tools\wireguard\wireguard.exe'
 }
 
 function Test-OfficialWireGuardBinary {
