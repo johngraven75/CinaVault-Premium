@@ -3,6 +3,14 @@ name: Automated Daily Maintenance
 on:
   schedule:
     - cron: "23 8 * * 1"
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+      - package-lock.json
+      - .github/workflows/maintenance.yml
+      - scripts/prepare-wireguard.ps1
   workflow_dispatch:
 
 permissions:
