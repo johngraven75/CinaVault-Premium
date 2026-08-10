@@ -382,6 +382,11 @@ jobs:
             Where-Object { $_.DisplayName -like 'CinaVault Premium*' } |
             Select-Object -First 1
 
+          $displayIconPath = $null
+          if ($installed -and $installed.DisplayIcon) {
+            $displayIconPath = ($installed.DisplayIcon -replace ',\d+$', '').Trim('"')
+          }
+
           $roots = @()
           if ($installed -and $installed.InstallLocation) { $roots += $installed.InstallLocation }
           $roots += @(
@@ -389,11 +394,24 @@ jobs:
             (Join-Path $env:ProgramFiles 'CinaVault Premium'),
             (Join-Path ${env:ProgramFiles(x86)} 'CinaVault Premium')
           )
-          $exe = $roots |
-            Where-Object { $_ -and (Test-Path $_) } |
-            ForEach-Object { Get-ChildItem $_ -Filter 'CinaVault Premium.exe' -File -Recurse -ErrorAction SilentlyContinue } |
-            Select-Object -First 1
-          if (-not $exe) { throw 'MSI installed but the CinaVault executable could not be located.' }
+          $exe = if ($displayIconPath -and (Test-Path $displayIconPath -PathType Leaf)) {
+            Get-Item $displayIconPath
+          } else {
+            $executableNames = @('cinavault-premium.exe', 'CinaVault Premium.exe')
+            $roots |
+              Where-Object { $_ -and (Test-Path $_) } |
+              ForEach-Object {
+                $root = $_
+                $executableNames | ForEach-Object {
+                  Get-ChildItem $root -Filter $_ -File -Recurse -ErrorAction SilentlyContinue
+                }
+              } |
+              Select-Object -First 1
+          }
+          if (-not $exe) {
+            $checkedRoots = ($roots | Where-Object { $_ } | Select-Object -Unique) -join '; '
+            throw "MSI installed but the CinaVault executable could not be located. DisplayIcon='$displayIconPath'; searched roots: $checkedRoots"
+          }
 
           $process = Start-Process $exe.FullName -PassThru
           Start-Sleep -Seconds 8
