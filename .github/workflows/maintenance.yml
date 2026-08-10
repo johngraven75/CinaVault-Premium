@@ -57,6 +57,9 @@ jobs:
       - name: Production frontend build
         run: npm run build
 
+      - name: Prepare genuine Windows Rust and bundle resources
+        run: npm run prepare:wireguard:windows
+
       - name: Rust formatting verification
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
