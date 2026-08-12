@@ -1,10 +1,8 @@
 name: Auto Build, Test, Cleanup & Release — v2 Build 1.06
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Immutable historical release: manual recovery only. Current CI/release workflows
+  # own push and pull-request validation to avoid duplicate builds and stale releases.
   workflow_dispatch:
 
 permissions:
