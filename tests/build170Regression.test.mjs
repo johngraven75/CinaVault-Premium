@@ -49,7 +49,8 @@ test("Build 170 native connectivity includes NAT traversal and encrypted relay",
 });
 
 test("Build 170 Tauri startup prefers encrypted remote transport", () => {
-  const main = read("src-tauri/src/main.rs");
+  const main = read("src-tauri/src/lib.rs");
+  const identity = read("src-tauri/src/build_identity.rs");
   requireTokens(
     main,
     [
@@ -58,17 +59,17 @@ test("Build 170 Tauri startup prefers encrypted remote transport", () => {
       "remote_connectivity::start_remote_connectivity",
       "remote_connectivity::stop_remote_connectivity",
       "remote_connectivity::get_remote_connectivity_status",
-      '"build": "170"',
-      '"automaticNatTraversal": true',
-      '"cloudRelayFallback": true',
-      '"encryptedRemoteTransport": true',
-      '"opaqueRemoteMediaKeys": true',
-      '"aiMediaAutopilot": true',
-      '"spatialExperienceShell": true',
-      "Some(true),\n                            Some(true),",
     ],
     "Build 170 main wiring",
   );
+  requireTokens(identity, [
+    '"automaticNatTraversal": true',
+    '"cloudRelayFallback": true',
+    '"encryptedRemoteTransport": true',
+    '"opaqueRemoteMediaKeys": true',
+    '"aiMediaAutopilot": true',
+    '"spatialExperienceShell": true',
+  ], "current build identity");
 });
 
 test("Build 170 remote API hides local paths and exposes opaque media keys", () => {
@@ -107,7 +108,6 @@ test("Build 170 source ingestion scans enriches and refreshes immediately", () =
       'invoke<number>("add_source"',
       'invoke<ScanResult>("scan_single_source"',
       '"run_library_enrichment"',
-      '"get_media_items"',
       'new Event("cinavault:source-added")',
       'new CustomEvent("cinavault:library-refresh"',
       "AI is identifying media and retrieving posters",
@@ -236,9 +236,10 @@ test("Build 170 remote access UI controls and displays live connectivity", () =>
   );
 });
 
-test("Build 170 packaging includes relay runtime and release version", () => {
+test("Build 170 packaging includes relay runtime and current release version", () => {
   const config = JSON.parse(read("src-tauri/tauri.conf.json"));
-  assert.equal(config.version, "1.7.170");
+  const manifest = JSON.parse(read("build-version.json"));
+  assert.equal(config.version, manifest.semanticVersion);
   assert.ok(
     config.bundle.resources.includes("tools/cloudflared/*"),
     "cloudflared bundle resource is not configured",

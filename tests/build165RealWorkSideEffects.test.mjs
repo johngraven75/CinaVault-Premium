@@ -188,10 +188,12 @@ test("startup installs only permanent plugins and adult providers default enable
 });
 
 test("cast and IPTV controls invoke real work and clean up exact listeners", () => {
-  const cast = read("src/components/CastButton.tsx");
+  const cast = read("src/components/tabs/CastingTab.tsx");
+  const service = read("src/services/castingService.ts");
   const iptv = read("src/components/IPTVPlayer.tsx");
-  assert.match(cast, /castToGoogleDevice/);
-  assert.match(cast, /await castToGoogleDevice/);
+  assert.match(cast, /startCasting/);
+  assert.match(cast, /await startCasting/);
+  assert.match(service, /invoke<string>\("start_casting"/);
   assert.match(iptv, /removeEventListener\("timeupdate", updateTime\)/);
   assert.match(iptv, /removeEventListener\("play", handlePlay\)/);
   assert.match(iptv, /removeEventListener\("error", handleError\)/);

@@ -55,9 +55,7 @@ test("explicit adult sources classify every video as adult and keep adult-only r
 
 test("all Windows version sources advance together for the current release", () => {
   const manifest = JSON.parse(read("build-version.json"));
-  assert.equal(manifest.semanticVersion, "2.0.12");
-  assert.equal(manifest.displayBuild, "1.12");
   assert.equal(JSON.parse(read("package.json")).version, manifest.semanticVersion);
-  assert.match(read("src-tauri/Cargo.toml"), /version = "2\.0\.12"/);
+  assert.match(read("src-tauri/Cargo.toml"), new RegExp(`version = "${manifest.semanticVersion.replaceAll(".", "\\.")}"`));
   assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, manifest.semanticVersion);
 });

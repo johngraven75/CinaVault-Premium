@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "build": "v2.11 Build 1.11",
-  "internalBuild": "111",
+  "build": "v2.13 Build 1.13",
+  "internalBuild": "113",
   "status": "verified",
   "releaseAuthorized": true,
   "referenceRepository": "johngraven75/CinaVault-Premium",
@@ -16,15 +16,15 @@
   "phases": {
     "repositoryAudit": {
       "status": "verified",
-      "evidence": "Windows release identity, metadata routing, provider configuration, scanner, packaging, and parity surfaces were reviewed for v2.0.11."
+      "evidence": "Windows release identity, runtime command routing, source health, casting, embedded server, VPN controls, packaging, and parity surfaces were reviewed for v2.0.13."
     },
     "rootCauseDiagnosis": {
       "status": "verified",
-      "evidence": "the v2.0.11 release workflow proved the release blocker was the stale Build 1.04 master record rather than a compile, test, or installer failure."
+      "evidence": "Complete-suite review found source health, casting, embedded server, VPN profile, and build information commands present in source but absent from the active Tauri command bridge."
     },
     "implementation": {
       "status": "fixed_and_verified",
-      "evidence": "Adult media classification, adult-only enrichment routing, bundled provider configuration, and release workflow changes passed the the v2.0.11 release workflow frontend gates."
+      "evidence": "The v2.0.13 command bridge now registers source health, casting, embedded server, VPN profile, provider contract, and build information paths; complete Node validation covers their wiring."
     },
     "dependencyConfiguration": {
       "status": "verified",
@@ -64,7 +64,7 @@
     },
     "crossPlatformParity": {
       "status": "verified",
-      "evidence": "Android and iOS parity commits carry v2.0.11/111 identity, adult-provider isolation, dedicated HF model selection, and AI stop controls."
+      "evidence": "Android and iOS parity metadata and automated TEST artifact workflows advance together to v2.0.13/113 with adult-provider isolation, dedicated HF model selection, and AI stop controls."
     },
     "packaging": {
       "status": "verified",

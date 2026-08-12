@@ -44,7 +44,7 @@ export default function CastButton() {
                   CinaVault Casting
                 </h1>
                 <p className="mt-2 text-sm text-cv-subtext md:text-base">
-                  Discover, connect, and control Chromecast, AirPlay, Smart View, and DLNA receivers.
+                  Discover, connect, and control Chromecast / Google Cast, AirPlay, Smart View, and DLNA receivers.
                 </p>
               </div>
               <button

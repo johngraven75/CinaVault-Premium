@@ -6,11 +6,13 @@ mod ai;
 mod ai_automation;
 mod atomic_file;
 mod build_identity;
+mod casting;
 mod chapters;
 mod cloud_storage;
 mod db;
 mod downloads;
 mod duplicates;
+mod embedded_server;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
@@ -37,6 +39,7 @@ mod metadata_guard {
     ));
 }
 mod metadata_keyless;
+mod metadata_provider_config;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod nas_devices;
@@ -46,6 +49,8 @@ mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
 mod scanner;
+mod shared_contracts;
+mod source_health;
 mod task_progress;
 mod vpn;
 mod vpn_profile_store;
@@ -191,6 +196,8 @@ pub fn run() {
             scanner::get_scan_progress,
             scanner::cancel_scan,
             scanner::apply_embedded_titles,
+            source_health::validate_source_path,
+            source_health::explore_source_path,
             duplicates::find_duplicates,
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
@@ -209,6 +216,9 @@ pub fn run() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
+            embedded_server::start_embedded_server,
+            embedded_server::stop_embedded_server,
+            embedded_server::get_embedded_server_status,
             remote_connectivity::start_remote_connectivity,
             remote_connectivity::stop_remote_connectivity,
             remote_connectivity::get_remote_connectivity_status,
@@ -227,6 +237,11 @@ pub fn run() {
             player::play_media,
             player::get_available_players,
             player::set_default_player,
+            casting::discover_casting_devices,
+            casting::connect_casting_device,
+            casting::disconnect_casting_device,
+            casting::start_casting,
+            casting::update_casting_playback,
             metadata_ext::fetch_metadata,
             metadata_ext::search_metadata,
             metadata_enrichment_runtime::check_media_item_metadata,
@@ -253,6 +268,8 @@ pub fn run() {
             vpn::vpn_connect,
             vpn::vpn_disconnect,
             vpn::vpn_status,
+            vpn::vpn_import_profile,
+            vpn::vpn_profiles,
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,

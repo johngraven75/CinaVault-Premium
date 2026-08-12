@@ -657,9 +657,11 @@ pub async fn apply_embedded_titles(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_media_files, scanned_media_type, should_index_path};
-    use crate::db::MediaSource;
-    use std::path::Path;
+    use super::{
+        collect_media_files, discover_and_add_sources, scanned_media_type, should_index_path,
+    };
+    use crate::db::{Database, MediaSource};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn media_filter_excludes_artwork() {
@@ -702,5 +704,29 @@ mod tests {
             scanned_media_type(&standard, r"D:\\Movies\\Feature.mkv", "movie"),
             "movie"
         );
+    }
+
+    #[test]
+    fn discovery_adds_real_database_sources_from_media_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "cinavault-source-discovery-{}",
+            std::process::id()
+        ));
+        let movies = root.join("Movies");
+        std::fs::create_dir_all(&movies).expect("create test media directory");
+        std::fs::write(movies.join("Feature.mkv"), b"test media")
+            .expect("create test media file");
+
+        let database = Database::new(":memory:").expect("create in-memory database");
+        let (paths, added) = discover_and_add_sources(&database, &[PathBuf::from(&root)])
+            .expect("discover media sources");
+        let sources = database.get_sources_data().expect("read discovered sources");
+
+        assert_eq!(added, 1);
+        assert_eq!(paths, vec![movies.to_string_lossy().to_string()]);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].path, movies.to_string_lossy());
+
+        std::fs::remove_dir_all(root).ok();
     }
 }

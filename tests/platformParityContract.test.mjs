@@ -12,7 +12,9 @@ const defectIds = new Set(contract.defectParity.map((entry) => entry.id));
 test("platform parity contract uses the current Windows Premium reference", () => {
   assert.equal(contract.schemaVersion, 1);
   assert.equal(contract.reference.repository, "johngraven75/CinaVault-Premium");
-  assert.equal(contract.reference.release, "v2-build-1.06");
+  assert.equal(contract.reference.release, "v2-build-1.13");
+  assert.equal(contract.reference.displayName, "v2.13 Build 1.13");
+  assert.equal(contract.reference.semanticVersion, "2.0.13");
   assert.equal(contract.reference.platform, "windows");
   assert.deepEqual(contract.includedRepositories, [
     "johngraven75/CinaVault-Premium",
@@ -41,6 +43,7 @@ test("all Windows primary destinations are required on Android and iOS", () => {
     "cloud-nas",
     "extensions",
     "ai-autopilot",
+    "hf-models",
     "settings",
   ]) {
     assert.ok(destinationIds.has(id), `missing destination parity requirement: ${id}`);

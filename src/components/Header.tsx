@@ -225,7 +225,7 @@ export default function Header(): JSX.Element {
 
   useEffect(() => {
     let active = true;
-    void invoke<AppInfo>("get_app_info")
+    void invoke<AppInfo>("get_current_build_info")
       .then((info) => {
         if (active && info?.build) setAppInfo(info);
       })
