@@ -99,9 +99,9 @@ jobs:
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check 2>&1 | Tee-Object validation-logs/rust-format.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --manifest-path src-tauri/Cargo.toml --all-targets 2>&1 | Tee-Object validation-logs/rust-tests.log
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets 2>&1 | Tee-Object validation-logs/rust-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | Tee-Object validation-logs/rust-check.log
+          cargo check --manifest-path src-tauri/Cargo.toml --locked 2>&1 | Tee-Object validation-logs/rust-check.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows validation diagnostics
