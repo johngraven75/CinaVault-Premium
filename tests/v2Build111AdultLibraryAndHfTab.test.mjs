@@ -6,10 +6,18 @@ const read = (path) => fs.readFileSync(path, "utf8");
 
 test("entire-library conversion is CinaVault-only and preserves poster files", () => {
   const backend = read("src-tauri/src/lib.rs");
+  const database = read("src-tauri/src/db.rs");
+  const diagnostics = read("src/components/tabs/AIDiagnosticsTab.tsx");
   assert.match(backend, /convert_entire_library_to_adult/);
-  assert.match(backend, /UPDATE media_items SET media_type = 'adult', poster_path = NULL, backdrop_path = NULL/);
+  assert.match(backend, /mark_current_library_adult/);
+  assert.match(database, /SET media_type = 'adult'\s+WHERE lower\(trim\(media_type\)\) <> 'adult'/);
+  assert.doesNotMatch(database, /SET media_type = 'adult'[^;]*poster_path\s*=\s*NULL/);
+  assert.match(backend, /"poster_references_preserved": true/);
+  assert.match(backend, /"future_imports_affected": false/);
   assert.match(backend, /"poster_files_deleted": 0/);
   assert.match(backend, /enrichment::gather_adult_metadata\(state\)\.await/);
+  assert.match(diagnostics, /Existing poster and backdrop references will be preserved/);
+  assert.match(diagnostics, /Future imports will continue to use normal classification/);
 });
 
 test("adult items never use standard or local metadata and artwork fallbacks", () => {
