@@ -92,9 +92,19 @@ fn host_from_location(location: &str) -> Option<(String, u16)> {
         .or_else(|| location.strip_prefix("https://"))?;
     let authority = remainder.split('/').next()?;
     if let Some((host, port)) = authority.rsplit_once(':') {
-        Some((host.trim_matches(['[', ']']).to_string(), port.parse().ok()?))
+        Some((
+            host.trim_matches(['[', ']']).to_string(),
+            port.parse().ok()?,
+        ))
     } else {
-        Some((authority.to_string(), if location.starts_with("https://") { 443 } else { 80 }))
+        Some((
+            authority.to_string(),
+            if location.starts_with("https://") {
+                443
+            } else {
+                80
+            },
+        ))
     }
 }
 
@@ -203,14 +213,26 @@ fn mdns_query(service: &str) -> Vec<CastingDevice> {
         } else {
             (CastingDeviceType::Airplay, 7000)
         };
-        let kind_name = if service.contains("googlecast") { "chromecast" } else { "airplay" };
+        let kind_name = if service.contains("googlecast") {
+            "chromecast"
+        } else {
+            "airplay"
+        };
         let address = source.ip().to_string();
         let id = device_id(kind_name, &address, port);
         by_address.insert(
             id.clone(),
             CastingDevice {
                 id,
-                name: format!("{} {}", if service.contains("googlecast") { "Chromecast" } else { "AirPlay" }, address),
+                name: format!(
+                    "{} {}",
+                    if service.contains("googlecast") {
+                        "Chromecast"
+                    } else {
+                        "AirPlay"
+                    },
+                    address
+                ),
                 address: Some(address),
                 port: Some(port),
                 device_type: kind,
@@ -265,7 +287,10 @@ pub async fn connect_casting_device(mut device: CastingDevice) -> Result<Casting
         .map_err(|error| error.to_string())?;
     if !is_reachable {
         device.state = Some(CastingConnectionState::Error);
-        return Err(format!("{} is not reachable on the local network", device.name));
+        return Err(format!(
+            "{} is not reachable on the local network",
+            device.name
+        ));
     }
     device.connected = true;
     device.state = Some(CastingConnectionState::Connected);
@@ -285,10 +310,18 @@ pub async fn disconnect_casting_device(device: CastingDevice) -> Result<CastingD
 }
 
 async fn start_airplay(session: &CastingSession) -> Result<(), String> {
-    let host = session.device.address.as_deref().ok_or("AirPlay device has no address")?;
+    let host = session
+        .device
+        .address
+        .as_deref()
+        .ok_or("AirPlay device has no address")?;
     let port = session.device.port.unwrap_or(7000);
     let endpoint = format!("http://{host}:{port}/play");
-    let body = format!("Content-Location: {}\nStart-Position: {}\n", session.media_url, session.current_time.unwrap_or(0.0));
+    let body = format!(
+        "Content-Location: {}\nStart-Position: {}\n",
+        session.media_url,
+        session.current_time.unwrap_or(0.0)
+    );
     reqwest::Client::new()
         .post(endpoint)
         .header("Content-Type", "text/parameters")
@@ -312,7 +345,9 @@ pub async fn start_casting(session: CastingSession) -> Result<String, String> {
             return Err("Chromecast transport requires the bundled Cast bridge service".to_string())
         }
         CastingDeviceType::Smartview | CastingDeviceType::Dlna => {
-            return Err("DLNA playback requires renderer AVTransport metadata from discovery".to_string())
+            return Err(
+                "DLNA playback requires renderer AVTransport metadata from discovery".to_string(),
+            )
         }
     }
     *active_session().lock().map_err(|error| error.to_string())? = Some(session.clone());

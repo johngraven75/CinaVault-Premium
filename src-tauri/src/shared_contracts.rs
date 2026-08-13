@@ -134,7 +134,10 @@ pub fn validate_artwork_contract(contract: &ArtworkCacheEntryContract) -> Result
         return Err("Artwork byte length is outside the supported range".to_string());
     }
     if contract.sha256.len() != 64
-        || !contract.sha256.chars().all(|character| character.is_ascii_hexdigit())
+        || !contract
+            .sha256
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
     {
         return Err("Artwork SHA-256 must be a 64-character hexadecimal value".to_string());
     }

@@ -708,19 +708,18 @@ mod tests {
 
     #[test]
     fn discovery_adds_real_database_sources_from_media_directories() {
-        let root = std::env::temp_dir().join(format!(
-            "cinavault-source-discovery-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("cinavault-source-discovery-{}", std::process::id()));
         let movies = root.join("Movies");
         std::fs::create_dir_all(&movies).expect("create test media directory");
-        std::fs::write(movies.join("Feature.mkv"), b"test media")
-            .expect("create test media file");
+        std::fs::write(movies.join("Feature.mkv"), b"test media").expect("create test media file");
 
         let database = Database::new(":memory:").expect("create in-memory database");
         let (paths, added) = discover_and_add_sources(&database, &[PathBuf::from(&root)])
             .expect("discover media sources");
-        let sources = database.get_sources_data().expect("read discovered sources");
+        let sources = database
+            .get_sources_data()
+            .expect("read discovered sources");
 
         assert_eq!(added, 1);
         assert_eq!(paths, vec![movies.to_string_lossy().to_string()]);

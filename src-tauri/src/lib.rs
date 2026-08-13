@@ -39,9 +39,9 @@ mod metadata_guard {
     ));
 }
 mod metadata_keyless;
-mod metadata_provider_config;
 #[cfg(test)]
 mod metadata_posting_tests;
+mod metadata_provider_config;
 mod nas_devices;
 mod pgma_bridge;
 mod player;
