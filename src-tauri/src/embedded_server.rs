@@ -6,7 +6,7 @@ use crate::shared_contracts::{
     MetadataProviderRegistryInterface,
 };
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -96,6 +96,13 @@ struct LibraryCount {
     total_items: i64,
     count_policy: &'static str,
     capped: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LibraryQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -366,11 +373,14 @@ async fn library_count(
 async fn library(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
+    Query(query): Query<LibraryQuery>,
 ) -> Result<Json<Vec<RemoteMediaItem>>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "library:read").await?;
     let database = open_database(&state.database_path)?;
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
     let items = database
-        .get_media_items_data(None, None, None)
+        .get_media_items_data(None, Some(limit), Some(offset))
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(Json(
         items.into_iter().filter_map(remote_media_item).collect(),
@@ -737,4 +747,147 @@ pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
         }
     };
     serde_json::to_value(status).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::db::MediaItem;
+    use serde_json::Value;
+    use std::sync::Arc;
+
+    async fn spawn_test_server(database_path: String) -> (String, oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind ephemeral loopback listener");
+        let address = listener.local_addr().expect("read listener address");
+        let state = Arc::new(HttpState {
+            database_path,
+            sessions: Arc::new(RwLock::new(HashMap::new())),
+        });
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            axum::serve(listener, router(state))
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .expect("serve test API");
+        });
+        (format!("http://{address}"), shutdown_tx)
+    }
+
+    fn media(title: &str, path: &str, date_added: &str) -> MediaItem {
+        MediaItem {
+            id: None,
+            title: title.into(),
+            file_path: path.into(),
+            media_type: "movie".into(),
+            year: None,
+            rating: None,
+            overview: None,
+            poster_path: None,
+            backdrop_path: None,
+            genre: None,
+            duration: None,
+            file_size: None,
+            resolution: None,
+            codec: None,
+            verified: true,
+            watched: false,
+            favorite: false,
+            date_added: date_added.into(),
+            last_played: None,
+            tmdb_id: None,
+            imdb_id: None,
+            source_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_client_authenticates_and_reads_paginated_library_across_restart() {
+        let database_path = std::env::temp_dir().join(format!(
+            "cinavault-embedded-http-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_path_text = database_path.to_string_lossy().into_owned();
+        let database = Database::new(&database_path_text).expect("create temporary database");
+        let provision = database
+            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", Some("Viewer"))
+            .expect("provision remote user");
+        database
+            .add_media_item_data(&media(
+                "Older",
+                "C:/media/older.mp4",
+                "2026-01-01T00:00:00Z",
+            ))
+            .expect("insert older media");
+        database
+            .add_media_item_data(&media(
+                "Newest",
+                "C:/media/newest.mp4",
+                "2026-02-01T00:00:00Z",
+            ))
+            .expect("insert newest media");
+        drop(database);
+
+        let client = reqwest::Client::new();
+        let (base_url, shutdown) = spawn_test_server(database_path_text.clone()).await;
+        let invalid = client
+            .post(format!("{base_url}/api/auth/access-key"))
+            .json(&serde_json::json!({ "accessKey": "cvra_invalid" }))
+            .send()
+            .await
+            .expect("send invalid-key request");
+        assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
+
+        let login = client
+            .post(format!("{base_url}/api/auth/access-key"))
+            .json(&serde_json::json!({ "accessKey": provision.access_key }))
+            .send()
+            .await
+            .expect("send access-key login");
+        assert_eq!(login.status(), StatusCode::OK);
+        let principal: Value = login.json().await.expect("decode login response");
+        let token = principal["session_token"].as_str().expect("session token");
+
+        let info: Value = client
+            .get(format!("{base_url}/api/server/info"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request server info")
+            .error_for_status()
+            .expect("authorized server info")
+            .json()
+            .await
+            .expect("decode server info");
+        assert_eq!(info["accountEmail"], "viewer@example.com");
+
+        let library: Vec<Value> = client
+            .get(format!("{base_url}/api/library?limit=1&offset=0"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request library page")
+            .error_for_status()
+            .expect("authorized library page")
+            .json()
+            .await
+            .expect("decode library page");
+        assert_eq!(library.len(), 1);
+        assert_eq!(library[0]["title"], "Newest");
+
+        shutdown.send(()).expect("stop first server");
+        let (restarted_url, restarted_shutdown) = spawn_test_server(database_path_text).await;
+        let stale_session = client
+            .get(format!("{restarted_url}/api/server/info"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request with stale session");
+        assert_eq!(stale_session.status(), StatusCode::UNAUTHORIZED);
+        restarted_shutdown.send(()).expect("stop restarted server");
+        let _ = std::fs::remove_file(database_path);
+    }
 }
