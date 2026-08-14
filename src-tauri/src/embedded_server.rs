@@ -15,14 +15,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path as FilePath, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::RwLock;
 use tokio_util::io::ReaderStream;
 use tower_http::cors::{Any, CorsLayer};
 
-const DEFAULT_PORT: u16 = 32400;
 const MAX_ARTWORK_BYTES: usize = 25 * 1024 * 1024;
 // This domain is intentionally stable so existing opaque remote media keys do not change on upgrade.
 const REMOTE_MEDIA_KEY_DOMAIN: &[u8] = b"cinavault-build-170-remote-media-v1";
@@ -31,22 +30,6 @@ const REMOTE_MEDIA_KEY_DOMAIN: &[u8] = b"cinavault-build-170-remote-media-v1";
 struct HttpState {
     database_path: String,
     sessions: Arc<RwLock<HashMap<String, RemoteAccessPrincipal>>>,
-}
-
-struct ServerRuntime {
-    port: u16,
-    shutdown: oneshot::Sender<()>,
-}
-
-static DATABASE_PATH: OnceLock<String> = OnceLock::new();
-static SERVER_RUNTIME: OnceLock<Mutex<Option<ServerRuntime>>> = OnceLock::new();
-
-fn runtime() -> &'static Mutex<Option<ServerRuntime>> {
-    SERVER_RUNTIME.get_or_init(|| Mutex::new(None))
-}
-
-pub fn configure(database_path: String) {
-    let _ = DATABASE_PATH.set(database_path);
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,18 +43,6 @@ struct PasswordLogin {
 #[serde(rename_all = "camelCase")]
 struct AccessKeyLogin {
     access_key: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ServerStatus {
-    running: bool,
-    port: u16,
-    local_url: String,
-    remote_ready: bool,
-    authentication: &'static str,
-    remote_transport: &'static str,
-    local_paths_exposed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -301,18 +272,31 @@ fn hardened_response_headers(response: &mut Response<Body>) {
     );
 }
 
-async fn health() -> impl IntoResponse {
+async fn health(State(state): State<Arc<HttpState>>) -> impl IntoResponse {
     let build = build_identity::current();
-    Json(serde_json::json!({
-        "status": "ok",
-        "product": "CinaVault Embedded Media Server",
-        "version": build.semantic_version,
-        "build": build.display_build,
-        "displayName": build.display_name,
-        "releaseTag": build.release_tag,
-        "remoteTransport": "HTTPS relay required by default",
-        "localPathsExposed": false
-    }))
+    let database_health = open_database(&state.database_path)
+        .map(|_| (true, None))
+        .unwrap_or_else(|(_, error)| (false, Some(error)));
+    let status = if database_health.0 {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "status": if database_health.0 { "ok" } else { "unhealthy" },
+            "databaseHealthy": database_health.0,
+            "error": database_health.1,
+            "product": "CinaVault Embedded Media Server",
+            "version": build.semantic_version,
+            "build": build.display_build,
+            "displayName": build.display_name,
+            "releaseTag": build.release_tag,
+            "remoteTransport": "HTTPS relay required by default",
+            "localPathsExposed": false
+        })),
+    )
 }
 
 async fn server_info(
@@ -631,7 +615,11 @@ async fn stream_media(
     Ok(response)
 }
 
-fn router(state: Arc<HttpState>) -> Router {
+pub(crate) fn router(database_path: String) -> Router {
+    let state = Arc::new(HttpState {
+        database_path,
+        sessions: Arc::new(RwLock::new(HashMap::new())),
+    });
     Router::new()
         .route("/health", get(health))
         .route("/api/auth/password", post(login_password))
@@ -652,109 +640,13 @@ fn router(state: Arc<HttpState>) -> Router {
         )
         .with_state(state)
 }
-
-#[tauri::command]
-pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Value, String> {
-    let port = port.unwrap_or(DEFAULT_PORT);
-    {
-        let guard = runtime().lock().map_err(|error| error.to_string())?;
-        if let Some(active) = guard.as_ref() {
-            return Ok(serde_json::json!({
-                "running": true,
-                "port": active.port,
-                "localUrl": format!("http://127.0.0.1:{}", active.port),
-                "remoteReady": false,
-                "authentication": "CinaVault account session",
-                "remoteTransport": "HTTPS relay required by default",
-                "localPathsExposed": false
-            }));
-        }
-    }
-
-    let database_path = DATABASE_PATH
-        .get()
-        .cloned()
-        .ok_or("Embedded server database is not configured")?;
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
-        .await
-        .map_err(|error| format!("Unable to bind embedded server on port {port}: {error}"))?;
-    let state = Arc::new(HttpState {
-        database_path,
-        sessions: Arc::new(RwLock::new(HashMap::new())),
-    });
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    *runtime().lock().map_err(|error| error.to_string())? = Some(ServerRuntime {
-        port,
-        shutdown: shutdown_tx,
-    });
-
-    tauri::async_runtime::spawn(async move {
-        let result = axum::serve(listener, router(state))
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await;
-        if let Err(error) = result {
-            log::error!("Embedded media server stopped unexpectedly: {error}");
-        }
-        if let Ok(mut guard) = runtime().lock() {
-            *guard = None;
-        }
-    });
-
-    Ok(serde_json::json!({
-        "running": true,
-        "port": port,
-        "localUrl": format!("http://127.0.0.1:{port}"),
-        "remoteReady": false,
-        "authentication": "CinaVault account session",
-        "remoteTransport": "HTTPS relay required by default",
-        "localPathsExposed": false
-    }))
-}
-
-#[tauri::command]
-pub async fn stop_embedded_server() -> Result<serde_json::Value, String> {
-    let active = runtime().lock().map_err(|error| error.to_string())?.take();
-    if let Some(active) = active {
-        let _ = active.shutdown.send(());
-    }
-    Ok(serde_json::json!({ "running": false }))
-}
-
-#[tauri::command]
-pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
-    let guard = runtime().lock().map_err(|error| error.to_string())?;
-    let status = if let Some(active) = guard.as_ref() {
-        ServerStatus {
-            running: true,
-            port: active.port,
-            local_url: format!("http://127.0.0.1:{}", active.port),
-            remote_ready: false,
-            authentication: "CinaVault account session",
-            remote_transport: "HTTPS relay required by default",
-            local_paths_exposed: false,
-        }
-    } else {
-        ServerStatus {
-            running: false,
-            port: DEFAULT_PORT,
-            local_url: format!("http://127.0.0.1:{DEFAULT_PORT}"),
-            remote_ready: false,
-            authentication: "CinaVault account session",
-            remote_transport: "HTTPS relay required by default",
-            local_paths_exposed: false,
-        }
-    };
-    serde_json::to_value(status).map_err(|error| error.to_string())
-}
-
 #[cfg(test)]
 mod integration_tests {
     use super::*;
     use crate::db::MediaItem;
     use serde_json::Value;
     use std::sync::Arc;
+    use tokio::sync::oneshot;
 
     async fn spawn_test_server(database_path: String) -> (String, oneshot::Sender<()>) {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))

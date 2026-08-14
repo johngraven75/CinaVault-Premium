@@ -25,7 +25,7 @@ export type CinaVaultServerSettings = {
 export const CINAVAULT_SERVER_SETTINGS: CinaVaultServerSettings = {
   enabled: true,
   serverName: "CinaVault Server",
-  port: 8097,
+  port: 32400,
   preserveJellyfinCompatibility: true,
   features: [
     "media-library",

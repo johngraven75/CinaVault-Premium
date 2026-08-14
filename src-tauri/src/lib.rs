@@ -49,6 +49,7 @@ mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
 mod scanner;
+pub mod server_lifecycle;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
@@ -90,6 +91,8 @@ pub fn run() {
             let db_path = app_dir.join("cinavault.db");
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
+            server_lifecycle::configure(db_path.clone())
+                .expect("Failed to configure native server database");
 
             // Recover the persistent Hugging Face credential on every launch if the DB
             // copy is missing. This keeps upgrades/reinstalls stable without embedding a
@@ -216,9 +219,10 @@ pub fn run() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
-            embedded_server::start_embedded_server,
-            embedded_server::stop_embedded_server,
-            embedded_server::get_embedded_server_status,
+            server_lifecycle::start_embedded_server,
+            server_lifecycle::stop_embedded_server,
+            server_lifecycle::get_embedded_server_status,
+            server_lifecycle::get_embedded_server_health,
             remote_connectivity::start_remote_connectivity,
             remote_connectivity::stop_remote_connectivity,
             remote_connectivity::get_remote_connectivity_status,

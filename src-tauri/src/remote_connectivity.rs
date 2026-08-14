@@ -1,3 +1,4 @@
+use crate::server_lifecycle::{self, NATIVE_SERVER_PORT};
 use igd_next::{search_gateway, PortMappingProtocol, SearchOptions};
 use natpmp::{Natpmp, Protocol, Response};
 use serde::Serialize;
@@ -10,7 +11,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
-const DEFAULT_PORT: u16 = 32400;
 const MAPPING_LEASE_SECONDS: u32 = 7_200;
 const MAPPING_RENEW_SECONDS: u64 = 3_600;
 
@@ -37,7 +37,7 @@ impl Default for RemoteConnectivityStatus {
         Self {
             running: false,
             automatic: true,
-            port: DEFAULT_PORT,
+            port: NATIVE_SERVER_PORT,
             direct_available: false,
             direct_method: None,
             direct_url: None,
@@ -56,6 +56,7 @@ struct ConnectivityRuntime {
     status: RemoteConnectivityStatus,
     tunnel: Option<Child>,
     mapping_shutdown: Option<oneshot::Sender<()>>,
+    mapping: Option<ActiveMapping>,
 }
 
 impl Default for ConnectivityRuntime {
@@ -64,15 +65,27 @@ impl Default for ConnectivityRuntime {
             status: RemoteConnectivityStatus::default(),
             tunnel: None,
             mapping_shutdown: None,
+            mapping: None,
         }
     }
 }
 
+#[derive(Clone, Copy)]
+enum ActiveMapping {
+    Upnp(u16),
+    NatPmp(u16),
+}
+
 static CLOUDFLARED_PATH: OnceLock<PathBuf> = OnceLock::new();
 static CONNECTIVITY_RUNTIME: OnceLock<Mutex<ConnectivityRuntime>> = OnceLock::new();
+static CONNECTIVITY_OPERATION: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn runtime() -> &'static Mutex<ConnectivityRuntime> {
     CONNECTIVITY_RUNTIME.get_or_init(|| Mutex::new(ConnectivityRuntime::default()))
+}
+
+fn operation() -> &'static tokio::sync::Mutex<()> {
+    CONNECTIVITY_OPERATION.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
 pub fn configure(cloudflared_path: PathBuf) {
@@ -120,10 +133,17 @@ async fn map_upnp(port: u16) -> Result<String, String> {
                 "CinaVault Premium Build 170",
             )
             .map_err(|error| error.to_string())?;
-        gateway
-            .get_external_ip()
-            .map(|address| address.to_string())
-            .map_err(|error| error.to_string())
+        match gateway.get_external_ip() {
+            Ok(address) => Ok(address.to_string()),
+            Err(error) => {
+                let cleanup = gateway
+                    .remove_port(PortMappingProtocol::TCP, port)
+                    .err()
+                    .map(|cleanup_error| format!("; rollback failed ({cleanup_error})"))
+                    .unwrap_or_default();
+                Err(format!("{error}{cleanup}"))
+            }
+        }
     })
     .await
     .map_err(|error| error.to_string())?
@@ -136,12 +156,60 @@ async fn map_nat_pmp(port: u16) -> Result<(), String> {
             .send_port_mapping_request(Protocol::TCP, port, port, MAPPING_LEASE_SECONDS)
             .map_err(|error| error.to_string())?;
         std::thread::sleep(Duration::from_millis(300));
+        let response = match client.read_response_or_retry() {
+            Ok(response) => response,
+            Err(error) => {
+                let rollback = client
+                    .send_port_mapping_request(Protocol::TCP, port, port, 0)
+                    .err()
+                    .map(|cleanup_error| format!("; rollback failed ({cleanup_error})"))
+                    .unwrap_or_default();
+                return Err(format!("{error}{rollback}"));
+            }
+        };
+        match response {
+            Response::TCP(_) => Ok(()),
+            _ => {
+                let rollback = client
+                    .send_port_mapping_request(Protocol::TCP, port, port, 0)
+                    .err()
+                    .map(|error| format!("; rollback failed ({error})"))
+                    .unwrap_or_default();
+                Err(format!(
+                    "NAT-PMP gateway returned an unexpected response{rollback}"
+                ))
+            }
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+async fn unmap_upnp(port: u16) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let gateway =
+            search_gateway(SearchOptions::default()).map_err(|error| error.to_string())?;
+        gateway
+            .remove_port(PortMappingProtocol::TCP, port)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+async fn unmap_nat_pmp(port: u16) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let mut client = Natpmp::new().map_err(|error| error.to_string())?;
+        client
+            .send_port_mapping_request(Protocol::TCP, port, port, 0)
+            .map_err(|error| error.to_string())?;
+        std::thread::sleep(Duration::from_millis(300));
         match client
             .read_response_or_retry()
             .map_err(|error| error.to_string())?
         {
             Response::TCP(_) => Ok(()),
-            _ => Err("NAT-PMP gateway returned an unexpected response".into()),
+            _ => Err("NAT-PMP gateway returned an unexpected removal response".into()),
         }
     })
     .await
@@ -267,21 +335,83 @@ async fn start_cloud_relay(port: u16) -> Result<(Child, String, String), String>
     Ok((child, url, "quick".into()))
 }
 
+async fn verify_external_route(url: &str) -> Result<(), String> {
+    let health_url = format!("{}/health", url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let mut last_error = "route did not answer".to_string();
+    for _ in 0..10 {
+        match client
+            .get(&health_url)
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<serde_json::Value>().await {
+                    Ok(body)
+                        if body.get("status").and_then(|value| value.as_str()) == Some("ok")
+                            && body
+                                .get("databaseHealthy")
+                                .and_then(|value| value.as_bool())
+                                == Some(true) =>
+                    {
+                        return Ok(())
+                    }
+                    Ok(_) => last_error = "route returned an unhealthy native server".into(),
+                    Err(error) => {
+                        last_error = format!("route returned invalid health data: {error}")
+                    }
+                }
+            }
+            Ok(response) => last_error = format!("route returned HTTP {}", response.status()),
+            Err(error) => last_error = error.to_string(),
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    Err(format!("External route health check failed: {last_error}"))
+}
+
 async fn stop_runtime() -> Result<(), String> {
-    let (mut tunnel, mapping_shutdown) = {
+    let (mut tunnel, mapping_shutdown, mapping) = {
         let mut guard = runtime().lock().map_err(|error| error.to_string())?;
-        (guard.tunnel.take(), guard.mapping_shutdown.take())
+        (
+            guard.tunnel.take(),
+            guard.mapping_shutdown.take(),
+            guard.mapping.take(),
+        )
     };
+    let mut cleanup_errors = Vec::new();
     if let Some(shutdown) = mapping_shutdown {
         let _ = shutdown.send(());
     }
     if let Some(child) = tunnel.as_mut() {
-        child
-            .kill()
-            .await
-            .map_err(|error| format!("Unable to stop cloud relay: {error}"))?;
+        if let Err(error) = child.kill().await {
+            cleanup_errors.push(format!("Unable to stop cloud relay: {error}"));
+        }
+    }
+    if let Some(mapping) = mapping {
+        let result = match mapping {
+            ActiveMapping::Upnp(port) => unmap_upnp(port).await,
+            ActiveMapping::NatPmp(port) => unmap_nat_pmp(port).await,
+        };
+        if let Err(error) = result {
+            cleanup_errors.push(format!("Unable to remove router mapping: {error}"));
+        }
+    }
+    if !cleanup_errors.is_empty() {
+        return Err(cleanup_errors.join("; "));
     }
     Ok(())
+}
+
+fn unavailable_status(port: u16, error: String) -> Result<RemoteConnectivityStatus, String> {
+    let status = RemoteConnectivityStatus {
+        port,
+        last_error: Some(error),
+        ..RemoteConnectivityStatus::default()
+    };
+    runtime().lock().map_err(|error| error.to_string())?.status = status.clone();
+    Ok(status)
 }
 
 #[tauri::command]
@@ -292,12 +422,37 @@ pub async fn start_remote_connectivity(
     enable_upnp: Option<bool>,
     enable_nat_pmp: Option<bool>,
 ) -> Result<RemoteConnectivityStatus, String> {
-    let port = port.unwrap_or(DEFAULT_PORT);
+    let _operation = operation().lock().await;
+    let port = port.unwrap_or(NATIVE_SERVER_PORT);
     let prefer_relay = prefer_relay.unwrap_or(true);
     let allow_relay = allow_relay.unwrap_or(true);
     let enable_upnp = enable_upnp.unwrap_or(true);
     let enable_nat_pmp = enable_nat_pmp.unwrap_or(true);
-    stop_runtime().await?;
+    if let Err(error) = stop_runtime().await {
+        return unavailable_status(
+            port,
+            format!("Previous remote connectivity cleanup failed: {error}"),
+        );
+    }
+    runtime().lock().map_err(|error| error.to_string())?.status = RemoteConnectivityStatus {
+        port,
+        ..RemoteConnectivityStatus::default()
+    };
+
+    let lifecycle = server_lifecycle::configured()?;
+    if let Err(error) = lifecycle.start(Some(port)).await {
+        return unavailable_status(
+            port,
+            format!("Native server listener could not start: {error}"),
+        );
+    }
+    let server_health = lifecycle.health().await;
+    if !server_health.healthy || server_health.port != Some(port) {
+        let reason = server_health
+            .error
+            .unwrap_or_else(|| "listener or database health check failed".into());
+        return unavailable_status(port, format!("Native server is unhealthy: {reason}"));
+    }
 
     let mut status = RemoteConnectivityStatus {
         running: true,
@@ -313,6 +468,8 @@ pub async fn start_remote_connectivity(
                 status.direct_method = Some("UPnP".into());
                 status.public_ip = Some(public_ip.clone());
                 status.direct_url = Some(format!("http://{public_ip}:{port}"));
+                runtime().lock().map_err(|error| error.to_string())?.mapping =
+                    Some(ActiveMapping::Upnp(port));
             }
             Err(error) => mapping_errors.push(format!("UPnP unavailable ({error})")),
         }
@@ -329,6 +486,8 @@ pub async fn start_remote_connectivity(
                     status.direct_method = Some("NAT-PMP".into());
                     status.public_ip = public_ip.clone();
                     status.direct_url = public_ip.map(|value| format!("http://{value}:{port}"));
+                    runtime().lock().map_err(|error| error.to_string())?.mapping =
+                        Some(ActiveMapping::NatPmp(port));
                 }
                 Err(error) => mapping_errors.push(format!("NAT-PMP unavailable ({error})")),
             }
@@ -357,6 +516,13 @@ pub async fn start_remote_connectivity(
                 status.relay_url = Some(relay_url.clone());
                 status.relay_mode = Some(relay_mode);
                 runtime().lock().map_err(|error| error.to_string())?.tunnel = Some(child);
+                if let Err(error) = verify_external_route(&relay_url).await {
+                    let cleanup_error = stop_runtime().await.err();
+                    let cleanup = cleanup_error
+                        .map(|value| format!("; rollback incomplete ({value})"))
+                        .unwrap_or_default();
+                    return unavailable_status(port, format!("{error}{cleanup}"));
+                }
             }
             Err(error) => {
                 let mapping_summary = if mapping_errors.is_empty() {
@@ -381,6 +547,18 @@ pub async fn start_remote_connectivity(
 
     if status.preferred_url.is_none() {
         status.running = false;
+        let cleanup_error = stop_runtime().await.err();
+        status.direct_available = false;
+        status.direct_method = None;
+        status.direct_url = None;
+        status.public_ip = None;
+        status.relay_active = false;
+        status.relay_mode = None;
+        status.relay_url = None;
+        if let Some(error) = cleanup_error {
+            let previous = status.last_error.take().unwrap_or_default();
+            status.last_error = Some(format!("{previous}; rollback incomplete ({error})"));
+        }
     }
 
     runtime().lock().map_err(|error| error.to_string())?.status = status.clone();
@@ -389,9 +567,11 @@ pub async fn start_remote_connectivity(
 
 #[tauri::command]
 pub async fn stop_remote_connectivity() -> Result<RemoteConnectivityStatus, String> {
-    stop_runtime().await?;
+    let _operation = operation().lock().await;
+    let cleanup = stop_runtime().await;
     let status = RemoteConnectivityStatus::default();
     runtime().lock().map_err(|error| error.to_string())?.status = status.clone();
+    cleanup?;
     Ok(status)
 }
 
