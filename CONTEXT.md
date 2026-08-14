@@ -19,4 +19,8 @@
 - **Direct stream**: Repackaging media without re-encoding its audio or video.
 - **Transcode**: Re-encoding media to match client capabilities or bandwidth.
 - **Capability negotiation**: Selecting direct play, direct stream, or transcode based on the client, media, network, and server capacity.
+- **VPN host**: The owned-server device that exposes a WireGuard interface and authorizes device peers.
+- **VPN device profile**: A revocable WireGuard peer configuration issued for one registered client device.
+- **Default VPN profile**: The validated device profile selected for optional automatic connection when a client starts.
+- **VPN readiness**: The state in which an official WireGuard engine, a valid profile, required privileges, and a reachable peer are all confirmed.
 
