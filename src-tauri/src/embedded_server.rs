@@ -645,7 +645,6 @@ mod integration_tests {
     use super::*;
     use crate::db::MediaItem;
     use serde_json::Value;
-    use std::sync::Arc;
     use tokio::sync::oneshot;
 
     async fn spawn_test_server(database_path: String) -> (String, oneshot::Sender<()>) {
@@ -653,13 +652,9 @@ mod integration_tests {
             .await
             .expect("bind ephemeral loopback listener");
         let address = listener.local_addr().expect("read listener address");
-        let state = Arc::new(HttpState {
-            database_path,
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-        });
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         tokio::spawn(async move {
-            axum::serve(listener, router(state))
+            axum::serve(listener, router(database_path))
                 .with_graceful_shutdown(async {
                     let _ = shutdown_rx.await;
                 })
