@@ -949,7 +949,7 @@ export default function AIDiagnosticsTab() {
           <button
             disabled={aiProcessing}
             onClick={async () => {
-              if (!window.confirm("Mark every indexed item adult and clear all CinaVault poster/backdrop references? Poster files on disk will not be deleted.")) return;
+              if (!window.confirm("Mark every item currently indexed in CinaVault as adult? Existing poster and backdrop references will be preserved. Future imports will continue to use normal classification.")) return;
               setAiProcessing(true);
               try {
                 const result = await invoke<any>("convert_entire_library_to_adult");
@@ -963,7 +963,7 @@ export default function AIDiagnosticsTab() {
             }}
             className="cv-btn cv-btn-danger mt-3 text-xs disabled:opacity-50"
           >
-            Convert Entire Library to Adult (CinaVault Only)
+            Mark Current Inventory Adult (CinaVault Only)
           </button>
         </div>
       </div>

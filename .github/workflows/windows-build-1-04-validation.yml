@@ -1,4 +1,4 @@
-name: CinaVault Premium v2.08 Build 1.08 Windows Validation
+name: CinaVault Premium v2.13 Build 1.13 Windows Validation
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cinavault-premium-v2-08-build-1-08-windows-${{ github.event.pull_request.number || github.ref }}
+  group: cinavault-premium-v2-13-build-1-13-windows-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,13 +36,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify v2.08 Build 1.08 identity
+      - name: Verify v2.13 Build 1.13 identity
         shell: pwsh
         run: |
           $build = Get-Content build-version.json -Raw | ConvertFrom-Json
-          if ($build.displayName -ne 'v2.08 Build 1.08') { throw "Unexpected displayName: $($build.displayName)" }
-          if ($build.semanticVersion -ne '2.0.8') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
-          if ($build.releaseTag -ne 'v2-build-1.08') { throw "Unexpected releaseTag: $($build.releaseTag)" }
+          if ($build.displayName -ne 'v2.13 Build 1.13') { throw "Unexpected displayName: $($build.displayName)" }
+          if ($build.semanticVersion -ne '2.0.13') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
+          if ($build.releaseTag -ne 'v2-build-1.13') { throw "Unexpected releaseTag: $($build.releaseTag)" }
           $build | ConvertTo-Json -Depth 10 | Set-Content validation-logs/build-identity.json
 
       - name: Shared contracts and preventive gates
@@ -99,16 +99,16 @@ jobs:
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check 2>&1 | Tee-Object validation-logs/rust-format.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --manifest-path src-tauri/Cargo.toml --all-targets 2>&1 | Tee-Object validation-logs/rust-tests.log
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets 2>&1 | Tee-Object validation-logs/rust-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | Tee-Object validation-logs/rust-check.log
+          cargo check --manifest-path src-tauri/Cargo.toml --locked 2>&1 | Tee-Object validation-logs/rust-check.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows validation diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CinaVault-Premium-v2.08-Build-1.08-Windows-Diagnostics
+          name: CinaVault-Premium-v2.13-Build-1.13-Windows-Diagnostics
           path: validation-logs/
           if-no-files-found: warn
           retention-days: 90

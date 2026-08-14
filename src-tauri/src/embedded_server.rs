@@ -173,8 +173,8 @@ fn preferred_artwork(item: &MediaItem) -> Option<(&'static str, String)> {
 
 fn remote_media_item(item: MediaItem) -> Option<RemoteMediaItem> {
     let key = media_key(&item)?;
-    let artwork_url = preferred_artwork(&item)
-        .map(|(kind, _)| format!("/api/artwork/{key}/{kind}"));
+    let artwork_url =
+        preferred_artwork(&item).map(|(kind, _)| format!("/api/artwork/{key}/{kind}"));
     Some(RemoteMediaItem {
         media_key: key.clone(),
         title: item.title,
@@ -221,7 +221,10 @@ async fn login_password(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
     {
         Some(principal) => Ok(register_session(&state, principal).await),
-        None => Err((StatusCode::UNAUTHORIZED, "Invalid account credentials".into())),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid account credentials".into(),
+        )),
     }
 }
 
@@ -235,7 +238,10 @@ async fn login_access_key(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
     {
         Some(principal) => Ok(register_session(&state, principal).await),
-        None => Err((StatusCode::UNAUTHORIZED, "Invalid account access key".into())),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid account access key".into(),
+        )),
     }
 }
 
@@ -252,15 +258,16 @@ async fn authenticated_principal(
         .filter(|value| !value.is_empty())
         .ok_or((StatusCode::UNAUTHORIZED, "Bearer token required".into()))?;
 
-    let principal = state
-        .sessions
-        .read()
-        .await
-        .get(token)
-        .cloned()
-        .ok_or((StatusCode::UNAUTHORIZED, "Session is invalid or expired".into()))?;
+    let principal = state.sessions.read().await.get(token).cloned().ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Session is invalid or expired".into(),
+    ))?;
 
-    if !principal.permissions.iter().any(|value| value == permission) {
+    if !principal
+        .permissions
+        .iter()
+        .any(|value| value == permission)
+    {
         return Err((
             StatusCode::FORBIDDEN,
             "Account lacks required permission".into(),
@@ -274,10 +281,9 @@ fn hardened_response_headers(response: &mut Response<Body>) {
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store, max-age=0"),
     );
-    response.headers_mut().insert(
-        header::PRAGMA,
-        HeaderValue::from_static("no-cache"),
-    );
+    response
+        .headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     response.headers_mut().insert(
         header::HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
@@ -453,8 +459,14 @@ async fn read_artwork_bytes(artwork: &str) -> Result<(Vec<u8>, String), (StatusC
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?
             .error_for_status()
             .map_err(|error| (StatusCode::BAD_GATEWAY, error.to_string()))?;
-        if response.content_length().is_some_and(|length| length > MAX_ARTWORK_BYTES as u64) {
-            return Err((StatusCode::PAYLOAD_TOO_LARGE, "Artwork exceeds 25 MiB".into()));
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_ARTWORK_BYTES as u64)
+        {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Artwork exceeds 25 MiB".into(),
+            ));
         }
         let mime = response
             .headers()
@@ -477,7 +489,10 @@ async fn read_artwork_bytes(artwork: &str) -> Result<(Vec<u8>, String), (StatusC
             .await
             .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
         if metadata.len() > MAX_ARTWORK_BYTES as u64 {
-            return Err((StatusCode::PAYLOAD_TOO_LARGE, "Artwork exceeds 25 MiB".into()));
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Artwork exceeds 25 MiB".into(),
+            ));
         }
         let bytes = tokio::fs::read(&path)
             .await
@@ -489,10 +504,16 @@ async fn read_artwork_bytes(artwork: &str) -> Result<(Vec<u8>, String), (StatusC
         return Err((StatusCode::NOT_FOUND, "Artwork is empty".into()));
     }
     if bytes.len() > MAX_ARTWORK_BYTES {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, "Artwork exceeds 25 MiB".into()));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Artwork exceeds 25 MiB".into(),
+        ));
     }
     if !mime.starts_with("image/") {
-        return Err((StatusCode::UNSUPPORTED_MEDIA_TYPE, "Artwork response is not an image".into()));
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Artwork response is not an image".into(),
+        ));
     }
     Ok((bytes, mime))
 }
@@ -560,7 +581,10 @@ async fn stream_media(
         .len();
 
     if size == 0 {
-        return Err((StatusCode::RANGE_NOT_SATISFIABLE, "Media file is empty".into()));
+        return Err((
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "Media file is empty".into(),
+        ));
     }
 
     let (status, start, end) = requested_range(&headers, size)
@@ -681,10 +705,7 @@ pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Valu
 
 #[tauri::command]
 pub async fn stop_embedded_server() -> Result<serde_json::Value, String> {
-    let active = runtime()
-        .lock()
-        .map_err(|error| error.to_string())?
-        .take();
+    let active = runtime().lock().map_err(|error| error.to_string())?.take();
     if let Some(active) = active {
         let _ = active.shutdown.send(());
     }

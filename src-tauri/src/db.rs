@@ -94,6 +94,13 @@ pub struct Database {
     pub conn: Connection,
 }
 
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct AdultLibraryLabelResult {
+    pub inventory_items: usize,
+    pub items_labeled_adult: usize,
+    pub items_already_adult: usize,
+}
+
 impl Database {
     pub fn new(path: &str) -> SqlResult<Self> {
         let conn = Connection::open(path)?;
@@ -811,6 +818,32 @@ impl Database {
     }
 
     // ── Media items ──
+    pub fn mark_current_library_adult(&mut self) -> SqlResult<AdultLibraryLabelResult> {
+        let transaction = self.conn.transaction()?;
+        let inventory_items =
+            transaction.query_row("SELECT COUNT(*) FROM media_items", [], |row| {
+                row.get::<_, usize>(0)
+            })?;
+        let items_already_adult = transaction.query_row(
+            "SELECT COUNT(*) FROM media_items WHERE lower(trim(media_type)) = 'adult'",
+            [],
+            |row| row.get::<_, usize>(0),
+        )?;
+        let items_labeled_adult = transaction.execute(
+            "UPDATE media_items
+             SET media_type = 'adult'
+             WHERE lower(trim(media_type)) <> 'adult'",
+            [],
+        )?;
+        transaction.commit()?;
+
+        Ok(AdultLibraryLabelResult {
+            inventory_items,
+            items_labeled_adult,
+            items_already_adult,
+        })
+    }
+
     pub fn get_media_items_data(
         &self,
         media_type: Option<&str>,
@@ -1785,6 +1818,71 @@ mod tests {
             imdb_id: None,
             source_id: None,
         }
+    }
+
+    #[test]
+    fn current_inventory_adult_label_is_idempotent_and_preserves_artwork() {
+        let db_path = test_db_path("current-inventory-adult");
+        let mut db = Database::new(&db_path).expect("db should open");
+
+        let mut movie = sample_item("Movie", r"C:\media\movie.mkv");
+        movie.poster_path = Some(r"C:\media\movie-poster.jpg".to_string());
+        movie.backdrop_path = Some(r"C:\media\movie-fanart.jpg".to_string());
+        db.add_media_item_data(&movie)
+            .expect("movie fixture should insert");
+
+        let mut existing_adult = sample_item("Existing Adult", r"C:\media\adult.mkv");
+        existing_adult.media_type = "Adult".to_string();
+        db.add_media_item_data(&existing_adult)
+            .expect("adult fixture should insert");
+
+        let first = db
+            .mark_current_library_adult()
+            .expect("current inventory should be labeled");
+        assert_eq!(first.inventory_items, 2);
+        assert_eq!(first.items_labeled_adult, 1);
+        assert_eq!(first.items_already_adult, 1);
+
+        let preserved = db
+            .conn
+            .query_row(
+                "SELECT media_type, poster_path, backdrop_path FROM media_items WHERE file_path = ?1",
+                params![&movie.file_path],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .expect("labeled movie should remain readable");
+        assert_eq!(preserved.0, "adult");
+        assert_eq!(preserved.1, movie.poster_path);
+        assert_eq!(preserved.2, movie.backdrop_path);
+
+        let second = db
+            .mark_current_library_adult()
+            .expect("repeated labeling should succeed");
+        assert_eq!(second.inventory_items, 2);
+        assert_eq!(second.items_labeled_adult, 0);
+        assert_eq!(second.items_already_adult, 2);
+
+        let future_import = sample_item("Future Import", r"C:\media\future.mkv");
+        db.add_media_item_data(&future_import)
+            .expect("future import should insert normally");
+        let future_type = db
+            .conn
+            .query_row(
+                "SELECT media_type FROM media_items WHERE file_path = ?1",
+                params![&future_import.file_path],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("future import should remain readable");
+        assert_eq!(future_type, "movie");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
     }
 
     #[test]
