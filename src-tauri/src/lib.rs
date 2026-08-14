@@ -257,6 +257,8 @@ pub fn run() {
             metadata_ext::search_metadata,
             metadata_enrichment_runtime::check_media_item_metadata,
             metadata_ext::get_provider_status,
+            metadata_ext::get_adult_provider_settings,
+            metadata_ext::save_adult_provider_settings,
             metadata_ext::test_api_key,
             metadata_ext::set_api_key,
             metadata_ext::get_api_keys,
