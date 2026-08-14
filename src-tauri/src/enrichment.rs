@@ -676,25 +676,19 @@ async fn resolve_provider_match(
         let mut matches = Vec::new();
         match source_kind {
             SourceKind::AdultVideo => {
-                if let Some(result) = crate::metadata::fetch_adult_metadata_for_batch(
-                    client,
-                    provider_keys,
-                    query,
-                    file_path,
-                    provider_errors,
-                )
-                .await
-                {
-                    matches.push(ProviderMatch {
-                        title: result.title,
-                        overview: result.overview,
-                        poster_path: result.poster_path,
-                        year: result.year,
-                        rating: result.rating,
-                        genre: result.genre,
-                        tmdb_id: result.tmdb_id,
-                        imdb_id: result.imdb_id,
-                    });
+                if let Some(key) = provider_keys.get("tpdb") {
+                    match fetch_tpdb_metadata(client, key, query).await {
+                        Ok(Some(result)) => matches.push(result),
+                        Ok(None) => {}
+                        Err(err) => provider_errors.push(format!("tpdb/{query}: {err}")),
+                    }
+                }
+                if let Some(key) = provider_keys.get("stashdb") {
+                    match fetch_stashdb_metadata(client, key, query).await {
+                        Ok(Some(result)) => matches.push(result),
+                        Ok(None) => {}
+                        Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
+                }
                 }
             }
             SourceKind::StandardVideo => {
@@ -716,6 +710,73 @@ async fn resolve_provider_match(
     }
 
     None
+}
+
+/// ThePornDB is an authenticated adult-only scene source.  Search results are
+/// deliberately scanned for a strict title match rather than accepting the
+/// first scene returned by the provider.
+async fn fetch_tpdb_metadata(
+    client: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+) -> Result<Option<ProviderMatch>, String> {
+    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
+    let search = client
+        .get(format!("https://api.theporndb.net/scenes?parse={encoded}&hash=&year="))
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(id) = search
+        .get("data")
+        .and_then(|value| value.as_array())
+        .and_then(|scenes| scenes.iter().find(|scene| {
+            scene
+                .get("title")
+                .and_then(|value| value.as_str())
+                .is_some_and(|title| strong_title_match(query, title))
+        }))
+        .and_then(|scene| scene.get("uuid").or_else(|| scene.get("UUID")))
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(None);
+    };
+    let detail = client
+        .get(format!("https://api.theporndb.net/scenes/{id}"))
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    let detail = detail.get("data").unwrap_or(&detail);
+    let title = detail.get("title").and_then(|value| value.as_str());
+    if !title.is_some_and(|value| strong_title_match(query, value)) {
+        return Ok(None);
+    }
+    let genre = detail
+        .get("tags")
+        .and_then(|value| value.as_array())
+        .map(|tags| tags.iter().filter_map(|tag| tag.get("name").and_then(|value| value.as_str())).take(10).collect::<Vec<_>>().join(", "))
+        .filter(|value| !value.is_empty());
+    Ok(Some(ProviderMatch {
+        title: title.and_then(|value| non_empty_string(Some(value))),
+        overview: detail.get("description").or_else(|| detail.get("details")).and_then(|value| value.as_str()).and_then(|value| non_empty_string(Some(value))),
+        poster_path: detail.get("posters").and_then(|value| value.get("large")).or_else(|| detail.get("poster")).and_then(|value| value.as_str()).and_then(|value| non_empty_string(Some(value))),
+        year: parse_year_prefix(detail.get("date").and_then(|value| value.as_str())),
+        rating: None,
+        genre,
+        tmdb_id: None,
+        imdb_id: detail.get("uuid").and_then(|value| value.as_str()).and_then(|value| non_empty_string(Some(value))),
+    }))
 }
 
 async fn fetch_standard_metadata(
@@ -761,7 +822,7 @@ async fn fetch_tmdb_metadata(
     let Some(first) = data
         .get("results")
         .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
+        .and_then(|items| items.iter().find(|scene| scene.get("title").and_then(|value| value.as_str()).is_some_and(|title| strong_title_match(query, title))) )
     else {
         return Ok(None);
     };
@@ -1080,11 +1141,19 @@ fn valid_poster_payload(content_type: Option<&str>, bytes: &[u8]) -> bool {
     {
         return false;
     }
-    bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+    let has_supported_signature = bytes.starts_with(&[0xFF, 0xD8, 0xFF])
         || bytes.starts_with(b"\x89PNG\r\n\x1a\n")
         || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
         || bytes.starts_with(b"GIF87a")
-        || bytes.starts_with(b"GIF89a")
+        || bytes.starts_with(b"GIF89a");
+    if !has_supported_signature {
+        return false;
+    }
+    // A file signature alone accepts truncated/corrupt payloads. Decode the
+    // image and require a usable raster before it can become a media card.
+    image::load_from_memory(bytes)
+        .map(|image| image.width() >= 20 && image.height() >= 20)
+        .unwrap_or(false)
 }
 
 fn write_poster_sidecar_bytes(
@@ -1559,14 +1628,10 @@ pub async fn gather_adult_metadata(
         (items, provider_keys)
     };
 
-    let configured_adult_providers: Vec<String> = [
-        "tpdb",
-        "stashdb",
-        "pgma",
-        "porn_site_nuxt",
-        "iafd",
-        "phoenixadult",
-    ]
+    // Only report adapters this build can actually call.  IAFD and Phoenix do
+    // not have a supported integration here; reporting them as configured
+    // previously made a successful-looking gather do no work.
+    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb"]
     .iter()
     .filter(|&&p| provider_keys.contains_key(p))
     .map(|p| p.to_string())
@@ -1584,6 +1649,14 @@ pub async fn gather_adult_metadata(
         configured_adult_providers: configured_adult_providers.clone(),
         provider_errors: Vec::new(),
     };
+
+    for unavailable in ["iafd", "phoenixadult"] {
+        if provider_keys.contains_key(unavailable) {
+            report.provider_errors.push(format!(
+                "{unavailable}: unavailable in this build; no request was made"
+            ));
+        }
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -1695,7 +1768,7 @@ mod tests {
     use super::{
         build_metadata_update, build_query_candidates, classify_library_item,
         local_embedded_title_match, local_sidecar_artwork_match, normalize_filename_title,
-        rename_confidence, safe_rename_target, valid_poster_payload, write_poster_sidecar_bytes,
+        rename_confidence, safe_rename_target, strong_title_match, valid_poster_payload, write_poster_sidecar_bytes,
         EnrichmentMode, LibraryItemRecord, ProviderMatch, RenameTarget, SourceKind,
     };
     use std::fs;
@@ -1782,14 +1855,17 @@ mod tests {
         fs::create_dir_all(&dir).expect("temp dir should be created");
         let video = dir.join("Movie.mp4");
         fs::write(&video, b"video").expect("video should be created");
-        let png = b"\x89PNG\r\n\x1a\nvalid-image-payload";
+        let mut png = Vec::new();
+        image::DynamicImage::new_rgba8(20, 20)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("fixture PNG should encode");
 
-        assert!(valid_poster_payload(Some("image/png"), png));
+        assert!(valid_poster_payload(Some("image/png"), &png));
         assert!(!valid_poster_payload(
             Some("text/html"),
             b"<html>error</html>"
         ));
-        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "png", png)
+        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "png", &png)
             .expect("poster sidecar should be written");
 
         assert!(poster.ends_with("Movie-poster.png"));
@@ -1820,6 +1896,17 @@ mod tests {
         assert!(!dir.join("Movie-poster.jpg.previous").exists());
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn adult_provider_candidate_must_match_the_requested_title() {
+        assert!(strong_title_match("Exact Scene Title", "Exact Scene Title"));
+        assert!(!strong_title_match("Exact Scene Title", "Different Scene Title"));
+    }
+
+    #[test]
+    fn truncated_image_signature_is_not_accepted_as_artwork() {
+        assert!(!valid_poster_payload(Some("image/png"), b"\x89PNG\r\n\x1a\ntruncated"));
     }
 
     #[test]
