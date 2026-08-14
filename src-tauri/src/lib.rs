@@ -162,6 +162,13 @@ pub fn run() {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
             });
+            let startup_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let result = vpn::startup_auto_connect(startup_handle).await;
+                if result.get("status").and_then(|value| value.as_str()) == Some("failed") {
+                    log::warn!("WireGuard startup auto-connect failed safely: {result}");
+                }
+            });
             log::info!("{} initialized successfully", build_identity::current().display_name);
             Ok(())
         })
@@ -274,6 +281,7 @@ pub fn run() {
             vpn::vpn_status,
             vpn::vpn_import_profile,
             vpn::vpn_profiles,
+            vpn::vpn_select_default,
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,
