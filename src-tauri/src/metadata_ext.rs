@@ -13,6 +13,26 @@ use tauri::State;
 
 const PGMA_PROVIDER_KEY: &str = "pgma";
 const PGMA_PROVIDER_BASE_URL: &str = "cinavault://pgma-bridge";
+const ADULT_PROVIDER_KEYS: &[&str] = &[
+    "tpdb", "stashdb", "porn_site_nuxt", "iafd", "phoenixadult", "pgma",
+];
+const ADULT_PROVIDER_ENABLED_SETTING: &str = "adult_metadata_enabled_providers";
+
+fn adult_provider_enabled_keys(database: &Database) -> Result<Vec<String>, String> {
+    let value = database
+        .get_setting_data(ADULT_PROVIDER_ENABLED_SETTING)
+        .map_err(|error| error.to_string())?;
+    match value {
+        Some(value) => serde_json::from_str::<Vec<String>>(&value)
+            .map_err(|error| format!("Invalid adult provider settings: {error}")),
+        None => Ok(ADULT_PROVIDER_KEYS.iter().map(|key| (*key).to_string()).collect()),
+    }
+}
+
+pub fn is_adult_provider_enabled(database: &Database, provider: &str) -> Result<bool, String> {
+    let provider = normalize_provider_key(provider);
+    Ok(adult_provider_enabled_keys(database)?.iter().any(|key| key == &provider))
+}
 
 fn is_pgma_alias(provider: &str) -> bool {
     matches!(
@@ -350,6 +370,61 @@ pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, 
         "total_providers": get_metadata_providers().len(),
         "configured": configured,
     }))
+}
+
+#[tauri::command]
+pub fn get_adult_provider_settings(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    let enabled = adult_provider_enabled_keys(&db)?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT provider, api_key FROM api_keys")
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?;
+    let mut masked = serde_json::Map::new();
+    for row in rows {
+        let (provider, key) = row.map_err(|error| error.to_string())?;
+        let value = if key.len() > 4 {
+            format!("{}...{}", &key[..2], &key[key.len() - 2..])
+        } else {
+            "****".to_string()
+        };
+        masked.insert(normalize_provider_key(&provider), serde_json::Value::String(value));
+    }
+    let providers = ADULT_PROVIDER_KEYS
+        .iter()
+        .map(|key| serde_json::json!({
+            "key": key,
+            "enabled": enabled.iter().any(|entry| entry == key),
+            "configured": masked.contains_key(*key),
+            "masked_credential": masked.get(*key),
+        }))
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "providers": providers }))
+}
+
+#[tauri::command]
+pub fn save_adult_provider_settings(
+    state: State<AppState>,
+    enabled_providers: Vec<String>,
+) -> Result<(), String> {
+    let mut normalized = enabled_providers
+        .iter()
+        .map(|provider| normalize_provider_key(provider))
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    if normalized.iter().any(|provider| !ADULT_PROVIDER_KEYS.contains(&provider.as_str())) {
+        return Err("Only supported adult metadata providers can be saved here".to_string());
+    }
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    db.set_setting_data(
+        ADULT_PROVIDER_ENABLED_SETTING,
+        &serde_json::to_string(&normalized).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

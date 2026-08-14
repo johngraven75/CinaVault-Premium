@@ -1624,7 +1624,10 @@ pub async fn gather_adult_metadata(
         let items = rows
             .collect::<Result<Vec<_>, _>>()
             .map_err(|err| err.to_string())?;
-        let provider_keys = load_provider_keys(&db)?;
+        let mut provider_keys = load_provider_keys(&db)?;
+        provider_keys.retain(|provider, _| {
+            crate::metadata_ext::is_adult_provider_enabled(&db, provider).unwrap_or(false)
+        });
         (items, provider_keys)
     };
 
