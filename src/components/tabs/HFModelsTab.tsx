@@ -126,12 +126,6 @@ export default function HFModelsTab() {
     addStatusMessage(`Hugging Face model selected: ${selected}`);
   };
 
-  const save = async () => {
-    await invoke("set_ai_model", { model: selected });
-    setSaved(selected);
-    addStatusMessage(`Hugging Face model selected: ${selected}`);
-  };
-
   return (
     <div className="space-y-5">
       <section className="glass-panel p-5">

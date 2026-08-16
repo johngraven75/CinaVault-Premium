@@ -80,14 +80,14 @@ jobs:
           echo "## SonarCloud analysis skipped" >> "$GITHUB_STEP_SUMMARY"
           echo "The required SONAR_TOKEN secret and/or project configuration variables are not available." >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: ${{ secrets.SONAR_TOKEN && vars.SONAR_PROJECT_KEY && vars.SONAR_ORGANIZATION }}
 
       - name: Analyze with SonarCloud
         if: ${{ secrets.SONAR_TOKEN && vars.SONAR_PROJECT_KEY && vars.SONAR_ORGANIZATION }}
 
         # You can pin the exact commit or the version.
-        # uses: SonarSource/sonarcloud-github-action@v2.2.0
+        # uses: SonarSource/sonarcloud-github-action@4006f663ecaf1f8093e8e4abb9227f6041f52216 # v2.2.0
         uses: SonarSource/sonarcloud-github-action@4006f663ecaf1f8093e8e4abb9227f6041f52216
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # Generate a token on Sonarcloud.io, add it to the secrets of this repo with the name SONAR_TOKEN (Settings > Secrets > Actions > add new repository secret)

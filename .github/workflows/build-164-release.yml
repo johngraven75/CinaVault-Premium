@@ -11,4 +11,3 @@ jobs:
   build-and-release:
     name: Run current verified installer release
     uses: ./.github/workflows/windows-installer.yml
-    secrets: inherit
