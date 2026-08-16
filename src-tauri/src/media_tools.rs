@@ -5,6 +5,7 @@
 // only on catalog flags.
 use serde::Serialize;
 use std::collections::HashSet;
+use std::env;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -63,8 +64,69 @@ struct ToolStatus {
     package: String,
 }
 
+fn executable_candidates(executable: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(path) = env::var("PATH") {
+        for directory in env::split_paths(&path) {
+            let candidate = directory.join(executable);
+            candidates.push(candidate.clone());
+            #[cfg(target_os = "windows")]
+            if candidate.extension().is_none() {
+                candidates.push(directory.join(format!("{executable}.exe")));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let program_files = env::var_os("ProgramFiles").map(PathBuf::from);
+        let program_files_x86 = env::var_os("ProgramFiles(x86)").map(PathBuf::from);
+        let local_app_data = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+
+        match executable {
+            "mediainfo" => {
+                for root in [program_files.clone(), program_files_x86.clone()].into_iter().flatten() {
+                    candidates.push(root.join("MediaInfo").join("MediaInfo.exe"));
+                    candidates.push(root.join("MediaInfo").join("CLI").join("MediaInfo.exe"));
+                }
+            }
+            "mkvmerge" => {
+                for root in [program_files.clone(), program_files_x86.clone()].into_iter().flatten() {
+                    candidates.push(root.join("MKVToolNix").join("mkvmerge.exe"));
+                }
+            }
+            "ffmpeg" | "ffprobe" => {
+                for root in [program_files, program_files_x86, local_app_data].into_iter().flatten() {
+                    candidates.push(root.join("ffmpeg").join(format!("{executable}.exe")));
+                }
+            }
+            "yt-dlp" => {
+                if let Some(root) = local_app_data {
+                    candidates.push(root.join("Programs").join("yt-dlp").join("yt-dlp.exe"));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    candidates
+}
+
+fn resolve_executable(executable: &str) -> PathBuf {
+    let requested = Path::new(executable);
+    if requested.is_absolute() && requested.is_file() {
+        return requested.to_path_buf();
+    }
+
+    executable_candidates(executable)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| PathBuf::from(executable))
+}
+
 fn command_for(executable: &str) -> Command {
-    let mut command = Command::new(executable);
+    let mut command = Command::new(resolve_executable(executable));
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
     command

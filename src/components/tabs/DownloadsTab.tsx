@@ -29,6 +29,8 @@ export default function DownloadsTab() {
   const [outputDir, setOutputDir] = useState("");
   const [isPlaylist, setIsPlaylist] = useState(false);
   const [toolStatus, setToolStatus] = useState<ToolStatusMap | null>(null);
+  const [toolRepairing, setToolRepairing] = useState(false);
+  const [toolError, setToolError] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [mediaPath, setMediaPath] = useState("");
   const [inspectionResult, setInspectionResult] = useState<unknown>(null);
@@ -40,6 +42,7 @@ export default function DownloadsTab() {
 
   const checkTools = async () => {
     try {
+      setToolError(null);
       const status = await invoke<{
         ready: boolean;
         tools: Array<{
@@ -53,7 +56,10 @@ export default function DownloadsTab() {
           status.tools.map((tool) => [tool.id.replace("-", "_"), tool]),
         ),
       );
-    } catch {
+    } catch (error) {
+      const message = String(error);
+      setToolError(`Unable to read media-tool status: ${message}`);
+      addStatusMessage(`Unable to read media-tool status: ${message}`);
       setToolStatus({
         yt_dlp: { installed: false },
         ffmpeg: { installed: false },
@@ -115,6 +121,8 @@ export default function DownloadsTab() {
   };
 
   const installTools = async () => {
+    setToolRepairing(true);
+    setToolError(null);
     addStatusMessage(
       "Automatically checking and repairing permanent media tools...",
     );
@@ -133,13 +141,28 @@ export default function DownloadsTab() {
       );
       await checkTools();
     } catch (error) {
-      addStatusMessage(`Automatic tool repair failed: ${error}`);
+      const message = String(error);
+      setToolError(`Automatic tool repair failed: ${message}`);
+      addStatusMessage(`Automatic tool repair failed: ${message}`);
+    } finally {
+      setToolRepairing(false);
     }
   };
 
   const inspectMedia = async (tool: "mediainfo" | "mkvtoolnix") => {
     const path = mediaPath.trim();
-    if (!path) return;
+    if (!path) {
+      const message = "Enter a media file path before running an inspection.";
+      setToolError(message);
+      addStatusMessage(message);
+      return;
+    }
+    if (!toolStatus?.[tool]?.installed) {
+      const message = `${tool === "mediainfo" ? "MediaInfo" : "MKVToolNix"} is not available. Click Recheck & Repair Automatically first.`;
+      setToolError(message);
+      addStatusMessage(message);
+      return;
+    }
     setInspectingTool(tool);
     setInspectionResult(null);
     try {
@@ -198,11 +221,22 @@ export default function DownloadsTab() {
           <button
             type="button"
             onClick={() => void installTools()}
-            className="cv-btn cv-btn-secondary self-center"
+            disabled={toolRepairing}
+            className="cv-btn cv-btn-secondary self-center disabled:opacity-50"
           >
-            <Wrench size={14} /> Recheck & Repair Automatically
+            {toolRepairing ? (
+              <Loader size={14} className="animate-spin" />
+            ) : (
+              <Wrench size={14} />
+            )}
+            {toolRepairing ? "Repairing..." : "Recheck & Repair Automatically"}
           </button>
         </div>
+        {toolError && (
+          <div className="mt-3 rounded-lg border border-cv-danger/40 bg-cv-danger/10 px-3 py-2 text-xs text-cv-danger">
+            {toolError}
+          </div>
+        )}
       </div>
 
       <div className="glass-panel p-5">
