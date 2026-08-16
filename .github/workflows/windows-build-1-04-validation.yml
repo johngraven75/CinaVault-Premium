@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cinavault-premium-v2-13-build-1-13-windows-${{ github.event.pull_request.number || github.ref }}
+  group: cinavault-premium-v2-14-build-1-14-windows-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,13 +36,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify v2.13 Build 1.13 identity
+      - name: Verify v2.14 Build 1.14 identity
         shell: pwsh
         run: |
           $build = Get-Content build-version.json -Raw | ConvertFrom-Json
-          if ($build.displayName -ne 'v2.13 Build 1.13') { throw "Unexpected displayName: $($build.displayName)" }
-          if ($build.semanticVersion -ne '2.0.13') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
-          if ($build.releaseTag -ne 'v2-build-1.13') { throw "Unexpected releaseTag: $($build.releaseTag)" }
+          if ($build.displayName -ne 'v2.14 Build 1.14') { throw "Unexpected displayName: $($build.displayName)" }
+          if ($build.semanticVersion -ne '2.0.14') { throw "Unexpected semanticVersion: $($build.semanticVersion)" }
+          if ($build.releaseTag -ne 'v2-build-1.14') { throw "Unexpected releaseTag: $($build.releaseTag)" }
           $build | ConvertTo-Json -Depth 10 | Set-Content validation-logs/build-identity.json
 
       - name: Shared contracts and preventive gates
@@ -108,7 +108,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: CinaVault-Premium-v2.13-Build-1.13-Windows-Diagnostics
+          name: CinaVault-Premium-v2.14-Build-1.14-Windows-Diagnostics
           path: validation-logs/
           if-no-files-found: warn
           retention-days: 90
