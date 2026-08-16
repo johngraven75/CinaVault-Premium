@@ -9,23 +9,27 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-fn wireguard_executable(app: &AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("unable to resolve application resources: {error}"))?;
-    let candidates = [
-        resource_dir
-            .join("tools")
-            .join("wireguard")
-            .join("wireguard.exe"),
-        resource_dir.join("wireguard").join("wireguard.exe"),
-        resource_dir.join("wireguard.exe"),
-    ];
-    candidates
-        .into_iter()
-        .find(|path| path.is_file())
-        .ok_or_else(|| "bundled WireGuard engine is missing from this installation".to_string())
+fn wireguard_executable(_app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut candidates = vec![PathBuf::from(r"C:\\Program Files\\WireGuard\\wireguard.exe")];
+        for variable in ["PROGRAMW6432", "PROGRAMFILES"] {
+            if let Some(root) = std::env::var_os(variable) {
+                candidates.push(PathBuf::from(root).join("WireGuard").join("wireguard.exe"));
+            }
+        }
+        candidates
+            .into_iter()
+            .find(|path| path.is_file())
+            .ok_or_else(|| {
+                "WireGuard is not installed. Install the official WireGuard for Windows client before connecting a tunnel."
+                    .to_string()
+            })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("WireGuard tunnels are currently supported on Windows only".to_string())
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -97,7 +101,7 @@ pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::
             .arg("/installtunnelservice")
             .arg(&profile_path)
             .output()
-            .map_err(|error| format!("failed to start bundled WireGuard engine: {error}"))?;
+                .map_err(|error| format!("failed to start the installed WireGuard engine: {error}"))?;
         if !output.status.success() && !service_is_running(&profile) {
             return Err(format!(
                 "WireGuard tunnel failed to start: {}",
@@ -174,14 +178,14 @@ pub async fn vpn_status(app: AppHandle) -> Result<serde_json::Value, String> {
         .map(|profile| profile.name.clone());
     Ok(serde_json::json!({
         "installed": engine.is_some(),
-        "engineBundled": engine.is_some(),
+        "engineInstalled": engine.is_some(),
         "connected": active_profile.is_some(),
         "activeProfile": active_profile,
         "profiles": profile_values,
         "details": if engine.is_some() {
-            "Bundled WireGuard engine ready"
+                "Installed WireGuard engine ready"
         } else {
-            "Bundled WireGuard engine missing from installation"
+                "WireGuard is not installed"
         },
     }))
 }
@@ -237,8 +241,8 @@ pub async fn update_av_signatures() -> Result<serde_json::Value, String> {
 pub async fn install_security_tools(app: AppHandle) -> Result<serde_json::Value, String> {
     let executable = wireguard_executable(&app)?;
     Ok(serde_json::json!({
-        "status": "bundled",
-        "message": "WireGuard is already bundled with CinaVault; no host installation is required.",
+        "status": "installed",
+        "message": "WireGuard is available from the system installation.",
         "engine": executable.to_string_lossy(),
     }))
 }
