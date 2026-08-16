@@ -47,9 +47,16 @@ jobs:
       SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
 
     steps:
+      - name: Debug Sonar variables (sanitized)
+        # Log presence/absence of the relevant entries for debugging; secrets themselves are not printed
+        run: |
+          echo "SONAR_TOKEN present=${{ secrets.SONAR_TOKEN != '' }}"
+          echo "SONAR_PROJECT_KEY present=${{ vars.SONAR_PROJECT_KEY != '' }}"
+          echo "SONAR_ORGANIZATION present=${{ vars.SONAR_ORGANIZATION != '' }}"
+
       - name: SonarCloud configuration notice
-        # show the notice when the secret or required variables are missing
-        if: ${{ secrets.SONAR_TOKEN == '' || vars.SONAR_PROJECT_KEY == '' || vars.SONAR_ORGANIZATION == '' }}
+        # show the notice when the secret or required variables are missing (explicit existence checks)
+        if: ${{ !secrets.SONAR_TOKEN || !vars.SONAR_PROJECT_KEY || !vars.SONAR_ORGANIZATION }}
         shell: bash
         run: |
           echo "::notice title=SonarCloud skipped::Configure the SONAR_TOKEN secret and SONAR_PROJECT_KEY and SONAR_ORGANIZATION repository variables to enable analysis."
@@ -57,10 +64,10 @@ jobs:
           echo "The required SONAR_TOKEN secret and/or project configuration variables are not available." >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v4
-        if: ${{ secrets.SONAR_TOKEN != '' && vars.SONAR_PROJECT_KEY != '' && vars.SONAR_ORGANIZATION != '' }}
+        if: ${{ secrets.SONAR_TOKEN && vars.SONAR_PROJECT_KEY && vars.SONAR_ORGANIZATION }}
 
       - name: Analyze with SonarCloud
-        if: ${{ secrets.SONAR_TOKEN != '' && vars.SONAR_PROJECT_KEY != '' && vars.SONAR_ORGANIZATION != '' }}
+        if: ${{ secrets.SONAR_TOKEN && vars.SONAR_PROJECT_KEY && vars.SONAR_ORGANIZATION }}
 
         # You can pin the exact commit or the version.
         # uses: SonarSource/sonarcloud-github-action@v2.2.0
