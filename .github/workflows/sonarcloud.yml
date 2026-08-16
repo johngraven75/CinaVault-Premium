@@ -47,12 +47,29 @@ jobs:
       SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
 
     steps:
-      - name: Debug Sonar variables (sanitized)
-        # Log presence/absence of the relevant entries for debugging; secrets themselves are not printed
+      - name: Summarize Sonar configuration presence (sanitized)
+        # Write presence/absence of the relevant entries to the GitHub job summary; secrets are never printed
+        shell: bash
         run: |
-          echo "SONAR_TOKEN present=${{ secrets.SONAR_TOKEN != '' }}"
-          echo "SONAR_PROJECT_KEY present=${{ vars.SONAR_PROJECT_KEY != '' }}"
-          echo "SONAR_ORGANIZATION present=${{ vars.SONAR_ORGANIZATION != '' }}"
+          echo "## SonarCloud configuration presence" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "${{ vars.SONAR_PROJECT_KEY }}" ]; then
+            echo "- SONAR_PROJECT_KEY: present" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- SONAR_PROJECT_KEY: MISSING" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -n "${{ vars.SONAR_ORGANIZATION }}" ]; then
+            echo "- SONAR_ORGANIZATION: present" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- SONAR_ORGANIZATION: MISSING" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
+            echo "- SONAR_TOKEN: present (redacted)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- SONAR_TOKEN: MISSING" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: SonarCloud configuration notice
         # show the notice when the secret or required variables are missing (explicit existence checks)
