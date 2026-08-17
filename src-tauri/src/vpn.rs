@@ -12,7 +12,9 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 fn wireguard_executable(_app: &AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
     {
-        let mut candidates = vec![PathBuf::from(r"C:\\Program Files\\WireGuard\\wireguard.exe")];
+        let mut candidates = vec![PathBuf::from(
+            r"C:\\Program Files\\WireGuard\\wireguard.exe",
+        )];
         for variable in ["PROGRAMW6432", "PROGRAMFILES"] {
             if let Some(root) = std::env::var_os(variable) {
                 candidates.push(PathBuf::from(root).join("WireGuard").join("wireguard.exe"));
@@ -101,7 +103,7 @@ pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::
             .arg("/installtunnelservice")
             .arg(&profile_path)
             .output()
-                .map_err(|error| format!("failed to start the installed WireGuard engine: {error}"))?;
+            .map_err(|error| format!("failed to start the installed WireGuard engine: {error}"))?;
         if !output.status.success() && !service_is_running(&profile) {
             return Err(format!(
                 "WireGuard tunnel failed to start: {}",
