@@ -33,7 +33,7 @@ test("Hugging Face model selection has a dedicated top-level tab", () => {
   assert.match(read("src/components/Sidebar.tsx"), /label: "HF Models"/);
   assert.match(read("src/App.tsx"), /"hf-models": HFModelsTab/);
   const tab = read("src/components/tabs/HFModelsTab.tsx");
-  assert.match(tab, /Free · Public · Ungated/);
+  assert.match(tab, /public, ungated models/);
   assert.match(tab, /Reasoning models only/);
   assert.match(tab, /Save and Use Selected Model/);
 });
@@ -45,11 +45,11 @@ test("AI agent exposes a cooperative backend Stop control", () => {
   assert.match(read("src-tauri/src/enrichment.rs"), /task_progress::stop_requested\(\)/);
 });
 
-test("all Windows version sources are synchronized at v2.0.13 Build 1.13", () => {
+test("all Windows version sources are synchronized at v2.0.14 Build 1.14", () => {
   const manifest = JSON.parse(read("build-version.json"));
-  assert.equal(manifest.semanticVersion, "2.0.13");
-  assert.equal(manifest.displayBuild, "1.13");
-  assert.equal(JSON.parse(read("package.json")).version, "2.0.13");
-  assert.match(read("src-tauri/Cargo.toml"), /version = "2\.0\.13"/);
-  assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, "2.0.13");
+  assert.equal(manifest.semanticVersion, "2.0.14");
+  assert.equal(manifest.displayBuild, "1.14");
+  assert.equal(JSON.parse(read("package.json")).version, "2.0.14");
+  assert.match(read("src-tauri/Cargo.toml"), /version = "2\.0\.14"/);
+  assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, "2.0.14");
 });

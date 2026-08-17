@@ -753,10 +753,10 @@ pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Valu
             listener,
             router(state).into_make_service_with_connect_info::<SocketAddr>(),
         )
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await;
+        .with_graceful_shutdown(async {
+            let _ = shutdown_rx.await;
+        })
+        .await;
         if let Err(error) = result {
             log::error!("Embedded media server stopped unexpectedly: {error}");
         }

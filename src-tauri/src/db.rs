@@ -1204,7 +1204,12 @@ impl Database {
                     "UPDATE remote_access_users
                      SET password_salt = 'argon2id', password_hash = ?1, updated_at = ?2
                      WHERE id = ?3 AND password_hash = ?4",
-                    params![upgraded_hash, chrono::Utc::now().to_rfc3339(), id, expected_hash],
+                    params![
+                        upgraded_hash,
+                        chrono::Utc::now().to_rfc3339(),
+                        id,
+                        expected_hash
+                    ],
                 )
                 .map_err(|err| err.to_string())?;
         }
@@ -1380,7 +1385,17 @@ impl Database {
             )
             .optional()
             .map_err(|error| error.to_string())?;
-        let Some((token_salt, token_hash, auth_method, expires_at, id, email, display_name, permissions)) = row else {
+        let Some((
+            token_salt,
+            token_hash,
+            auth_method,
+            expires_at,
+            id,
+            email,
+            display_name,
+            permissions,
+        )) = row
+        else {
             return Ok(None);
         };
         let candidate_hash = hash_secret(&token_salt, session_token);
@@ -1551,7 +1566,11 @@ fn is_argon2_password_hash(password_hash: &str) -> bool {
 fn verify_argon2_password(password: &str, password_hash: &str) -> bool {
     PasswordHash::new(password_hash)
         .ok()
-        .and_then(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).ok())
+        .and_then(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .ok()
+        })
         .is_some()
 }
 

@@ -86,18 +86,27 @@ fn executable_candidates(executable: &str) -> Vec<PathBuf> {
 
         match executable {
             "mediainfo" => {
-                for root in [program_files.clone(), program_files_x86.clone()].into_iter().flatten() {
+                for root in [program_files.clone(), program_files_x86.clone()]
+                    .into_iter()
+                    .flatten()
+                {
                     candidates.push(root.join("MediaInfo").join("MediaInfo.exe"));
                     candidates.push(root.join("MediaInfo").join("CLI").join("MediaInfo.exe"));
                 }
             }
             "mkvmerge" => {
-                for root in [program_files.clone(), program_files_x86.clone()].into_iter().flatten() {
+                for root in [program_files.clone(), program_files_x86.clone()]
+                    .into_iter()
+                    .flatten()
+                {
                     candidates.push(root.join("MKVToolNix").join("mkvmerge.exe"));
                 }
             }
             "ffmpeg" | "ffprobe" => {
-                for root in [program_files, program_files_x86, local_app_data].into_iter().flatten() {
+                for root in [program_files, program_files_x86, local_app_data]
+                    .into_iter()
+                    .flatten()
+                {
                     candidates.push(root.join("ffmpeg").join(format!("{executable}.exe")));
                 }
             }
