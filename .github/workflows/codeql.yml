@@ -32,6 +32,5 @@ jobs:
 
       - name: Build first-party Rust code
         run: cargo build --manifest-path src-tauri/Cargo.toml --locked
-
       - name: Analyze
         uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
