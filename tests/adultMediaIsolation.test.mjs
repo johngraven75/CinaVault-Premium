@@ -29,12 +29,18 @@ test("adult enrichment never falls back to standard providers", () => {
     /SourceKind::AdultVideo => \{([\s\S]*?)\r?\n\s*\}\r?\n\s*SourceKind::StandardVideo/,
   )?.[1];
   assert.ok(adultBranch, "adult provider branch is missing");
-  assert.match(adultBranch, /stashdb/);
-  assert.doesNotMatch(adultBranch, /fetch_standard_metadata|tmdb|omdb/);
+  assert.match(enrichment, /fetch_adult_metadata_for_batch/);
+  assert.match(metadata, /configured_adult_provider_order/);
+  for (const provider of adultProviders) {
+    assert.match(metadata, new RegExp(provider), `${provider}: batch routing must remain adult-only`);
+  }
+  assert.doesNotMatch(adultBranch, /fetch_standard_metadata|fetch_tmdb_metadata|fetch_omdb_metadata/);
 });
 
 test("single-item adult metadata routes only to the adult provider chain", () => {
   assert.match(metadata, /if media_item_is_adult\(&item\) \{\s*fetch_adult_item_metadata/);
+  assert.match(metadata, /download_poster_to_sidecar/);
+  assert.match(metadata, /poster_download\//);
   assert.match(guard, /if adult \{[\s\S]*tpdb_match[\s\S]*stashdb_match/);
   assert.match(guard, /\} else \{[\s\S]*tmdb_match[\s\S]*omdb_match/);
 });

@@ -5,7 +5,7 @@ use crate::adult_site_provider::{
     porn_site_nuxt_entry_overview, porn_site_nuxt_entry_rating, porn_site_nuxt_entry_title,
     porn_site_nuxt_search_url,
 };
-use crate::AppState;
+use crate::{enrichment, AppState};
 use regex::Regex;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -37,16 +37,16 @@ struct MediaItemLookup {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ProviderWriteMatch {
-    title: Option<String>,
-    overview: Option<String>,
-    poster_path: Option<String>,
-    year: Option<i32>,
-    rating: Option<f64>,
-    genre: Option<String>,
-    tmdb_id: Option<String>,
-    imdb_id: Option<String>,
-    media_type: Option<String>,
+pub(crate) struct ProviderWriteMatch {
+    pub(crate) title: Option<String>,
+    pub(crate) overview: Option<String>,
+    pub(crate) poster_path: Option<String>,
+    pub(crate) year: Option<i32>,
+    pub(crate) rating: Option<f64>,
+    pub(crate) genre: Option<String>,
+    pub(crate) tmdb_id: Option<String>,
+    pub(crate) imdb_id: Option<String>,
+    pub(crate) media_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -791,6 +791,29 @@ async fn fetch_adult_item_metadata(
     None
 }
 
+pub(crate) async fn fetch_adult_metadata_for_batch(
+    client: &reqwest::Client,
+    provider_keys: &std::collections::HashMap<String, String>,
+    title: &str,
+    file_path: &str,
+    provider_errors: &mut Vec<String>,
+) -> Option<ProviderWriteMatch> {
+    let item = MediaItemLookup {
+        id: 0,
+        title: title.to_string(),
+        file_path: file_path.to_string(),
+        media_type: "adult".to_string(),
+        overview: None,
+        poster_path: None,
+        year: None,
+        rating: None,
+        genre: None,
+        tmdb_id: None,
+        imdb_id: None,
+    };
+    fetch_adult_item_metadata(client, provider_keys, &item, provider_errors).await
+}
+
 async fn fetch_standard_item_metadata(
     client: &reqwest::Client,
     provider_keys: &std::collections::HashMap<String, String>,
@@ -1150,8 +1173,35 @@ pub async fn check_media_item_metadata(
         }));
     };
 
-    let update = build_metadata_update(&item, &provider_match);
-    let changed_fields = count_metadata_changes(&update);
+    let mut update = build_metadata_update(&item, &provider_match);
+    let mut changed_fields = count_metadata_changes(&update);
+
+    // Poster cards require a local, verified artwork path. Localize adult-provider URLs
+    // before persisting them so the card can render the saved file consistently offline.
+    let remote_poster = update.poster_path.clone().or_else(|| {
+        item.poster_path.clone().filter(|path| {
+            path.starts_with("http://") || path.starts_with("https://")
+        })
+    });
+    if let Some(remote_poster) = remote_poster.filter(|path| {
+        path.starts_with("http://") || path.starts_with("https://")
+    }) {
+        match enrichment::download_poster_to_sidecar(
+            &client,
+            &remote_poster,
+            &item.file_path,
+        )
+        .await
+        {
+            Ok(local_path) => {
+                if update.poster_path.is_none() {
+                    changed_fields += 1;
+                }
+                update.poster_path = Some(local_path);
+            }
+            Err(error) => provider_errors.push(format!("poster_download/{}: {error}", item.file_path)),
+        }
+    }
     if changed_fields > 0 {
         let db = state.db.lock().map_err(|err| err.to_string())?;
         db.update_media_metadata_data(
