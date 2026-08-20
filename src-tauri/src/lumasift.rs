@@ -409,7 +409,7 @@ fn build_plan(files: Vec<IndexedFile>, app_data_dir: PathBuf, selected_types: Ve
     for group in candidate_groups {
         for seed in group {
             if CANCEL_REQUESTED.load(Ordering::Relaxed) {
-                cancel_plan(dispositions);
+                cancel_plan(dispositions, selected_types.clone());
                 return;
             }
             verified_count += 1;
