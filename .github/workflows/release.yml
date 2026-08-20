@@ -1,10 +1,12 @@
 name: Build and Publish
 
+# Historical Build 169 recovery workflow. Current releases are published by
+# lumasift-build171-release.yml and later versioned workflows.
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag, for example build-169
+        description: Historical release tag, for example build-169
         required: true
         default: build-169
       prerelease:
@@ -12,15 +14,6 @@ on:
         required: true
         type: boolean
         default: false
-  issue_comment:
-    types:
-      - created
-  push:
-    branches:
-      - main
-    tags:
-      - "build-*"
-      - "v*"
 
 permissions:
   contents: write
