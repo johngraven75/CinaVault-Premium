@@ -1,5 +1,6 @@
 use crate::build_identity;
 use crate::db::{Database, MediaItem, RemoteAccessPrincipal};
+use crate::lumasift;
 use crate::metadata_provider_config;
 use crate::shared_contracts::{
     validate_metadata_provider_contract, MetadataProviderRegistryContract,
@@ -70,6 +71,18 @@ struct PasswordLogin {
 #[serde(rename_all = "camelCase")]
 struct AccessKeyLogin {
     access_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LumaSiftPlanRequest {
+    plan_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LumaSiftStartRequest {
+    selected_types: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -402,6 +415,100 @@ async fn server_info(
     }))
 }
 
+fn lumasift_display_name(path: Option<String>) -> Option<String> {
+    path.and_then(|value| {
+        FilePath::new(&value)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    })
+}
+
+async fn lumasift_status(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "server:read").await?;
+    let progress = lumasift::get_lumasift_progress();
+    Ok(Json(serde_json::json!({
+        "scanning": progress.scanning,
+        "phase": progress.phase,
+        "current": progress.current,
+        "total": progress.total,
+        "percentage": progress.percentage,
+        "currentDisplayName": lumasift_display_name(progress.current_path),
+        "filesConsidered": progress.files_considered,
+        "message": progress.message,
+        "error": progress.error,
+        "localPathsExposed": false
+    })))
+}
+
+async fn lumasift_plan(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "server:read").await?;
+    let Some(plan) = lumasift::get_lumasift_plan() else {
+        return Ok(Json(serde_json::json!({ "plan": null, "localPathsExposed": false })));
+    };
+    let groups = plan.groups.into_iter().map(|group| serde_json::json!({
+        "id": group.id,
+        "winnerId": group.winner_id,
+        "reclaimableBytes": group.reclaimable_bytes,
+        "candidates": group.candidates.into_iter().map(|candidate| serde_json::json!({
+            "id": candidate.id,
+            "displayName": candidate.display_name,
+            "mediaKind": candidate.media_kind,
+            "qualityScore": candidate.quality_score,
+            "quality": candidate.quality,
+            "disposition": candidate.disposition,
+            "dispositionDetail": candidate.disposition_detail,
+            "quarantined": candidate.quarantine_path.is_some()
+        })).collect::<Vec<_>>()
+    })).collect::<Vec<_>>();
+    let dispositions = plan.dispositions.into_iter().map(|entry| serde_json::json!({
+        "occurredAt": entry.occurred_at,
+        "displayName": entry.display_name,
+        "disposition": entry.disposition,
+        "detail": entry.detail
+    })).collect::<Vec<_>>();
+    Ok(Json(serde_json::json!({
+        "plan": {
+            "id": plan.id,
+            "status": plan.status,
+            "selectedTypes": plan.selected_types,
+            "createdAt": plan.created_at,
+            "groups": groups,
+            "reclaimableBytes": plan.reclaimable_bytes,
+            "queuedFileCount": plan.queued_file_count,
+            "dispositions": dispositions
+        },
+        "localPathsExposed": false
+    })))
+}
+
+async fn start_lumasift(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Json(payload): Json<LumaSiftStartRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "server:read").await?;
+    lumasift::start_configured_lumasift_resolution(payload.selected_types)
+        .map(Json)
+        .map_err(|error| (StatusCode::CONFLICT, error))
+}
+
+async fn apply_lumasift(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Json(payload): Json<LumaSiftPlanRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "server:read").await?;
+    lumasift::apply_configured_lumasift_plan(payload.plan_id)
+        .map(Json)
+        .map_err(|error| (StatusCode::CONFLICT, error))
+}
+
 async fn metadata_providers(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
@@ -700,6 +807,10 @@ fn router(state: Arc<HttpState>) -> Router {
         .route("/api/auth/password", post(login_password))
         .route("/api/auth/access-key", post(login_access_key))
         .route("/api/server/info", get(server_info))
+        .route("/api/lumasift/status", get(lumasift_status))
+        .route("/api/lumasift/plan", get(lumasift_plan))
+        .route("/api/lumasift/start", post(start_lumasift))
+        .route("/api/lumasift/plan/apply", post(apply_lumasift))
         .route("/api/metadata/providers", get(metadata_providers))
         .route("/api/library", get(library))
         .route("/api/library/count", get(library_count))

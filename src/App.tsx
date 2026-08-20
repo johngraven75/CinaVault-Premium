@@ -18,6 +18,7 @@ import Header from "./components/Header";
 import ExperienceBackdrop from "./components/experience/ExperienceBackdrop";
 import HomeTab from "./components/tabs/HomeTab";
 import MediaSourcesTab from "./components/tabs/MediaSourcesTab";
+import LumaSiftTab from "./components/tabs/LumaSiftTab";
 import DownloadsTab from "./components/tabs/DownloadsTab";
 import LiveTVTab from "./components/tabs/LiveTVTab";
 import ServerTab from "./components/tabs/ServerTab";
@@ -46,6 +47,7 @@ import {
 const TAB_COMPONENTS: Record<TabId, FC> = {
   home: HomeTab,
   sources: MediaSourcesTab,
+  lumasift: LumaSiftTab,
   downloads: DownloadsTab,
   livetv: LiveTVTab,
   server: ServerTab,
@@ -76,6 +78,13 @@ const TAB_TITLES: Record<
     subtitle:
       "Connect local folders, drives, cloud storage, and network libraries. New sources scan and enrich automatically.",
     mode: "Ingest",
+  },
+  lumasift: {
+    eyebrow: "Exact Media Resolution",
+    title: "LumaSift",
+    subtitle:
+      "Prove exact image and video duplicates, keep the highest-quality copy, and route lower-ranked files through recoverable quarantine.",
+    mode: "Resolve",
   },
   downloads: {
     eyebrow: "Acquisition Stream",

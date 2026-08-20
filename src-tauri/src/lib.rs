@@ -20,6 +20,7 @@ mod iptv;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
+mod lumasift;
 mod media_tools;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -88,8 +89,11 @@ pub fn run() {
             }
 
             let db_path = app_dir.join("cinavault.db");
-            let database = Database::new(db_path.to_str().unwrap())
+            let db_path_text = db_path.to_string_lossy().into_owned();
+            let database = Database::new(&db_path_text)
                 .expect("Failed to initialize database");
+            lumasift::configure(app_dir.clone(), db_path_text.clone());
+            embedded_server::configure(db_path_text);
 
             // Recover the persistent Hugging Face credential on every launch if the DB
             // copy is missing. This keeps upgrades/reinstalls stable without embedding a
@@ -202,6 +206,12 @@ pub fn run() {
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
             duplicates::quarantine,
+            lumasift::start_lumasift_resolution,
+            lumasift::get_lumasift_progress,
+            lumasift::get_lumasift_plan,
+            lumasift::cancel_lumasift_resolution,
+            lumasift::apply_lumasift_plan,
+            lumasift::purge_lumasift_quarantine,
             iptv::add_xtream_profile,
             iptv::get_xtream_profiles,
             iptv::remove_xtream_profile,
