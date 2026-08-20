@@ -5,6 +5,7 @@ import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 export type TabId =
   | "home"
   | "sources"
+  | "lumasift"
   | "downloads"
   | "livetv"
   | "server"
@@ -20,6 +21,7 @@ export type TabId =
 const VALID_TAB_IDS: readonly TabId[] = [
   "home",
   "sources",
+  "lumasift",
   "downloads",
   "livetv",
   "server",
