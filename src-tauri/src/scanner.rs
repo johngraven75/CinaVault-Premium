@@ -49,19 +49,12 @@ const VIDEO_EXTS: &[&str] = &[
 const AUDIO_EXTS: &[&str] = &[
     "mp3", "flac", "aac", "ogg", "wma", "wav", "m4a", "opus", "alac", "aiff",
 ];
-const IMAGE_EXTS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "heic", "heif", "avif",
-];
-const DOCUMENT_EXTS: &[&str] = &["docx", "pdf"];
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "svg"];
 
 fn detect_media_type(ext: &str) -> Option<&'static str> {
     let ext = ext.to_ascii_lowercase();
     if VIDEO_EXTS.contains(&ext.as_str()) {
         Some("movie")
-    } else if IMAGE_EXTS.contains(&ext.as_str()) {
-        Some("image")
-    } else if DOCUMENT_EXTS.contains(&ext.as_str()) {
-        Some("document")
     } else if AUDIO_EXTS.contains(&ext.as_str()) {
         Some("music")
     } else {
@@ -110,7 +103,13 @@ fn scanned_media_type(source: &MediaSource, file_path: &str, detected: &str) -> 
 }
 
 fn should_index_path(path: &Path) -> bool {
-    !is_generated_chapter_image_path(path) && !is_sidecar_artwork_image(path)
+    if is_generated_chapter_image_path(path) || is_sidecar_artwork_image(path) {
+        return false;
+    }
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| !IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
 }
 
 fn title_from_filename(path: &Path) -> String {

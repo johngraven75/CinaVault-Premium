@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { BUILD_INFO } from "../buildInfo";
 import { useAppStore, type TabId } from "../store/appStore";
 import {
-  Aperture,
   BrainCircuit,
   Cast,
   ChevronLeft,
@@ -66,14 +65,6 @@ const NAV_ITEMS: NavItem[] = [
     zone: "Infrastructure",
     detail: "Ingest libraries",
     accent: "from-emerald-300/30 to-cyan-500/10",
-  },
-  {
-    id: "lumasift",
-    label: "LumaSift",
-    icon: Aperture,
-    zone: "Infrastructure",
-    detail: "Exact duplicate cleanup",
-    accent: "from-cyan-300/34 via-violet-500/22 to-fuchsia-500/12",
   },
   {
     id: "server",

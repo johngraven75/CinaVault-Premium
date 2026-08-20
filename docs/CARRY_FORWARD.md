@@ -150,17 +150,6 @@ Each new build must:
 
 ---
 
-### Build 171 (LumaSift Exact Media Resolution)
-
-| Feature | Token to Verify | Source File |
-|---|---|---|
-| LumaSift exact-content resolution engine | `start_lumasift_resolution` | `src-tauri/src/lumasift.rs` |
-| LumaSift selected file categories | `SUPPORTED_SELECTION_TYPES` | `src-tauri/src/lumasift.rs` |
-| LumaSift guarded quarantine plan | `apply_lumasift_plan` | `src-tauri/src/lumasift.rs` |
-| Image-media indexing | `Some("image")` | `src-tauri/src/scanner.rs` |
-| LumaSift branded Windows workspace | `LumaSiftTab` | `src/components/tabs/LumaSiftTab.tsx` |
-| LumaSift authenticated companion endpoints | `/api/lumasift/status` | `src-tauri/src/embedded_server.rs` |
-
 ### Build 165 (Real Work + NAS + Metadata + Poster Integrity)
 
 | Feature | Token to Verify | Source File |
