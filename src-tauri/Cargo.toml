@@ -33,7 +33,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 reqwest = { version = "0.12", features = ["json", "stream", "blocking", "rustls-tls", "cookies"] }
 igd-next = "0.17.1"
 natpmp = { version = "0.5", features = ["tokio"] }
-zip = "2"
+zip = "8"
 walkdir = "2"
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
