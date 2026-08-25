@@ -1885,12 +1885,15 @@ mod tests {
         fs::create_dir_all(&dir).expect("temp dir should be created");
         let video = dir.join("Movie.mp4");
         let stale_poster = dir.join("Movie-poster.jpg");
-        let jpg = b"\xFF\xD8\xFFverified-image-payload";
+        let mut jpg = Vec::new();
+        image::DynamicImage::new_rgb8(20, 20)
+            .write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg)
+            .expect("fixture JPEG should encode");
         fs::write(&video, b"video").expect("video should be created");
         fs::write(&stale_poster, b"<html>expired poster URL</html>")
             .expect("stale poster should be created");
 
-        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "jpg", jpg)
+        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "jpg", &jpg)
             .expect("verified poster should replace invalid sidecar");
 
         assert_eq!(poster, stale_poster.to_string_lossy());
