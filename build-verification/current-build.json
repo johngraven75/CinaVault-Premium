@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "build": "v2.14 Build 1.14",
-  "internalBuild": "114",
+  "build": "v2.15 Build 215",
+  "internalBuild": "215",
   "status": "verified",
   "releaseAuthorized": true,
   "referenceRepository": "johngraven75/CinaVault-Premium",
@@ -16,7 +16,7 @@
   "phases": {
     "repositoryAudit": {
       "status": "verified",
-      "evidence": "Windows release identity, runtime command routing, source health, casting, embedded server, VPN controls, packaging, and parity surfaces were reviewed for v2.0.14."
+      "evidence": "Windows release identity, runtime command routing, source health, casting, embedded server, VPN controls, packaging, and parity surfaces were reviewed for v2.0.15."
     },
     "rootCauseDiagnosis": {
       "status": "verified",
@@ -24,7 +24,7 @@
     },
     "implementation": {
       "status": "fixed_and_verified",
-      "evidence": "The v2.0.14 command bridge now registers source health, casting, embedded server, VPN profile, provider contract, and build information paths; complete Node validation covers their wiring."
+      "evidence": "The v2.0.15 command bridge now registers source health, casting, embedded server, VPN profile, provider contract, and build information paths; complete Node validation covers their wiring."
     },
     "dependencyConfiguration": {
       "status": "verified",
@@ -64,7 +64,7 @@
     },
     "crossPlatformParity": {
       "status": "verified",
-      "evidence": "Android and iOS parity metadata and automated TEST artifact workflows advance together to v2.0.14/114 with adult-provider isolation, dedicated HF model selection, and AI stop controls."
+      "evidence": "Android and iOS parity metadata and automated TEST artifact workflows advance together to v2.0.15/215 with adult-provider isolation, dedicated HF model selection, and AI stop controls."
     },
     "packaging": {
       "status": "verified",
@@ -126,7 +126,7 @@
     }
   ],
   "criticalDefects": [],
-  "release": "v2-build-1.14",
-  "semanticVersion": "2.0.14",
-  "displayBuild": "1.14"
+  "release": "v2-build-2.15",
+  "semanticVersion": "2.0.15",
+  "displayBuild": "215"
 }

@@ -12,9 +12,9 @@ const defectIds = new Set(contract.defectParity.map((entry) => entry.id));
 test("platform parity contract uses the current Windows Premium reference", () => {
   assert.equal(contract.schemaVersion, 1);
   assert.equal(contract.reference.repository, "johngraven75/CinaVault-Premium");
-  assert.equal(contract.reference.release, "v2-build-1.14");
-  assert.equal(contract.reference.displayName, "v2.14 Build 1.14");
-  assert.equal(contract.reference.semanticVersion, "2.0.14");
+  assert.equal(contract.reference.release, "v2-build-2.15");
+  assert.equal(contract.reference.displayName, "v2.15 Build 215");
+  assert.equal(contract.reference.semanticVersion, "2.0.15");
   assert.equal(contract.reference.platform, "windows");
   assert.deepEqual(contract.includedRepositories, [
     "johngraven75/CinaVault-Premium",
