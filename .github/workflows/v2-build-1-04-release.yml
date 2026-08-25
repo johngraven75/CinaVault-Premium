@@ -18,7 +18,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v2-0-14-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v2-15-build-215-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -60,8 +60,8 @@ jobs:
           @"
           # CinaVault Premium Build Test Notes
 
-          - Public release: v2.14
-          - Build: 1.14
+          - Public release: v2.15
+          - Build: 215
           - Internal version: 2.0.15
           - Commit: $env:GITHUB_SHA
           - Event: $env:GITHUB_EVENT_NAME
@@ -88,7 +88,7 @@ jobs:
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
           if ($manifest.semanticVersion -ne $env:APP_VERSION) { throw "build manifest mismatch: $($manifest.semanticVersion)" }
-          if ($manifest.displayBuild -ne '1.14') { throw "display build mismatch: $($manifest.displayBuild)" }
+          if ($manifest.displayBuild -ne '215') { throw "display build mismatch: $($manifest.displayBuild)" }
           if ($manifest.displayName -ne 'v2.15 Build 215') { throw "display name mismatch: $($manifest.displayName)" }
           if ($manifest.releaseTag -ne 'v2-build-2.15') { throw "release tag format mismatch: $($manifest.releaseTag)" }
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
@@ -99,8 +99,11 @@ jobs:
         if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
-          git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" *> $null
-          if ($LASTEXITCODE -eq 0) { throw "Release tag $env:TAG_NAME already exists. Advance the build identity." }
+          $remoteTag = git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $tagSha = ($remoteTag -split "\t")[0]
+            if ($tagSha -ne $env:GITHUB_SHA) { throw "Release tag $env:TAG_NAME already exists on a different commit: $tagSha" }
+          }
           exit 0
 
       - name: Master candidate gate

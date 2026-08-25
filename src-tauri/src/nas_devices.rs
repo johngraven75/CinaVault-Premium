@@ -2,11 +2,11 @@
 // Synology QuickConnect + WD My Cloud Home
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use std::path::{Component, PathBuf};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use std::path::Path;
+use std::path::{Component, PathBuf};
 #[cfg(target_os = "windows")]
 use std::process::Command;
 use tauri::State;
@@ -131,7 +131,11 @@ fn synology_login(
         .map_err(|error| format!("Synology login error: {error}"))?;
     let json: serde_json::Value = response.json().map_err(|error| error.to_string())?;
 
-    if json.get("success").and_then(|value| value.as_bool()).unwrap_or(false) {
+    if json
+        .get("success")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
         json["data"]["sid"]
             .as_str()
             .filter(|sid| !sid.is_empty())
@@ -156,7 +160,10 @@ fn synology_get_shares(
         "{}://{}:{}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&_sid={}",
         scheme, host, port, sid
     );
-    let response = http_client(false)?.get(&url).send().map_err(|error| error.to_string())?;
+    let response = http_client(false)?
+        .get(&url)
+        .send()
+        .map_err(|error| error.to_string())?;
     let json: serde_json::Value = response.json().map_err(|error| error.to_string())?;
     if json.get("success").and_then(|value| value.as_bool()) == Some(false) {
         return Err(format!(
@@ -210,14 +217,27 @@ fn synology_get_info(
         if let Ok(response) = client.get(&url).send() {
             if let Ok(json) = response.json::<serde_json::Value>() {
                 return (
-                    json["data"]["hostname"].as_str().unwrap_or(host).to_string(),
-                    json["data"]["model"].as_str().unwrap_or("Synology NAS").to_string(),
-                    json["data"]["version_string"].as_str().unwrap_or("DSM").to_string(),
+                    json["data"]["hostname"]
+                        .as_str()
+                        .unwrap_or(host)
+                        .to_string(),
+                    json["data"]["model"]
+                        .as_str()
+                        .unwrap_or("Synology NAS")
+                        .to_string(),
+                    json["data"]["version_string"]
+                        .as_str()
+                        .unwrap_or("DSM")
+                        .to_string(),
                 );
             }
         }
     }
-    (host.to_string(), "Synology NAS".to_string(), "DSM".to_string())
+    (
+        host.to_string(),
+        "Synology NAS".to_string(),
+        "DSM".to_string(),
+    )
 }
 
 #[derive(Clone)]
@@ -234,7 +254,10 @@ fn wd_mycloud_login(
     password: &str,
 ) -> Result<WdSession, String> {
     let scheme = if use_https { "https" } else { "http" };
-    let login_url = format!("{}://{}:{}/api/2.1/rest/users?method=login", scheme, host, port);
+    let login_url = format!(
+        "{}://{}:{}/api/2.1/rest/users?method=login",
+        scheme, host, port
+    );
     let client = http_client(true)?;
     let response = client
         .post(&login_url)
@@ -270,7 +293,10 @@ fn wd_mycloud_get_shares(
         .send()
         .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
-        return Err(format!("WD My Cloud share listing failed (HTTP {})", response.status()));
+        return Err(format!(
+            "WD My Cloud share listing failed (HTTP {})",
+            response.status()
+        ));
     }
     let json: serde_json::Value = response.json().map_err(|error| error.to_string())?;
     let shares = json["shares"]
@@ -353,7 +379,11 @@ fn wd_mycloud_get_info(
             );
         }
     }
-    ("WD My Cloud".to_string(), "WD My Cloud".to_string(), "".to_string())
+    (
+        "WD My Cloud".to_string(),
+        "WD My Cloud".to_string(),
+        "".to_string(),
+    )
 }
 
 fn slug(name: &str) -> String {
@@ -364,7 +394,11 @@ fn infer_media_type_from_name(name: &str) -> String {
     let lower = name.to_lowercase();
     if lower.contains("movie") || lower.contains("film") || lower.contains("cinema") {
         "movies".to_string()
-    } else if lower.contains("tv") || lower.contains("series") || lower.contains("show") || lower.contains("episode") {
+    } else if lower.contains("tv")
+        || lower.contains("series")
+        || lower.contains("show")
+        || lower.contains("episode")
+    {
         "tv".to_string()
     } else if lower.contains("music") || lower.contains("audio") || lower.contains("song") {
         "music".to_string()
@@ -393,7 +427,10 @@ fn connection_setting_key(device_type: &str) -> Result<&'static str, String> {
     }
 }
 
-fn read_connection(state: &State<AppState>, device_type: &str) -> Result<serde_json::Value, String> {
+fn read_connection(
+    state: &State<AppState>,
+    device_type: &str,
+) -> Result<serde_json::Value, String> {
     let key = connection_setting_key(device_type)?;
     let db = state.db.lock().map_err(|error| error.to_string())?;
     let raw = db
@@ -450,7 +487,13 @@ fn authenticate_windows_shares(
         let remote = network_source_path(host, &library.share_name, &library.path);
         let user_argument = format!("/user:{username}");
         let mut command = Command::new("net");
-        command.args(["use", remote.as_str(), password, user_argument.as_str(), "/persistent:no"]);
+        command.args([
+            "use",
+            remote.as_str(),
+            password,
+            user_argument.as_str(),
+            "/persistent:no",
+        ]);
         command.creation_flags(CREATE_NO_WINDOW);
         match command.output() {
             Ok(output) if output.status.success() => {}
@@ -487,10 +530,18 @@ fn ensure_network_source_reachable(source_path: &str) -> Result<(), String> {
 
 /// Return the shares from a connected NAS session.
 #[tauri::command]
-pub fn list_nas_shares(state: State<AppState>, device_type: String) -> Result<Vec<NasLibrary>, String> {
+pub fn list_nas_shares(
+    state: State<AppState>,
+    device_type: String,
+) -> Result<Vec<NasLibrary>, String> {
     let connection = read_connection(&state, &device_type)?;
-    serde_json::from_value(connection.get("libraries").cloned().unwrap_or_else(|| serde_json::json!([])))
-        .map_err(|error| format!("Stored NAS share list is invalid: {error}"))
+    serde_json::from_value(
+        connection
+            .get("libraries")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
+    )
+    .map_err(|error| format!("Stored NAS share list is invalid: {error}"))
 }
 
 /// Browse a path inside one connected NAS share. Path traversal outside the share is rejected.
@@ -507,18 +558,28 @@ pub fn browse_nas_path(
         .filter(|host| !host.trim().is_empty())
         .ok_or_else(|| "Stored NAS connection has no host".to_string())?;
     let libraries: Vec<NasLibrary> = serde_json::from_value(
-        connection.get("libraries").cloned().unwrap_or_else(|| serde_json::json!([])),
+        connection
+            .get("libraries")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([])),
     )
     .map_err(|error| format!("Stored NAS share list is invalid: {error}"))?;
     let library = libraries
         .iter()
-        .find(|library| library.share_name.eq_ignore_ascii_case(share_name.trim()) || library.name.eq_ignore_ascii_case(share_name.trim()))
+        .find(|library| {
+            library.share_name.eq_ignore_ascii_case(share_name.trim())
+                || library.name.eq_ignore_ascii_case(share_name.trim())
+        })
         .ok_or_else(|| format!("NAS share not found: {share_name}"))?;
     let clean_relative = safe_relative_path(relative_path.as_deref().unwrap_or(""))?;
 
     #[cfg(target_os = "windows")]
     {
-        let root = PathBuf::from(network_source_path(host, &library.share_name, &library.path));
+        let root = PathBuf::from(network_source_path(
+            host,
+            &library.share_name,
+            &library.path,
+        ));
         ensure_network_source_reachable(root.to_string_lossy().as_ref())?;
         let target = root.join(&clean_relative);
         if !target.is_dir() {
@@ -534,11 +595,20 @@ pub fn browse_nas_path(
                     name: entry.file_name().to_string_lossy().into_owned(),
                     path: relative.to_string_lossy().replace('\\', "/"),
                     is_dir: metadata.is_dir(),
-                    size_bytes: if metadata.is_file() { metadata.len() } else { 0 },
+                    size_bytes: if metadata.is_file() {
+                        metadata.len()
+                    } else {
+                        0
+                    },
                 })
             })
             .collect::<Vec<_>>();
-        entries.sort_by(|left, right| right.is_dir.cmp(&left.is_dir).then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())));
+        entries.sort_by(|left, right| {
+            right
+                .is_dir
+                .cmp(&left.is_dir)
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+        });
         Ok(entries)
     }
 
@@ -563,18 +633,24 @@ pub fn synology_connect(
         return Err("QuickConnect ID, username, and password are required".to_string());
     }
     log::info!("Synology connect: id={quickconnect_id}");
-    let host = if quickconnect_id.contains('.') || quickconnect_id.parse::<std::net::IpAddr>().is_ok() {
-        quickconnect_id.to_string()
-    } else {
-        resolve_quickconnect(quickconnect_id).unwrap_or_else(|_| format!("{}.quickconnect.to", quickconnect_id))
-    };
+    let host =
+        if quickconnect_id.contains('.') || quickconnect_id.parse::<std::net::IpAddr>().is_ok() {
+            quickconnect_id.to_string()
+        } else {
+            resolve_quickconnect(quickconnect_id)
+                .unwrap_or_else(|_| format!("{}.quickconnect.to", quickconnect_id))
+        };
     let resolved_port = port.unwrap_or(if use_https { 5001 } else { 5000 });
     let sid = synology_login(&host, resolved_port, use_https, &username, &password)?;
-    let (device_name, device_model, firmware) = synology_get_info(&host, resolved_port, use_https, &sid);
+    let (device_name, device_model, firmware) =
+        synology_get_info(&host, resolved_port, use_https, &sid);
     let libraries = synology_get_shares(&host, resolved_port, use_https, &sid)?;
     let share_auth_errors = authenticate_windows_shares(&host, &libraries, &username, &password);
     if !share_auth_errors.is_empty() {
-        log::warn!("Some Synology shares were not mounted: {}", share_auth_errors.join("; "));
+        log::warn!(
+            "Some Synology shares were not mounted: {}",
+            share_auth_errors.join("; ")
+        );
     }
     let db = state.db.lock().map_err(|error| error.to_string())?;
     let stored = serde_json::json!({
@@ -590,7 +666,8 @@ pub fn synology_connect(
         "libraries": libraries,
         "connected_at": chrono::Utc::now().to_rfc3339()
     });
-    db.set_setting_data("synology_connection", &stored.to_string()).map_err(|error| error.to_string())?;
+    db.set_setting_data("synology_connection", &stored.to_string())
+        .map_err(|error| error.to_string())?;
     Ok(NasConnectionResult {
         success: true,
         device_name,
@@ -605,7 +682,8 @@ pub fn synology_connect(
 #[tauri::command]
 pub fn synology_disconnect(state: State<AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
-    db.set_setting_data("synology_connection", "").map_err(|error| error.to_string())?;
+    db.set_setting_data("synology_connection", "")
+        .map_err(|error| error.to_string())?;
     log::info!("Synology disconnected");
     Ok(())
 }
@@ -613,10 +691,13 @@ pub fn synology_disconnect(state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn synology_get_status(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
-    let raw = db.get_setting_data("synology_connection").map_err(|error| error.to_string())?;
+    let raw = db
+        .get_setting_data("synology_connection")
+        .map_err(|error| error.to_string())?;
     match raw {
         Some(value) if !value.trim().is_empty() => {
-            let data = serde_json::from_str::<serde_json::Value>(&value).map_err(|error| error.to_string())?;
+            let data = serde_json::from_str::<serde_json::Value>(&value)
+                .map_err(|error| error.to_string())?;
             Ok(serde_json::json!({ "connected": true, "data": data }))
         }
         _ => Ok(serde_json::json!({ "connected": false })),
@@ -631,7 +712,9 @@ pub fn synology_add_library(
     media_type: String,
 ) -> Result<(), String> {
     let connection = read_connection(&state, "synology")?;
-    let host = connection["host"].as_str().ok_or_else(|| "Stored Synology connection has no host".to_string())?;
+    let host = connection["host"]
+        .as_str()
+        .ok_or_else(|| "Stored Synology connection has no host".to_string())?;
     let source_path = network_source_path(host, &share_name, &share_path);
     ensure_network_source_reachable(&source_path)?;
     let db = state.db.lock().map_err(|error| error.to_string())?;
@@ -644,7 +727,8 @@ pub fn synology_add_library(
         last_scanned: None,
         item_count: 0,
     };
-    db.add_source_data(&source).map_err(|error| error.to_string())?;
+    db.add_source_data(&source)
+        .map_err(|error| error.to_string())?;
     log::info!("Synology library added: {share_name} -> {source_path}");
     Ok(())
 }
@@ -665,11 +749,15 @@ pub fn wd_mycloud_connect(
     log::info!("WD My Cloud connect: host={host}");
     let resolved_port = port.unwrap_or(if use_https { 443 } else { 80 });
     let session = wd_mycloud_login(&host, resolved_port, use_https, &username, &password)?;
-    let (device_name, device_model, firmware) = wd_mycloud_get_info(&host, resolved_port, use_https, &session);
+    let (device_name, device_model, firmware) =
+        wd_mycloud_get_info(&host, resolved_port, use_https, &session);
     let libraries = wd_mycloud_get_shares(&host, resolved_port, use_https, &session)?;
     let share_auth_errors = authenticate_windows_shares(&host, &libraries, &username, &password);
     if !share_auth_errors.is_empty() {
-        log::warn!("Some WD My Cloud shares were not mounted: {}", share_auth_errors.join("; "));
+        log::warn!(
+            "Some WD My Cloud shares were not mounted: {}",
+            share_auth_errors.join("; ")
+        );
     }
     let db = state.db.lock().map_err(|error| error.to_string())?;
     let stored = serde_json::json!({
@@ -685,7 +773,8 @@ pub fn wd_mycloud_connect(
         "libraries": libraries,
         "connected_at": chrono::Utc::now().to_rfc3339()
     });
-    db.set_setting_data("wd_mycloud_connection", &stored.to_string()).map_err(|error| error.to_string())?;
+    db.set_setting_data("wd_mycloud_connection", &stored.to_string())
+        .map_err(|error| error.to_string())?;
     Ok(NasConnectionResult {
         success: true,
         device_name,
@@ -700,7 +789,8 @@ pub fn wd_mycloud_connect(
 #[tauri::command]
 pub fn wd_mycloud_disconnect(state: State<AppState>) -> Result<(), String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
-    db.set_setting_data("wd_mycloud_connection", "").map_err(|error| error.to_string())?;
+    db.set_setting_data("wd_mycloud_connection", "")
+        .map_err(|error| error.to_string())?;
     log::info!("WD My Cloud disconnected");
     Ok(())
 }
@@ -708,10 +798,13 @@ pub fn wd_mycloud_disconnect(state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn wd_mycloud_get_status(state: State<AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
-    let raw = db.get_setting_data("wd_mycloud_connection").map_err(|error| error.to_string())?;
+    let raw = db
+        .get_setting_data("wd_mycloud_connection")
+        .map_err(|error| error.to_string())?;
     match raw {
         Some(value) if !value.trim().is_empty() => {
-            let data = serde_json::from_str::<serde_json::Value>(&value).map_err(|error| error.to_string())?;
+            let data = serde_json::from_str::<serde_json::Value>(&value)
+                .map_err(|error| error.to_string())?;
             Ok(serde_json::json!({ "connected": true, "data": data }))
         }
         _ => Ok(serde_json::json!({ "connected": false })),
@@ -726,7 +819,9 @@ pub fn wd_mycloud_add_library(
     media_type: String,
 ) -> Result<(), String> {
     let connection = read_connection(&state, "wd_mycloud")?;
-    let host = connection["host"].as_str().ok_or_else(|| "Stored WD My Cloud connection has no host".to_string())?;
+    let host = connection["host"]
+        .as_str()
+        .ok_or_else(|| "Stored WD My Cloud connection has no host".to_string())?;
     let source_path = network_source_path(host, &share_name, &share_path);
     ensure_network_source_reachable(&source_path)?;
     let db = state.db.lock().map_err(|error| error.to_string())?;
@@ -739,7 +834,8 @@ pub fn wd_mycloud_add_library(
         last_scanned: None,
         item_count: 0,
     };
-    db.add_source_data(&source).map_err(|error| error.to_string())?;
+    db.add_source_data(&source)
+        .map_err(|error| error.to_string())?;
     log::info!("WD My Cloud library added: {share_name} -> {source_path}");
     Ok(())
 }
