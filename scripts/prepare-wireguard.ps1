@@ -89,7 +89,15 @@ try {
         Invoke-WebRequest -Uri $MsiUrl -OutFile $msiPath -UseBasicParsing
         Assert-OfficialSignature -Path $msiPath -Label 'Downloaded WireGuard MSI'
 
-        $msiArguments = "/a `"$msiPath`" /qn TARGETDIR=`"$extractionPath`""
+        # Pass each MSI argument as a separate item. A single quoted command-line string
+        # is parsed differently by Windows PowerShell and can break when the temp path
+        # contains spaces (for example, on hosted or self-managed runners).
+        $msiArguments = @(
+            '/a',
+            $msiPath,
+            '/qn',
+            "TARGETDIR=$extractionPath"
+        )
         $extract = Start-Process msiexec.exe -ArgumentList $msiArguments -Wait -PassThru
         if ($extract.ExitCode -ne 0) {
             throw "WireGuard MSI extraction failed with exit code $($extract.ExitCode)."
