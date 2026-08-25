@@ -1,0 +1,6 @@
+CinaVault Premium v2.14 Build 1.14 release trigger.
+Purpose: publish the synchronized Windows runtime after complete frontend, connector,
+backend, Rust, live metadata, packaging, checksum, parity, and release-gate validation.
+
+The v2.14 release includes the WireGuard MSI argument parsing fix and synchronized
+Android/iOS parity metadata for build 1.14.

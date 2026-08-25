@@ -2,7 +2,7 @@
 // Creates a valid default JSON template for every catalog option and keeps a
 // physical config.json attached to every installed plugin directory.
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -160,6 +160,27 @@ pub fn ensure_plugin_config_files(
 
     let mut installed_configs_written = 0usize;
     let mut registry_entries_repaired = 0usize;
+    for seed in &seeds {
+        if installed
+            .iter()
+            .any(|plugin| plugin.get("id").and_then(Value::as_str) == Some(seed.plugin_id.as_str()))
+        {
+            continue;
+        }
+        let install_path = root.join(&seed.platform).join(&seed.plugin_id);
+        fs::create_dir_all(&install_path).map_err(|error| error.to_string())?;
+        installed.push(json!({
+            "id": seed.plugin_id,
+            "name": seed.name,
+            "platform": seed.platform,
+            "version": seed.version,
+            "installPath": install_path.to_string_lossy(),
+            "configJson": "{}",
+            "enabled": true,
+            "lastRun": Value::Null,
+            "repoUrl": Value::Null
+        }));
+    }
     for plugin in &mut installed {
         let Some(object) = plugin.as_object_mut() else {
             continue;
@@ -208,4 +229,17 @@ pub fn ensure_plugin_config_files(
         registry_entries_repaired,
         config_root: root.to_string_lossy().into_owned(),
     })
+}
+
+/// Provision the adult provider configurations implemented by the native runtime.
+/// External credentials and optional local scraper services remain user-managed.
+pub fn ensure_adult_provider_configs() -> Result<PluginConfigReport, String> {
+    ensure_plugin_config_files(vec![
+        PluginConfigSeed { plugin_id: "tpdb".into(), name: "ThePornDB".into(), version: "native-1".into(), platform: "native".into(), category: "adult-metadata".into(), configurable: true, default_config: json!({"enabled":true,"requiresApiKey":true,"adultOnly":true,"posterDownload":true,"runtime":"native"}) },
+        PluginConfigSeed { plugin_id: "stashdb".into(), name: "StashDB".into(), version: "native-1".into(), platform: "native".into(), category: "adult-metadata".into(), configurable: true, default_config: json!({"enabled":true,"requiresApiKey":true,"endpoint":"https://stashdb.org/graphql","adultOnly":true,"posterDownload":true,"runtime":"native"}) },
+        PluginConfigSeed { plugin_id: "pgma".into(), name: "PGMA Modernized".into(), version: "native-1".into(), platform: "native".into(), category: "adult-metadata".into(), configurable: false, default_config: json!({"enabled":true,"adultOnly":true,"posterDownload":true,"mode":"local_sidecar_bridge","runtime":"native"}) },
+        PluginConfigSeed { plugin_id: "porn_site_nuxt".into(), name: "Porn Site Nuxt".into(), version: "native-1".into(), platform: "native".into(), category: "adult-scraper".into(), configurable: true, default_config: json!({"enabled":true,"adultOnly":true,"posterDownload":true,"baseUrl":"http://localhost:42069/","runtime":"native","requiresLocalService":true}) },
+        PluginConfigSeed { plugin_id: "iafd".into(), name: "IAFD".into(), version: "native-1".into(), platform: "native".into(), category: "adult-scraper".into(), configurable: false, default_config: json!({"enabled":true,"adultOnly":true,"posterDownload":true,"baseUrl":"https://www.iafd.com","runtime":"native"}) },
+        PluginConfigSeed { plugin_id: "phoenixadult".into(), name: "PhoenixAdult".into(), version: "native-1".into(), platform: "native".into(), category: "adult-scraper".into(), configurable: false, default_config: json!({"enabled":true,"adultOnly":true,"posterDownload":true,"manifestUrl":"https://raw.githubusercontent.com/DirtyRacer1337/Jellyfin.Plugin.PhoenixAdult/master/manifest.json","runtime":"native"}) },
+    ])
 }

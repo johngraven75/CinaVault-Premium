@@ -3,9 +3,9 @@
   "contractId": "cinavault-platform-parity-v1",
   "reference": {
     "repository": "johngraven75/CinaVault-Premium",
-    "release": "v2-build-1.13",
-    "displayName": "v2.13 Build 1.13",
-    "semanticVersion": "2.0.13",
+    "release": "v2-build-1.14",
+    "displayName": "v2.14 Build 1.14",
+    "semanticVersion": "2.0.14",
     "platform": "windows"
   },
   "includedRepositories": [

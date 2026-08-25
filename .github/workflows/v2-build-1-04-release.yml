@@ -1,15 +1,15 @@
-# Rustfmt-verified v2.0.13 runtime release candidate
-# Runtime command bridge and complete-suite repairs for Build 1.13
-# Cross-platform evidence synchronized for Build 1.13
+# Rustfmt-verified v2.0.14 runtime release candidate
+# Runtime command bridge and complete-suite repairs for Build 1.14
+# Cross-platform evidence synchronized for Build 1.14
 # Rustfmt-verified adult-provider release candidate
 # Cross-platform adult-provider release gate
-name: CinaVault Premium v2.13 Build 1.13 Release
+name: CinaVault Premium v2.14 Build 1.14 Release
 
 on:
   push:
     branches: [main]
     paths:
-      - ".github/release-triggers/v2.0.13"
+      - ".github/release-triggers/v2.0.14"
       - ".github/workflows/v2-build-1-04-release.yml"
   workflow_dispatch:
 
@@ -18,14 +18,14 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v2-0-13-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v2-0-14-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: 2.0.13
-  TAG_NAME: v2.0.13
-  ARTIFACT_NAME: CinaVault-Premium-Windows-v2.13-Build-1.13
-  TEST_ARTIFACT_NAME: CinaVault-Premium-v2.13-Build-1.13-Test-Notes
+  APP_VERSION: 2.0.14
+  TAG_NAME: v2.0.14
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v2.14-Build-1.14
+  TEST_ARTIFACT_NAME: CinaVault-Premium-v2.14-Build-1.14-Test-Notes
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -60,9 +60,9 @@ jobs:
           @"
           # CinaVault Premium Build Test Notes
 
-          - Public release: v2.13
-          - Build: 1.13
-          - Internal version: 2.0.13
+          - Public release: v2.14
+          - Build: 1.14
+          - Internal version: 2.0.14
           - Commit: $env:GITHUB_SHA
           - Event: $env:GITHUB_EVENT_NAME
           - Started (UTC): $([DateTime]::UtcNow.ToString('o'))
@@ -88,9 +88,9 @@ jobs:
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
           if ($manifest.semanticVersion -ne $env:APP_VERSION) { throw "build manifest mismatch: $($manifest.semanticVersion)" }
-          if ($manifest.displayBuild -ne '1.13') { throw "display build mismatch: $($manifest.displayBuild)" }
-          if ($manifest.displayName -ne 'v2.13 Build 1.13') { throw "display name mismatch: $($manifest.displayName)" }
-          if ($manifest.releaseTag -ne 'v2-build-1.13') { throw "release tag format mismatch: $($manifest.releaseTag)" }
+          if ($manifest.displayBuild -ne '1.14') { throw "display build mismatch: $($manifest.displayBuild)" }
+          if ($manifest.displayName -ne 'v2.14 Build 1.14') { throw "display name mismatch: $($manifest.displayName)" }
+          if ($manifest.releaseTag -ne 'v2-build-1.14') { throw "release tag format mismatch: $($manifest.releaseTag)" }
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
           "- Release identity: PASS" | Add-Content test-evidence/TEST-NOTES.md
@@ -204,7 +204,7 @@ jobs:
           Set-Content installer-staging/SHA256SUMS.txt $checksums -Encoding utf8
           Copy-Item installer-staging/SHA256SUMS.txt test-evidence/INSTALLER-SHA256SUMS.txt
           "`n## Final result`n- Completed (UTC): $([DateTime]::UtcNow.ToString('o'))`n- All required tests: PASS`n- Packaging: PASS" | Add-Content test-evidence/TEST-NOTES.md
-          Compress-Archive -Path test-evidence/* -DestinationPath installer-staging/CinaVault-Premium-v2.13-Build-1.13-Test-Notes.zip -Force
+          Compress-Archive -Path test-evidence/* -DestinationPath installer-staging/CinaVault-Premium-v2.14-Build-1.14-Test-Notes.zip -Force
 
       - name: Record failure in test notes
         if: failure()
@@ -239,13 +239,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2.0.13 GitHub release
+      - name: Publish v2.0.14 GitHub release
         if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium v2.13 Build 1.13
+          name: CinaVault Premium v2.14 Build 1.14
           body_path: test-evidence/TEST-NOTES.md
           draft: false
           prerelease: false
@@ -255,4 +255,4 @@ jobs:
             installer-staging/*.msi
             installer-staging/*.exe
             installer-staging/SHA256SUMS.txt
-            installer-staging/CinaVault-Premium-v2.13-Build-1.13-Test-Notes.zip
+            installer-staging/CinaVault-Premium-v2.14-Build-1.14-Test-Notes.zip

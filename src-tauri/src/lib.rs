@@ -126,6 +126,14 @@ pub fn run() {
                 }
             }
 
+            // Provision all native adult provider manifests and config files on every launch.
+            // This installs runtime entries without embedding API keys or pretending that
+            // optional external credentials or local scraper services are available.
+            match plugin_configs::ensure_adult_provider_configs() {
+                Ok(status) => log::info!("Adult provider configs provisioned at startup: {status:?}"),
+                Err(error) => log::warn!("Adult provider startup provisioning failed: {error}"),
+            }
+
             // Initialize the full metadata-provider catalog on every launch. Existing
             // database credentials are retained, supported environment credentials are
             // imported once, and a provider-by-provider readiness report is persisted.
