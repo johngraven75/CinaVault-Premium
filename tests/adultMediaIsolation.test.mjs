@@ -29,7 +29,7 @@ test("adult enrichment never falls back to standard providers", () => {
     /SourceKind::AdultVideo => \{([\s\S]*?)\r?\n\s*\}\r?\n\s*SourceKind::StandardVideo/,
   )?.[1];
   assert.ok(adultBranch, "adult provider branch is missing");
-  assert.match(enrichment, /fetch_adult_metadata_for_batch/);
+  assert.match(metadata, /fetch_adult_metadata_for_batch/);
   assert.match(metadata, /configured_adult_provider_order/);
   for (const provider of adultProviders) {
     assert.match(metadata, new RegExp(provider), `${provider}: batch routing must remain adult-only`);
