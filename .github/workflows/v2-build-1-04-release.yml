@@ -99,7 +99,7 @@ jobs:
         if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
-          $remoteTag = git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME" 2>$null
+          $remoteTag = git ls-remote --exit-code --tags origin "refs/tags/$env:TAG_NAME^{}" 2>$null
           if ($LASTEXITCODE -eq 0) {
             $tagSha = ($remoteTag -split "\t")[0]
             if ($tagSha -ne $env:GITHUB_SHA) { throw "Release tag $env:TAG_NAME already exists on a different commit: $tagSha" }
