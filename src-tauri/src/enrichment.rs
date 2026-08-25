@@ -646,9 +646,9 @@ fn load_provider_keys(db: &crate::db::Database) -> Result<HashMap<String, String
     let mut keys = HashMap::new();
     for row in rows {
         let (provider, key) = row.map_err(|err| err.to_string())?;
-        if key.trim().is_empty() {
+        let Some(key) = crate::metadata_ext::resolve_stored_provider_key(&provider, &key)? else {
             continue;
-        }
+        };
         keys.insert(provider.trim().to_lowercase(), key.clone());
         keys.insert(normalize_provider_key(&provider), key);
     }

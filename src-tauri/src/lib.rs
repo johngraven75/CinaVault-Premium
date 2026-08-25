@@ -49,6 +49,7 @@ mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
 mod scanner;
+mod secure_credentials;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
