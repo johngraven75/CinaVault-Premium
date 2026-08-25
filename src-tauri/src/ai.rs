@@ -260,7 +260,13 @@ pub async fn ai_query(
 ) -> Result<serde_json::Value, String> {
     match classify_ai_query_prompt(&prompt) {
         AiQueryRoute::NetworkDiagnostics => run_network_diagnostics().await,
-        AiQueryRoute::AdultMetadataGather => gather_adult_metadata_assets(state).await,
+        // Adult inventory must never fall through to the general-film gatherer.  The
+        // dedicated command owns the provider allow-list, artwork persistence, and
+        // sidecar contract used by the adult library UI.
+        AiQueryRoute::AdultMetadataGather => {
+            serde_json::to_value(crate::enrichment::gather_adult_metadata(state).await?)
+                .map_err(|error| error.to_string())
+        }
         AiQueryRoute::SourceDiscovery => crate::scanner::discover_media_sources(state).await,
         AiQueryRoute::LibraryAutomation => {
             let tasks = automation_tasks_from_prompt(&prompt);

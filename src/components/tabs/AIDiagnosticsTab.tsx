@@ -95,6 +95,22 @@ type AdultMetadataGatherResult = {
   note?: string;
 };
 
+type AdultProviderSetting = {
+  key: string;
+  enabled: boolean;
+  configured: boolean;
+  masked_credential?: string;
+};
+
+const ADULT_PROVIDER_LABELS: Record<string, string> = {
+  tpdb: "ThePornDB",
+  stashdb: "StashDB",
+  porn_site_nuxt: "Nuxt adult endpoint",
+  iafd: "IAFD",
+  phoenixadult: "PhoenixAdult",
+  pgma: "PGMA",
+};
+
 type SingleItemMetadataCheckResult = {
   type: "single_item_metadata_check";
   status: string;
@@ -260,6 +276,10 @@ export default function AIDiagnosticsTab() {
   );
   const [showConfig, setShowConfig] = useState(false);
   const [showModelCatalog, setShowModelCatalog] = useState(false);
+  const [adultProviders, setAdultProviders] = useState<AdultProviderSetting[]>([]);
+  const [adultProviderValues, setAdultProviderValues] = useState<Record<string, string>>({});
+  const [adultProviderNotice, setAdultProviderNotice] = useState("");
+  const [adultProviderBusy, setAdultProviderBusy] = useState<string | null>(null);
   const [history, setHistory] = useState<
     { query: string; result: any; time: string }[]
   >([]);
@@ -291,6 +311,58 @@ export default function AIDiagnosticsTab() {
   useEffect(() => {
     if (showConfig) void loadAiConfig();
   }, [showConfig, loadAiConfig]);
+
+  const loadAdultProviders = useCallback(async () => {
+    try {
+      const result = await invoke<{ providers: AdultProviderSetting[] }>("get_adult_provider_settings");
+      setAdultProviders(result.providers);
+    } catch (error) {
+      setAdultProviderNotice(`Could not load adult provider status: ${error}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showConfig) void loadAdultProviders();
+  }, [showConfig, loadAdultProviders]);
+
+  const saveAdultProviders = async () => {
+    setAdultProviderBusy("save");
+    setAdultProviderNotice("");
+    try {
+      for (const provider of adultProviders) {
+        const value = adultProviderValues[provider.key]?.trim();
+        if (value) await invoke("set_api_key", { provider: provider.key, apiKey: value });
+      }
+      await invoke("save_adult_provider_settings", {
+        enabledProviders: adultProviders.filter((provider) => provider.enabled).map((provider) => provider.key),
+      });
+      setAdultProviderValues({});
+      setAdultProviderNotice("Adult provider settings saved. Credentials remain masked.");
+      await loadAdultProviders();
+    } catch (error) {
+      setAdultProviderNotice(`Could not save adult provider settings: ${error}`);
+    } finally {
+      setAdultProviderBusy(null);
+    }
+  };
+
+  const testAdultProvider = async (provider: AdultProviderSetting) => {
+    const value = adultProviderValues[provider.key]?.trim();
+    if (!value && provider.key !== "pgma") {
+      setAdultProviderNotice(`Enter the ${ADULT_PROVIDER_LABELS[provider.key] || provider.key} credential or endpoint before testing.`);
+      return;
+    }
+    setAdultProviderBusy(provider.key);
+    setAdultProviderNotice("");
+    try {
+      const result = await invoke<{ valid: boolean }>("test_api_key", { provider: provider.key, apiKey: value || "local" });
+      setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key}: ${result.valid ? "connection accepted" : "connection was not accepted"}.`);
+    } catch (error) {
+      setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key} test failed: ${error}`);
+    } finally {
+      setAdultProviderBusy(null);
+    }
+  };
 
   const refreshLoadedLibraryPage = useCallback(async () => {
     const items = await invoke<MediaItem[]>(
@@ -587,9 +659,7 @@ export default function AIDiagnosticsTab() {
       setAiProcessing(true);
       addStatusMessage(`Running: ${label}...`);
       try {
-        const result = await invoke<AdultMetadataGatherResult>("ai_query", {
-          prompt: cleanPrompt,
-        });
+        const result = await invoke<AdultMetadataGatherResult>("gather_adult_metadata");
         await handleTrackedResult(label, cleanPrompt, result);
       } catch (e) {
         const errResult = { status: "error", message: String(e) };
@@ -780,11 +850,7 @@ export default function AIDiagnosticsTab() {
       icon: Sparkles,
       q: "Run adult metadata gather for installed providers and generate posters and chapter images",
       progressTask: "adult_metadata_gather",
-      runNow: () =>
-        invoke("ai_query", {
-          prompt:
-            "Run adult metadata gather for installed providers and generate posters and chapter images",
-        }),
+      runNow: () => invoke("gather_adult_metadata"),
     },
     {
       label: "Purge Photo Items",
@@ -1039,6 +1105,31 @@ export default function AIDiagnosticsTab() {
           </div>
           <div className="mt-3 text-[10px] text-cv-subtext">
             Inference URL: {inferenceUrl}
+          </div>
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold">Adult metadata providers</h4>
+                <p className="mt-1 text-[10px] text-cv-subtext">Only adult providers are used by Adult Metadata Gather. Saved credentials are never shown here.</p>
+              </div>
+              <button type="button" onClick={() => void saveAdultProviders()} disabled={adultProviderBusy !== null} className="cv-btn cv-btn-primary text-xs disabled:opacity-50"><Key size={12} /> {adultProviderBusy === "save" ? "Saving…" : "Save adult providers"}</button>
+            </div>
+            <div className="mt-3 grid gap-3">
+              {adultProviders.map((provider) => {
+                const label = ADULT_PROVIDER_LABELS[provider.key] || provider.key;
+                const endpoint = provider.key === "porn_site_nuxt";
+                const acceptsCredential = ["tpdb", "stashdb", "porn_site_nuxt"].includes(provider.key);
+                return <div key={provider.key} className="glass-panel-2 rounded-lg border border-white/10 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={provider.enabled} onChange={(event) => setAdultProviders((items) => items.map((item) => item.key === provider.key ? { ...item, enabled: event.target.checked } : item))} /> {label}</label>
+                    <span className={`text-[10px] ${provider.enabled ? "text-cv-accent" : "text-cv-subtext"}`}>{provider.enabled ? (provider.configured || !acceptsCredential ? "enabled" : "enabled — needs setup") : "disabled"}</span>
+                  </div>
+                  {acceptsCredential && <div className="mt-2 flex flex-wrap gap-2"><input type={endpoint ? "url" : "password"} value={adultProviderValues[provider.key] || ""} onChange={(event) => setAdultProviderValues((values) => ({ ...values, [provider.key]: event.target.value }))} className="cv-input min-w-[14rem] flex-1 text-xs" placeholder={endpoint ? (provider.masked_credential ? "Endpoint saved — enter replacement" : "https://your-adult-provider.example/api") : (provider.masked_credential ? "Credential saved — enter replacement" : "Enter credential")} /><button type="button" onClick={() => void testAdultProvider(provider)} disabled={adultProviderBusy !== null} className="cv-btn cv-btn-secondary text-xs disabled:opacity-50">{adultProviderBusy === provider.key ? "Testing…" : "Live test"}</button></div>}
+                  {!acceptsCredential && <p className="mt-2 text-[10px] text-cv-subtext">{provider.key === "pgma" ? "Local sidecar bridge; no credential required." : "This provider is used only when its installed integration is available."}</p>}
+                </div>;
+              })}
+            </div>
+            {adultProviderNotice && <p role="status" className="mt-3 text-[10px] text-cv-subtext">{adultProviderNotice}</p>}
           </div>
         </motion.div>
       )}
