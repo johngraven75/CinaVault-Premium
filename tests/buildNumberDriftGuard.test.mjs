@@ -44,7 +44,7 @@ test("current Windows release workflow uses the authoritative identity", () => {
   const workflow = read(".github/workflows/v2-build-1-04-release.yml");
 
   assert.match(workflow, new RegExp(`APP_VERSION:\\s*${manifest.semanticVersion.replaceAll(".", "\\.")}`));
-  assert.match(workflow, new RegExp(`TAG_NAME:\\s*v${manifest.semanticVersion.replaceAll(".", "\\.")}`));
+  assert.match(workflow, new RegExp(`TAG_NAME:\\s*${manifest.releaseTag.replaceAll(".", "\\.")}`));
   assert.ok(workflow.includes(manifest.displayName));
   assert.ok(workflow.includes(manifest.releaseTag));
   assert.ok(workflow.includes("SHA256SUMS.txt"));
