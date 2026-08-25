@@ -8,6 +8,44 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Some non-interactive Windows PowerShell hosts cannot load their Security
+# module after web activity. Use the Windows SDK SignTool instead; it verifies
+# the Authenticode chain under the standard Windows policy and does not rely on
+# the affected PowerShell type-data loader.
+
+function Get-VerifiedSignature {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    $signTool = Get-ChildItem -LiteralPath $sdkRoot -Recurse -File -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+    if ([string]::IsNullOrWhiteSpace($signTool)) {
+        throw 'Windows SDK SignTool is required to verify the bundled WireGuard publisher signature.'
+    }
+
+    $output = & $signTool verify /pa /v $Path 2>&1
+    $verified = $LASTEXITCODE -eq 0
+    return [pscustomobject]@{
+        Status = if ($verified) { 'Valid' } else { 'Invalid' }
+        Subject = [string]($output -join "`n")
+    }
+}
+
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($stream)
+        return ([System.BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw 'The bundled WireGuard engine can only be prepared on Windows.'
 }
@@ -33,10 +71,9 @@ function Test-OfficialWireGuardBinary {
         return $false
     }
 
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    $signature = Get-VerifiedSignature -Path $Path
     return $signature.Status -eq 'Valid' -and
-        $null -ne $signature.SignerCertificate -and
-        $signature.SignerCertificate.Subject -match '(?i)WireGuard'
+        $signature.Subject -match '(?i)WireGuard'
 }
 
 function Assert-OfficialSignature {
@@ -45,17 +82,16 @@ function Assert-OfficialSignature {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    $signature = Get-VerifiedSignature -Path $Path
     if ($signature.Status -ne 'Valid' -or
-        $null -eq $signature.SignerCertificate -or
-        $signature.SignerCertificate.Subject -notmatch '(?i)WireGuard') {
+        $signature.Subject -notmatch '(?i)WireGuard') {
         throw "$Label does not have a valid WireGuard Authenticode signature. Status: $($signature.Status)"
     }
 }
 
 $destinationPath = [System.IO.Path]::GetFullPath($Destination)
 if (-not $ForceDownload -and (Test-OfficialWireGuardBinary -Path $destinationPath)) {
-    $existingHash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $existingHash = Get-Sha256Hex -Path $destinationPath
     Write-Host "Official WireGuard engine already prepared: $destinationPath"
     Write-Host "SHA-256: $existingHash"
     exit 0
@@ -117,7 +153,7 @@ try {
         throw 'The copied WireGuard executable failed final validation.'
     }
 
-    $hash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = Get-Sha256Hex -Path $destinationPath
     Write-Host "Prepared official WireGuard engine: $destinationPath"
     Write-Host "SHA-256: $hash"
 }
