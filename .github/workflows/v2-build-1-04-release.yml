@@ -1,4 +1,4 @@
-# Rustfmt-verified v2.0.15 runtime release candidate
+# Rustfmt-verified v2.15 Build 215 runtime release candidate
 # Runtime command bridge and complete-suite repairs for Build 215
 # Cross-platform evidence synchronized for Build 215
 # Rustfmt-verified adult-provider release candidate
@@ -9,7 +9,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/release-triggers/v2.0.15"
+      - ".github/release-triggers/v2-build-2.15"
       - ".github/workflows/v2-build-1-04-release.yml"
   workflow_dispatch:
 
@@ -23,7 +23,7 @@ concurrency:
 
 env:
   APP_VERSION: 2.0.15
-  TAG_NAME: v2.0.15
+  TAG_NAME: v2-build-2.15
   ARTIFACT_NAME: CinaVault-Premium-Windows-v2.15-Build-215
   TEST_ARTIFACT_NAME: CinaVault-Premium-v2.15-Build-215-Test-Notes
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
@@ -242,7 +242,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2.0.15 GitHub release
+      - name: Publish v2.15 Build 215 GitHub release
         if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
