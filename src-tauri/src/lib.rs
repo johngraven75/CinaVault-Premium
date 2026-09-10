@@ -50,6 +50,7 @@ mod plugins;
 mod remote_connectivity;
 mod scanner;
 pub mod server_lifecycle;
+mod secure_credentials;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
@@ -127,6 +128,14 @@ pub fn run() {
                         log::info!("Persistent Hugging Face token restored at startup");
                     }
                 }
+            }
+
+            // Provision all native adult provider manifests and config files on every launch.
+            // This installs runtime entries without embedding API keys or pretending that
+            // optional external credentials or local scraper services are available.
+            match plugin_configs::ensure_adult_provider_configs() {
+                Ok(status) => log::info!("Adult provider configs provisioned at startup: {status:?}"),
+                Err(error) => log::warn!("Adult provider startup provisioning failed: {error}"),
             }
 
             // Initialize the full metadata-provider catalog on every launch. Existing
@@ -313,6 +322,8 @@ pub fn run() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
+            nas_devices::list_nas_shares,
+            nas_devices::browse_nas_path,
             build_identity::get_current_build_info,
             open_external_url,
             get_system_info,

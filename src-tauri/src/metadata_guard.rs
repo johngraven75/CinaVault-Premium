@@ -290,7 +290,12 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
         let mut stmt = db.conn.prepare("SELECT provider,api_key FROM api_keys").map_err(|e| e.to_string())?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
         let mut keys = HashMap::new();
-        for row in rows { let (provider, key) = row.map_err(|e| e.to_string())?; keys.insert(normalize_provider_key(&provider), key); }
+        for row in rows {
+            let (provider, stored) = row.map_err(|e| e.to_string())?;
+            if let Some(key) = metadata_ext::resolve_stored_provider_key(&provider, &stored)? {
+                keys.insert(normalize_provider_key(&provider), key);
+            }
+        }
         (item, keys)
     };
 

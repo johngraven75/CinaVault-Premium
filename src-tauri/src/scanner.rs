@@ -75,6 +75,15 @@ fn has_adult_media_hint(value: &str) -> bool {
         "x library",
         "vids x",
         "videos x",
+        "erotic",
+        "explicit",
+        "mature",
+        "adults only",
+        "18+",
+        "xxx rated",
+        "x rated",
+        "nc-17",
+        "uncensored",
     ]
     .iter()
     .any(|hint| normalized.contains(hint))
@@ -247,24 +256,30 @@ fn looks_like_media_directory(path: &Path) -> bool {
 fn discover_media_directories(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = BTreeSet::new();
     for root in roots {
-        if root.is_dir()
-            && (looks_like_media_directory(root)
-                || std::fs::read_dir(root)
-                    .ok()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Result::ok)
-                    .any(|entry| {
-                        entry
-                            .path()
-                            .extension()
-                            .and_then(|value| value.to_str())
-                            .and_then(detect_media_type)
-                            .is_some()
-                    }))
-        {
+        if !root.is_dir() {
+            continue;
+        }
+
+        // Check if root itself is a media directory or contains media files directly
+        let root_has_media_files = std::fs::read_dir(root)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .and_then(detect_media_type)
+                    .is_some()
+            });
+
+        if looks_like_media_directory(root) || root_has_media_files {
             found.insert(root.clone());
         }
+
+        // Also check immediate subdirectories for media directories
         let Ok(entries) = std::fs::read_dir(root) else {
             continue;
         };

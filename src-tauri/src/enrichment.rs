@@ -453,6 +453,7 @@ pub async fn run_library_enrichment(
             &provider_keys,
             source_kind.clone(),
             &queries,
+            &item.file_path,
             &mut report.provider_errors,
         )
         .await;
@@ -645,9 +646,9 @@ fn load_provider_keys(db: &crate::db::Database) -> Result<HashMap<String, String
     let mut keys = HashMap::new();
     for row in rows {
         let (provider, key) = row.map_err(|err| err.to_string())?;
-        if key.trim().is_empty() {
+        let Some(key) = crate::metadata_ext::resolve_stored_provider_key(&provider, &key)? else {
             continue;
-        }
+        };
         keys.insert(provider.trim().to_lowercase(), key.clone());
         keys.insert(normalize_provider_key(&provider), key);
     }
@@ -668,6 +669,7 @@ async fn resolve_provider_match(
     provider_keys: &HashMap<String, String>,
     source_kind: SourceKind,
     queries: &[String],
+    file_path: &str,
     provider_errors: &mut Vec<String>,
 ) -> Option<ProviderMatch> {
     for query in queries {
@@ -686,7 +688,7 @@ async fn resolve_provider_match(
                         Ok(Some(result)) => matches.push(result),
                         Ok(None) => {}
                         Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
-                    }
+                }
                 }
             }
             SourceKind::StandardVideo => {
@@ -1175,15 +1177,14 @@ fn write_poster_sidecar_bytes(
         _ => "jpg",
     };
     let sidecar_path = parent.join(format!("{stem}-poster.{extension}"));
-    if sidecar_path
-        .metadata()
-        .map(|metadata| metadata.len() > 0)
-        .unwrap_or(false)
-    {
-        return Ok(sidecar_path.to_string_lossy().to_string());
+    if let Ok(existing_bytes) = std::fs::read(&sidecar_path) {
+        if valid_poster_payload(None, &existing_bytes) {
+            return Ok(sidecar_path.to_string_lossy().to_string());
+        }
     }
 
     let temporary_path = parent.join(format!("{stem}-poster.{extension}.part"));
+    let previous_path = parent.join(format!("{stem}-poster.{extension}.previous"));
     {
         let mut file = std::fs::File::create(&temporary_path)
             .map_err(|error| format!("poster create failed: {error}"))?;
@@ -1192,8 +1193,20 @@ fn write_poster_sidecar_bytes(
         file.sync_all()
             .map_err(|error| format!("poster sync failed: {error}"))?;
     }
-    std::fs::rename(&temporary_path, &sidecar_path)
-        .map_err(|error| format!("poster finalize failed: {error}"))?;
+    if sidecar_path.exists() {
+        let _ = std::fs::remove_file(&previous_path);
+        std::fs::rename(&sidecar_path, &previous_path)
+            .map_err(|error| format!("poster backup before replacement failed: {error}"))?;
+    }
+    if let Err(error) = std::fs::rename(&temporary_path, &sidecar_path) {
+        if previous_path.exists() {
+            let _ = std::fs::rename(&previous_path, &sidecar_path);
+        }
+        return Err(format!("poster finalize failed: {error}"));
+    }
+    if previous_path.exists() {
+        let _ = std::fs::remove_file(&previous_path);
+    }
     Ok(sidecar_path.to_string_lossy().to_string())
 }
 
@@ -1675,6 +1688,7 @@ pub async fn gather_adult_metadata(
             &provider_keys,
             SourceKind::AdultVideo,
             &queries,
+            &item.file_path,
             &mut report.provider_errors,
         )
         .await;
@@ -1860,6 +1874,32 @@ mod tests {
         assert!(poster.ends_with("Movie-poster.png"));
         assert_eq!(fs::read(&poster).unwrap(), png);
         assert!(!dir.join("Movie-poster.png.part").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn invalid_existing_poster_sidecar_is_replaced_with_verified_image_bytes() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-poster-replace-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Movie.mp4");
+        let stale_poster = dir.join("Movie-poster.jpg");
+        let mut jpg = Vec::new();
+        image::DynamicImage::new_rgb8(20, 20)
+            .write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg)
+            .expect("fixture JPEG should encode");
+        fs::write(&video, b"video").expect("video should be created");
+        fs::write(&stale_poster, b"<html>expired poster URL</html>")
+            .expect("stale poster should be created");
+
+        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "jpg", &jpg)
+            .expect("verified poster should replace invalid sidecar");
+
+        assert_eq!(poster, stale_poster.to_string_lossy());
+        assert_eq!(fs::read(&poster).unwrap(), jpg);
+        assert!(!dir.join("Movie-poster.jpg.part").exists());
+        assert!(!dir.join("Movie-poster.jpg.previous").exists());
 
         let _ = fs::remove_dir_all(dir);
     }
