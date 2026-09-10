@@ -24,8 +24,8 @@
     "scan:preventive": "node scripts/scan-preventive-risks.mjs",
     "verify:preflight": "npm run verify:master-build && npm run verify:contracts && npm run scan:preventive",
     "generate:evidence": "node scripts/generate-master-ci-evidence.mjs",
-    "test": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs",
-    "test:all": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs",
+    "test": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs && npm run test:remote-user",
+    "test:all": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs && npm run test:remote-user",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
     "test:governance": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs",
     "test:build169": "node --test tests/carryForwardVerification.test.mjs",
@@ -34,6 +34,7 @@
     "test:v2-build-1-03": "node --test tests/v2Build103CommandPaletteStability.test.mjs",
     "test:platform-parity": "node --test tests/platformParityContract.test.mjs",
     "test:hls": "node --test tests/hlsStreamSupport.test.mjs",
+    "test:remote-user": "node --loader ./tests/typescript-loader.mjs --test tests/remoteAccessAccountForm.test.mjs",
     "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml --locked live_metadata_poster_acceptance_ -- --ignored --nocapture"
   },
   "dependencies": {

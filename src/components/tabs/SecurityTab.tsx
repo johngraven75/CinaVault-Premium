@@ -19,8 +19,12 @@ import {
 
 type VpnProfile = {
   name: string;
-  path: string;
   active: boolean;
+  addresses: string[];
+  endpoint: string;
+  allowed_ips: string[];
+  verified: boolean;
+  is_default: boolean;
 };
 
 type VpnStatus = {
@@ -30,6 +34,7 @@ type VpnStatus = {
   activeProfile?: string | null;
   profiles: VpnProfile[];
   details?: string;
+  startupStatus?: { status: string; error?: string };
 };
 
 export default function SecurityTab() {
@@ -40,6 +45,8 @@ export default function SecurityTab() {
   const [profiles, setProfiles] = useState<VpnProfile[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [vpnDetails, setVpnDetails] = useState("");
+  const [vpnError, setVpnError] = useState("");
+  const [autoConnect, setAutoConnect] = useState(false);
 
   useEffect(() => {
     void checkVpnStatus();
@@ -51,12 +58,16 @@ export default function SecurityTab() {
       setVpnInstalled(status.installed);
       setProfiles(status.profiles ?? []);
       setVpnDetails(status.details ?? "");
+      if (status.startupStatus?.status === "failed") {
+        setVpnError(status.startupStatus.error ?? "WireGuard startup auto-connect failed safely");
+      }
       const active = status.activeProfile ?? status.profiles?.find((profile) => profile.active)?.name ?? "";
       setSelectedProfile((current) => current || active || status.profiles?.[0]?.name || "");
       setVpnStatus(status.connected, active);
     } catch (error) {
       setVpnInstalled(false);
       setVpnDetails(String(error));
+      setVpnError(String(error));
     }
   };
 
@@ -77,6 +88,7 @@ export default function SecurityTab() {
       addStatusMessage(`WireGuard profile stored permanently: ${profile.name}`);
       await checkVpnStatus();
     } catch (error) {
+      setVpnError(String(error));
       addStatusMessage(`WireGuard profile import failed: ${error}`);
     } finally {
       setVpnLoading(false);
@@ -95,6 +107,7 @@ export default function SecurityTab() {
         profile: selectedProfile,
       });
       if (result.status === "connected") {
+        setVpnError("");
         setVpnStatus(true, selectedProfile);
         addStatusMessage(`VPN connected: ${selectedProfile}`);
       } else {
@@ -102,10 +115,28 @@ export default function SecurityTab() {
       }
       await checkVpnStatus();
     } catch (error) {
+      setVpnError(String(error));
       addStatusMessage(`VPN error: ${error}`);
     } finally {
       setVpnLoading(false);
     }
+  };
+
+  const selectDefault = async () => {
+    try {
+      await invoke("vpn_select_default", { profile: selectedProfile, autoConnect });
+      setVpnError("");
+      addStatusMessage(`Default WireGuard profile saved: ${selectedProfile}`);
+      await checkVpnStatus();
+    } catch (error) {
+      setVpnError(String(error));
+    }
+  };
+
+  const installWireGuard = async () => {
+    const result = await invoke<{ status: string; message: string; officialDownload?: string }>("install_security_tools");
+    setVpnDetails(result.message);
+    if (result.officialDownload) window.open(result.officialDownload, "_blank", "noopener,noreferrer");
   };
 
   const disconnectVpn = async () => {
@@ -149,7 +180,7 @@ export default function SecurityTab() {
     <div className="space-y-5">
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Shield size={16} className="text-cv-accent" /> VPN — Bundled WireGuard
+          <Shield size={16} className="text-cv-accent" /> VPN — Official WireGuard
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -177,9 +208,10 @@ export default function SecurityTab() {
             )}
             <div className="text-[10px] text-cv-subtext mt-1 flex items-center justify-center gap-1">
               {vpnInstalled ? <CheckCircle size={11} /> : <AlertTriangle size={11} />}
-              {vpnInstalled ? "Bundled engine ready" : "Bundled engine missing"}
+              {vpnInstalled ? "Official engine verified" : "Official engine unavailable"}
             </div>
             {vpnDetails && <div className="text-[10px] text-cv-subtext mt-2">{vpnDetails}</div>}
+            {vpnError && <div role="alert" className="mt-3 rounded border border-red-400/30 bg-red-400/10 p-2 text-xs text-red-200">{vpnError}</div>}
 
             <div className="flex gap-2 mt-4 justify-center">
               {!vpnConnected ? (
@@ -198,6 +230,14 @@ export default function SecurityTab() {
                 </button>
               )}
             </div>
+            {!vpnInstalled && <button onClick={installWireGuard} className="cv-btn cv-btn-secondary w-full">Install official WireGuard</button>}
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={autoConnect} onChange={(event) => setAutoConnect(event.target.checked)} />
+              Connect this verified profile when CinaVault starts
+            </label>
+            <button onClick={selectDefault} disabled={!profiles.find((profile) => profile.name === selectedProfile)?.verified} className="cv-btn cv-btn-secondary w-full">
+              Save as verified default
+            </button>
           </div>
 
           <div className="glass-panel-2 p-5 rounded-lg space-y-4">
