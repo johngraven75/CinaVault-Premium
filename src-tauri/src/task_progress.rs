@@ -1,5 +1,8 @@
 use serde::Serialize;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex, OnceLock,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +38,7 @@ impl MetadataTaskGuard {
             percent: active_percent(0, total),
             message: message.into(),
         };
+        cancellation_flag().store(false, Ordering::SeqCst);
         replace_progress(progress);
         Self {
             task,
@@ -92,6 +96,22 @@ pub fn get_metadata_task_progress() -> MetadataTaskProgress {
         .clone()
 }
 
+#[tauri::command]
+pub fn stop_ai_agent() -> MetadataTaskProgress {
+    cancellation_flag().store(true, Ordering::SeqCst);
+    let mut progress = progress_state()
+        .lock()
+        .expect("metadata task progress lock");
+    if progress.active {
+        progress.message = "Stop requested; finishing the current item...".to_string();
+    }
+    progress.clone()
+}
+
+pub fn stop_requested() -> bool {
+    cancellation_flag().load(Ordering::SeqCst)
+}
+
 fn replace_progress(progress: MetadataTaskProgress) {
     *progress_state()
         .lock()
@@ -101,6 +121,11 @@ fn replace_progress(progress: MetadataTaskProgress) {
 fn progress_state() -> &'static Mutex<MetadataTaskProgress> {
     static PROGRESS: OnceLock<Mutex<MetadataTaskProgress>> = OnceLock::new();
     PROGRESS.get_or_init(|| Mutex::new(inactive_progress()))
+}
+
+fn cancellation_flag() -> &'static AtomicBool {
+    static CANCELLED: AtomicBool = AtomicBool::new(false);
+    &CANCELLED
 }
 
 fn inactive_progress() -> MetadataTaskProgress {

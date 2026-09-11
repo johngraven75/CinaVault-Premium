@@ -20,14 +20,13 @@ function requireAll(sourceText, requiredValues) {
   }
 }
 
-test("Build 140 app shell keeps startup, persistence, plugin, and wheel-scroll behavior", () => {
+test("application shell keeps startup, persistence, plugin, and wheel-scroll behavior", () => {
   const app = source("src/App.tsx");
+  const styles = source("src/styles/index.css");
 
   requireAll(app, [
     "Build 140 Futuristic Application Shell",
     "app-shell",
-    "app-shell-orb",
-    "app-shell-noise",
     "pluginEngine.initialize",
     "applyTheme(currentTheme)",
     "restorePersistedState(readLocalPersistedState())",
@@ -36,6 +35,7 @@ test("Build 140 app shell keeps startup, persistence, plugin, and wheel-scroll b
     "getWheelScrolledTop",
     'AnimatePresence mode="wait"',
   ]);
+  requireAll(styles, ["app-shell-orb", "app-shell-noise"]);
 });
 
 test("Build 140 sidebar keeps every core destination and collapse control", () => {
@@ -62,22 +62,19 @@ test("Build 140 sidebar keeps every core destination and collapse control", () =
   ]);
 });
 
-test("Build 140 header keeps HUD identity, search, clock, fullscreen, and notifications", () => {
+test("header keeps build identity, command search, clock, fullscreen, and notifications", () => {
   const header = source("src/components/Header.tsx");
 
   requireAll(header, [
-    "Build 140 Cyber HUD Command Header",
-    "TAB_META",
-    "Quantum Grid Active",
-    "CinaVault B140",
-    "Hyper-Neon Fusion",
-    "setSearchQuery",
+    "BUILD_INFO",
+    "COMMAND_DESTINATIONS",
+    "setPaletteQuery",
     "toLocaleTimeString",
     "toggleFullscreen",
     "requestFullscreen",
     "getUnreadStatusMessages",
-    "devicePixelRatio",
-    "requestAnimationFrame(draw)",
+    "get_current_build_info",
+    "get_embedded_server_status",
   ]);
 });
 
@@ -110,7 +107,7 @@ test("Kodi-inspired CinaVault skins are selectable in Settings", () => {
 test("PGMA and Porn Site Nuxt remain exposed as metadata providers", () => {
   const store = source("src/store/appStore.ts");
   const backend = source("src-tauri/src/metadata_ext.rs");
-  const main = source("src-tauri/src/main.rs");
+  const main = source("src-tauri/src/lib.rs");
 
   for (const required of [
     "pgma",
@@ -130,7 +127,7 @@ test("PGMA and Porn Site Nuxt remain exposed as metadata providers", () => {
 
   requireAll(main, [
     "mod adult_site_provider;",
-    "mod metadata_ext;",
+    "mod metadata_ext {",
     "metadata_ext::fetch_metadata",
     "metadata_ext::get_metadata_providers",
     "pgma_bridge::find_local_candidates",

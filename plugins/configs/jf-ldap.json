@@ -4,7 +4,7 @@
   "_category": "Security",
   "_platform": "jellyfin",
   "_description": "LDAP/Active Directory authentication for enterprise environments.",
-  "enabled": false,
+  "enabled": true,
   "server": "",
   "port": 389,
   "base_dn": "",

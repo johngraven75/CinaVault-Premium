@@ -17,7 +17,7 @@ export function getSafeAiProvider(token?: string | null): AiProviderStatus {
   if (hasValidHuggingFaceToken(token)) {
     return {
       provider: "huggingface",
-      model: "katanemo/Arch-Router-1.5B",
+      model: "Qwen/Qwen3-4B-Instruct-2507",
       requiresToken: true,
       enabled: true,
     };

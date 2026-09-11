@@ -41,6 +41,56 @@ function resolveImg(path?: string | null): string | undefined {
   }
 }
 
+function KodiPosterImage({
+  path,
+  alt,
+  imageClassName,
+  fallbackClassName,
+  fallbackSize,
+}: {
+  path?: string | null;
+  alt: string;
+  imageClassName: string;
+  fallbackClassName: string;
+  fallbackSize?: number;
+}): JSX.Element {
+  const directSrc = resolveImg(path);
+  const [src, setSrc] = useState<string | undefined>(directSrc);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setFailed(false);
+    if (!path || /^(https?:|data:|asset:)/i.test(path)) {
+      setSrc(directSrc);
+      return () => { active = false; };
+    }
+    setSrc(undefined);
+    void invoke<string>("get_poster_data_url", { path })
+      .then((value) => { if (active) setSrc(value); })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [path, directSrc]);
+
+  if (!src || failed) {
+    return (
+      <div className={fallbackClassName} data-poster-fallback="true">
+        {fallbackSize ? <Film size={fallbackSize} /> : null}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={imageClassName}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      data-poster-source={path?.startsWith("http") ? "remote" : "sidecar"}
+    />
+  );
+}
+
 function sortRecent(items: MediaItem[]): MediaItem[] {
   return [...items].sort((a, b) => {
     const at = Date.parse(a.date_added ?? "") || 0;
@@ -88,20 +138,15 @@ function KodiHero({ items, onPlay, onSelect }: HeroProps): JSX.Element {
     );
   }
 
-  const backdropSrc = resolveImg(hero.backdrop_path ?? hero.poster_path);
-
   return (
     <div className="kodi-hero">
-      {backdropSrc ? (
-        <img
-          key={hero.id}
-          src={backdropSrc}
-          alt={hero.title}
-          className="kodi-hero-backdrop"
-        />
-      ) : (
-        <div className="kodi-hero-backdrop-fallback" />
-      )}
+      <KodiPosterImage
+        key={hero.id}
+        path={hero.backdrop_path ?? hero.poster_path}
+        alt={hero.title}
+        imageClassName="kodi-hero-backdrop"
+        fallbackClassName="kodi-hero-backdrop-fallback"
+      />
       <div className="kodi-hero-gradient" />
 
       <AnimatePresence mode="wait">
@@ -169,6 +214,11 @@ function KodiHero({ items, onPlay, onSelect }: HeroProps): JSX.Element {
 
 // ─── Poster Card ──────────────────────────────────────────────────────────
 
+type MetadataCheckResult = {
+  message?: string;
+  updated_item?: MediaItem;
+};
+
 interface CardProps {
   item: MediaItem;
   onSelect: (item: MediaItem) => void;
@@ -176,7 +226,6 @@ interface CardProps {
 }
 
 function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
-  const imgSrc = resolveImg(item.poster_path);
   const hasNfo = Boolean(item.nfo_path);
   const hasPoster = Boolean(
     item.poster_path && !item.poster_path.startsWith("http"),
@@ -193,18 +242,13 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
       onKeyDown={(e) => e.key === "Enter" && onSelect(item)}
     >
       {/* Poster */}
-      {imgSrc ? (
-        <img
-          src={imgSrc}
-          alt={item.title}
-          className="kodi-poster"
-          loading="lazy"
-        />
-      ) : (
-        <div className="kodi-poster-placeholder">
-          <Film size={28} />
-        </div>
-      )}
+      <KodiPosterImage
+        path={item.poster_path ?? item.backdrop_path}
+        alt={item.title}
+        imageClassName="kodi-poster"
+        fallbackClassName="kodi-poster-placeholder"
+        fallbackSize={28}
+      />
       <div className="kodi-poster-overlay" />
 
       {/* Badges */}
@@ -361,21 +405,13 @@ function KodiDetailPanel({
       exit={{ opacity: 0, x: 32 }}
       transition={{ duration: 0.25 }}
     >
-      {imgSrc ? (
-        <img src={imgSrc} alt={item.title} className="kodi-detail-poster" />
-      ) : (
-        <div
-          className="kodi-detail-poster"
-          style={{
-            background: "var(--cv-panel-2)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Film size={40} style={{ color: "var(--cv-subtext)" }} />
-        </div>
-      )}
+      <KodiPosterImage
+        path={item.poster_path ?? item.backdrop_path}
+        alt={item.title}
+        imageClassName="kodi-detail-poster"
+        fallbackClassName="kodi-detail-poster kodi-poster-placeholder"
+        fallbackSize={40}
+      />
 
       <div className="kodi-detail-title">{item.title}</div>
 
@@ -520,14 +556,27 @@ export default function KodiHomeLayout(): JSX.Element {
     async (item: MediaItem) => {
       setCheckingId(item.id ?? null);
       try {
-        const updated = await invoke<MediaItem>("check_media_item_metadata", {
-          id: item.id,
-        });
-        setMediaItems(
-          mediaItems.map((m) => (m.id === updated.id ? updated : m)),
+        const result = await invoke<MetadataCheckResult>(
+          "check_media_item_metadata",
+          { id: item.id },
         );
-        if (selectedMedia?.id === updated.id) setSelectedMedia(updated);
-        addStatusMessage(`Metadata updated: ${updated.title}`);
+        const updated = result.updated_item;
+        if (!updated) {
+          throw new Error(
+            result.message || "Metadata provider returned no updated media item",
+          );
+        }
+        setMediaItems(
+          mediaItems.map((media) =>
+            media.id === updated.id ? { ...media, ...updated } : media,
+          ),
+        );
+        if (selectedMedia?.id === updated.id) {
+          setSelectedMedia({ ...selectedMedia, ...updated });
+        }
+        addStatusMessage(
+          result.message || `Metadata updated: ${updated.title}`,
+        );
       } catch (err) {
         addStatusMessage(`Metadata error: ${err}`);
       } finally {

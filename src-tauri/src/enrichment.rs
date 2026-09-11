@@ -106,7 +106,7 @@ pub struct LibraryEnrichmentReport {
 }
 
 pub(crate) fn has_adult_hint(text: &str) -> bool {
-    let lower = text.replace(['\\', '/', '_', '-'], " ").to_lowercase();
+    let lower = text.replace(['\\', '/', '_', '-', '.'], " ").to_lowercase();
 
     [
         "adult",
@@ -117,6 +117,16 @@ pub(crate) fn has_adult_hint(text: &str) -> bool {
         "x library",
         "vids x",
         "videos x",
+        "18 plus",
+        "18+",
+        "erotic",
+        "explicit",
+        "onlyfans",
+        "fansly",
+        "brazzers",
+        "pornhub",
+        "xvideos",
+        "xnxx",
     ]
     .iter()
     .any(|hint| lower.contains(hint))
@@ -414,6 +424,12 @@ pub async fn run_library_enrichment(
 
     let total_items = items.len();
     for (index, item) in items.into_iter().enumerate() {
+        if task_progress::stop_requested() {
+            report
+                .provider_errors
+                .push("Stopped by user before processing the next item".to_string());
+            break;
+        }
         progress.update(
             index + 1,
             format!("Enriching metadata for {} of {}", index + 1, total_items),
@@ -437,12 +453,19 @@ pub async fn run_library_enrichment(
             &provider_keys,
             source_kind.clone(),
             &queries,
+            &item.file_path,
             &mut report.provider_errors,
         )
         .await;
-        let local_title_provider = local_embedded_title_match(embedded_title.as_deref())
-            .or_else(|| local_display_title_match(&item));
-        let local_artwork_provider = local_sidecar_artwork_match(&item);
+        let local_title_provider = (source_kind != SourceKind::AdultVideo)
+            .then(|| {
+                local_embedded_title_match(embedded_title.as_deref())
+                    .or_else(|| local_display_title_match(&item))
+            })
+            .flatten();
+        let local_artwork_provider = (source_kind != SourceKind::AdultVideo)
+            .then(|| local_sidecar_artwork_match(&item))
+            .flatten();
         let provider = [
             remote_provider,
             local_title_provider,
@@ -459,11 +482,19 @@ pub async fn run_library_enrichment(
 
         let mut update = build_metadata_update(&item, &provider, &source_kind);
 
-        // Download remote poster to a local sidecar file if the provider returned a URL
-        if let Some(ref remote_url) = update.poster_path.clone() {
-            if remote_url.starts_with("http") {
-                match download_poster_to_sidecar(&client, remote_url, &item.file_path).await {
+        // Acquire new provider posters and migrate previously stored remote URLs to local sidecars.
+        let poster_candidate = update.poster_path.clone().or_else(|| {
+            item.poster_path
+                .clone()
+                .filter(|path| path.starts_with("http://") || path.starts_with("https://"))
+        });
+        if let Some(remote_url) = poster_candidate {
+            if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
+                match download_poster_to_sidecar(&client, &remote_url, &item.file_path).await {
                     Ok(local_path) => {
+                        if update.poster_path.is_none() {
+                            update.changed_fields += 1;
+                        }
                         update.poster_path = Some(local_path);
                         report.posters_downloaded += 1;
                     }
@@ -615,9 +646,9 @@ fn load_provider_keys(db: &crate::db::Database) -> Result<HashMap<String, String
     let mut keys = HashMap::new();
     for row in rows {
         let (provider, key) = row.map_err(|err| err.to_string())?;
-        if key.trim().is_empty() {
+        let Some(key) = crate::metadata_ext::resolve_stored_provider_key(&provider, &key)? else {
             continue;
-        }
+        };
         keys.insert(provider.trim().to_lowercase(), key.clone());
         keys.insert(normalize_provider_key(&provider), key);
     }
@@ -638,28 +669,26 @@ async fn resolve_provider_match(
     provider_keys: &HashMap<String, String>,
     source_kind: SourceKind,
     queries: &[String],
+    file_path: &str,
     provider_errors: &mut Vec<String>,
 ) -> Option<ProviderMatch> {
     for query in queries {
         let mut matches = Vec::new();
         match source_kind {
             SourceKind::AdultVideo => {
+                if let Some(key) = provider_keys.get("tpdb") {
+                    match fetch_tpdb_metadata(client, key, query).await {
+                        Ok(Some(result)) => matches.push(result),
+                        Ok(None) => {}
+                        Err(err) => provider_errors.push(format!("tpdb/{query}: {err}")),
+                    }
+                }
                 if let Some(key) = provider_keys.get("stashdb") {
                     match fetch_stashdb_metadata(client, key, query).await {
                         Ok(Some(result)) => matches.push(result),
                         Ok(None) => {}
                         Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
-                    }
                 }
-                if matches.is_empty() {
-                    fetch_standard_metadata(
-                        client,
-                        provider_keys,
-                        query,
-                        provider_errors,
-                        &mut matches,
-                    )
-                    .await;
                 }
             }
             SourceKind::StandardVideo => {
@@ -681,6 +710,73 @@ async fn resolve_provider_match(
     }
 
     None
+}
+
+/// ThePornDB is an authenticated adult-only scene source.  Search results are
+/// deliberately scanned for a strict title match rather than accepting the
+/// first scene returned by the provider.
+async fn fetch_tpdb_metadata(
+    client: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+) -> Result<Option<ProviderMatch>, String> {
+    let encoded = percent_encoding::utf8_percent_encode(query, percent_encoding::NON_ALPHANUMERIC);
+    let search = client
+        .get(format!("https://api.theporndb.net/scenes?parse={encoded}&hash=&year="))
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(id) = search
+        .get("data")
+        .and_then(|value| value.as_array())
+        .and_then(|scenes| scenes.iter().find(|scene| {
+            scene
+                .get("title")
+                .and_then(|value| value.as_str())
+                .is_some_and(|title| strong_title_match(query, title))
+        }))
+        .and_then(|scene| scene.get("uuid").or_else(|| scene.get("UUID")))
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(None);
+    };
+    let detail = client
+        .get(format!("https://api.theporndb.net/scenes/{id}"))
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    let detail = detail.get("data").unwrap_or(&detail);
+    let title = detail.get("title").and_then(|value| value.as_str());
+    if !title.is_some_and(|value| strong_title_match(query, value)) {
+        return Ok(None);
+    }
+    let genre = detail
+        .get("tags")
+        .and_then(|value| value.as_array())
+        .map(|tags| tags.iter().filter_map(|tag| tag.get("name").and_then(|value| value.as_str())).take(10).collect::<Vec<_>>().join(", "))
+        .filter(|value| !value.is_empty());
+    Ok(Some(ProviderMatch {
+        title: title.and_then(|value| non_empty_string(Some(value))),
+        overview: detail.get("description").or_else(|| detail.get("details")).and_then(|value| value.as_str()).and_then(|value| non_empty_string(Some(value))),
+        poster_path: detail.get("posters").and_then(|value| value.get("large")).or_else(|| detail.get("poster")).and_then(|value| value.as_str()).and_then(|value| non_empty_string(Some(value))),
+        year: parse_year_prefix(detail.get("date").and_then(|value| value.as_str())),
+        rating: None,
+        genre,
+        tmdb_id: None,
+        imdb_id: detail.get("uuid").and_then(|value| value.as_str()).and_then(|value| non_empty_string(Some(value))),
+    }))
 }
 
 async fn fetch_standard_metadata(
@@ -726,7 +822,7 @@ async fn fetch_tmdb_metadata(
     let Some(first) = data
         .get("results")
         .and_then(|value| value.as_array())
-        .and_then(|items| items.first())
+        .and_then(|items| items.iter().find(|scene| scene.get("title").and_then(|value| value.as_str()).is_some_and(|title| strong_title_match(query, title))) )
     else {
         return Ok(None);
     };
@@ -1010,59 +1106,146 @@ fn build_metadata_update(
     update
 }
 
-/// Downloads a remote poster image URL to a local sidecar file next to the video.
-/// Returns the local file path on success.
-async fn download_poster_to_sidecar(
-    client: &reqwest::Client,
-    url: &str,
+const MAX_POSTER_BYTES: usize = 25 * 1024 * 1024;
+
+fn poster_extension(url: &str, content_type: Option<&str>) -> &'static str {
+    let content_type = content_type.unwrap_or_default().to_ascii_lowercase();
+    if content_type.contains("png") {
+        return "png";
+    }
+    if content_type.contains("webp") {
+        return "webp";
+    }
+    if content_type.contains("gif") {
+        return "gif";
+    }
+    let url_path = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
+    if url_path.ends_with(".png") {
+        "png"
+    } else if url_path.ends_with(".webp") {
+        "webp"
+    } else if url_path.ends_with(".gif") {
+        "gif"
+    } else {
+        "jpg"
+    }
+}
+
+fn valid_poster_payload(content_type: Option<&str>, bytes: &[u8]) -> bool {
+    if bytes.is_empty() || bytes.len() > MAX_POSTER_BYTES {
+        return false;
+    }
+    if content_type
+        .map(|value| value.to_ascii_lowercase().starts_with("text/"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let has_supported_signature = bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a");
+    if !has_supported_signature {
+        return false;
+    }
+    // A file signature alone accepts truncated/corrupt payloads. Decode the
+    // image and require a usable raster before it can become a media card.
+    image::load_from_memory(bytes)
+        .map(|image| image.width() >= 20 && image.height() >= 20)
+        .unwrap_or(false)
+}
+
+fn write_poster_sidecar_bytes(
     video_path: &str,
+    extension: &str,
+    bytes: &[u8],
 ) -> Result<String, String> {
+    if !valid_poster_payload(None, bytes) {
+        return Err("poster payload is empty, too large, or not a supported image".to_string());
+    }
     let video = Path::new(video_path);
     let parent = video.parent().ok_or("video file has no parent directory")?;
     let stem = video
         .file_stem()
-        .and_then(|s| s.to_str())
+        .and_then(|value| value.to_str())
         .ok_or("video file has no stem")?;
-
-    // Determine extension from URL (default jpg)
-    let ext = url
-        .split('?')
-        .next()
-        .and_then(|u| u.rsplit('.').next())
-        .map(|e| e.to_ascii_lowercase())
-        .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp"))
-        .unwrap_or_else(|| "jpg".to_string());
-
-    let sidecar_name = format!("{stem}-poster.{ext}");
-    let sidecar_path = parent.join(&sidecar_name);
-
-    // Skip download if sidecar already exists
-    if sidecar_path.exists() {
-        return Ok(sidecar_path.to_string_lossy().to_string());
+    let extension = match extension.to_ascii_lowercase().as_str() {
+        "png" => "png",
+        "webp" => "webp",
+        "gif" => "gif",
+        _ => "jpg",
+    };
+    let sidecar_path = parent.join(format!("{stem}-poster.{extension}"));
+    if let Ok(existing_bytes) = std::fs::read(&sidecar_path) {
+        if valid_poster_payload(None, &existing_bytes) {
+            return Ok(sidecar_path.to_string_lossy().to_string());
+        }
     }
 
+    let temporary_path = parent.join(format!("{stem}-poster.{extension}.part"));
+    let previous_path = parent.join(format!("{stem}-poster.{extension}.previous"));
+    {
+        let mut file = std::fs::File::create(&temporary_path)
+            .map_err(|error| format!("poster create failed: {error}"))?;
+        file.write_all(bytes)
+            .map_err(|error| format!("poster write failed: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("poster sync failed: {error}"))?;
+    }
+    if sidecar_path.exists() {
+        let _ = std::fs::remove_file(&previous_path);
+        std::fs::rename(&sidecar_path, &previous_path)
+            .map_err(|error| format!("poster backup before replacement failed: {error}"))?;
+    }
+    if let Err(error) = std::fs::rename(&temporary_path, &sidecar_path) {
+        if previous_path.exists() {
+            let _ = std::fs::rename(&previous_path, &sidecar_path);
+        }
+        return Err(format!("poster finalize failed: {error}"));
+    }
+    if previous_path.exists() {
+        let _ = std::fs::remove_file(&previous_path);
+    }
+    Ok(sidecar_path.to_string_lossy().to_string())
+}
+
+/// Downloads a remote poster image URL to a verified local sidecar file next to the video.
+pub(crate) async fn download_poster_to_sidecar(
+    client: &reqwest::Client,
+    url: &str,
+    video_path: &str,
+) -> Result<String, String> {
     let response = client
         .get(url)
-        .header("User-Agent", "CinaVault/1.0")
+        .header("User-Agent", "CinaVault/1.6.4")
         .send()
         .await
-        .map_err(|e| format!("poster fetch failed: {e}"))?;
-
+        .map_err(|error| format!("poster fetch failed: {error}"))?;
     if !response.status().is_success() {
         return Err(format!("poster HTTP {}", response.status()));
     }
-
+    if response
+        .content_length()
+        .map(|length| length > MAX_POSTER_BYTES as u64)
+        .unwrap_or(false)
+    {
+        return Err(format!("poster exceeds {} bytes", MAX_POSTER_BYTES));
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let extension = poster_extension(url, content_type.as_deref());
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("poster read failed: {e}"))?;
-
-    let mut file =
-        std::fs::File::create(&sidecar_path).map_err(|e| format!("poster create failed: {e}"))?;
-    file.write_all(&bytes)
-        .map_err(|e| format!("poster write failed: {e}"))?;
-
-    Ok(sidecar_path.to_string_lossy().to_string())
+        .map_err(|error| format!("poster read failed: {error}"))?;
+    if !valid_poster_payload(content_type.as_deref(), &bytes) {
+        return Err("poster response was not a supported image".to_string());
+    }
+    write_poster_sidecar_bytes(video_path, extension, &bytes)
 }
 
 /// Writes a Kodi-compatible NFO sidecar XML file next to the video file.
@@ -1441,18 +1624,17 @@ pub async fn gather_adult_metadata(
         let items = rows
             .collect::<Result<Vec<_>, _>>()
             .map_err(|err| err.to_string())?;
-        let provider_keys = load_provider_keys(&db)?;
+        let mut provider_keys = load_provider_keys(&db)?;
+        provider_keys.retain(|provider, _| {
+            crate::metadata_ext::is_adult_provider_enabled(&db, provider).unwrap_or(false)
+        });
         (items, provider_keys)
     };
 
-    let configured_adult_providers: Vec<String> = [
-        "tpdb",
-        "stashdb",
-        "pgma",
-        "porn_site_nuxt",
-        "iafd",
-        "phoenixadult",
-    ]
+    // Only report adapters this build can actually call.  IAFD and Phoenix do
+    // not have a supported integration here; reporting them as configured
+    // previously made a successful-looking gather do no work.
+    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb"]
     .iter()
     .filter(|&&p| provider_keys.contains_key(p))
     .map(|p| p.to_string())
@@ -1471,12 +1653,26 @@ pub async fn gather_adult_metadata(
         provider_errors: Vec::new(),
     };
 
+    for unavailable in ["iafd", "phoenixadult"] {
+        if provider_keys.contains_key(unavailable) {
+            report.provider_errors.push(format!(
+                "{unavailable}: unavailable in this build; no request was made"
+            ));
+        }
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|err| err.to_string())?;
 
     for item in items {
+        if task_progress::stop_requested() {
+            report
+                .provider_errors
+                .push("Stopped by user before processing the next item".to_string());
+            break;
+        }
         if !is_video_library_item(&item) {
             continue;
         }
@@ -1492,26 +1688,29 @@ pub async fn gather_adult_metadata(
             &provider_keys,
             SourceKind::AdultVideo,
             &queries,
+            &item.file_path,
             &mut report.provider_errors,
         )
         .await;
 
-        let local_artwork = local_sidecar_artwork_match(&item);
-        let provider = [remote_provider, local_artwork]
-            .into_iter()
-            .flatten()
-            .reduce(merge_provider_matches);
-
-        let Some(provider) = provider else {
+        let Some(provider) = remote_provider else {
             continue;
         };
 
         let mut update = build_metadata_update(&item, &provider, &SourceKind::AdultVideo);
 
-        if let Some(ref remote_url) = update.poster_path.clone() {
-            if remote_url.starts_with("http") {
-                match download_poster_to_sidecar(&client, remote_url, &item.file_path).await {
+        let poster_candidate = update.poster_path.clone().or_else(|| {
+            item.poster_path
+                .clone()
+                .filter(|path| path.starts_with("http://") || path.starts_with("https://"))
+        });
+        if let Some(remote_url) = poster_candidate {
+            if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
+                match download_poster_to_sidecar(&client, &remote_url, &item.file_path).await {
                     Ok(local_path) => {
+                        if update.poster_path.is_none() {
+                            update.changed_fields += 1;
+                        }
                         update.poster_path = Some(local_path);
                         report.posters_updated += 1;
                     }
@@ -1572,8 +1771,8 @@ mod tests {
     use super::{
         build_metadata_update, build_query_candidates, classify_library_item,
         local_embedded_title_match, local_sidecar_artwork_match, normalize_filename_title,
-        rename_confidence, safe_rename_target, EnrichmentMode, LibraryItemRecord, ProviderMatch,
-        RenameTarget, SourceKind,
+        rename_confidence, safe_rename_target, strong_title_match, valid_poster_payload, write_poster_sidecar_bytes,
+        EnrichmentMode, LibraryItemRecord, ProviderMatch, RenameTarget, SourceKind,
     };
     use std::fs;
 
@@ -1650,6 +1849,70 @@ mod tests {
         assert_eq!(provider.title.as_deref(), Some("Actual Scene Title"));
         assert_eq!(update.title.as_deref(), Some("Actual Scene Title"));
         assert_eq!(update.changed_fields, 1);
+    }
+
+    #[test]
+    fn acquired_poster_is_validated_and_atomically_written_as_a_sidecar() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-poster-write-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Movie.mp4");
+        fs::write(&video, b"video").expect("video should be created");
+        let mut png = Vec::new();
+        image::DynamicImage::new_rgba8(20, 20)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("fixture PNG should encode");
+
+        assert!(valid_poster_payload(Some("image/png"), &png));
+        assert!(!valid_poster_payload(
+            Some("text/html"),
+            b"<html>error</html>"
+        ));
+        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "png", &png)
+            .expect("poster sidecar should be written");
+
+        assert!(poster.ends_with("Movie-poster.png"));
+        assert_eq!(fs::read(&poster).unwrap(), png);
+        assert!(!dir.join("Movie-poster.png.part").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn invalid_existing_poster_sidecar_is_replaced_with_verified_image_bytes() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-poster-replace-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Movie.mp4");
+        let stale_poster = dir.join("Movie-poster.jpg");
+        let mut jpg = Vec::new();
+        image::DynamicImage::new_rgb8(20, 20)
+            .write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg)
+            .expect("fixture JPEG should encode");
+        fs::write(&video, b"video").expect("video should be created");
+        fs::write(&stale_poster, b"<html>expired poster URL</html>")
+            .expect("stale poster should be created");
+
+        let poster = write_poster_sidecar_bytes(&video.to_string_lossy(), "jpg", &jpg)
+            .expect("verified poster should replace invalid sidecar");
+
+        assert_eq!(poster, stale_poster.to_string_lossy());
+        assert_eq!(fs::read(&poster).unwrap(), jpg);
+        assert!(!dir.join("Movie-poster.jpg.part").exists());
+        assert!(!dir.join("Movie-poster.jpg.previous").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn adult_provider_candidate_must_match_the_requested_title() {
+        assert!(strong_title_match("Exact Scene Title", "Exact Scene Title"));
+        assert!(!strong_title_match("Exact Scene Title", "Different Scene Title"));
+    }
+
+    #[test]
+    fn truncated_image_signature_is_not_accepted_as_artwork() {
+        assert!(!valid_poster_payload(Some("image/png"), b"\x89PNG\r\n\x1a\ntruncated"));
     }
 
     #[test]

@@ -116,12 +116,14 @@ export default function AdvancedTab() {
   };
 
   const handleToggle = async (key: string) => {
-    toggleFeature(key);
     const enabled = !(featureSettings[key]?.enabled || false);
-    addStatusMessage(`Feature ${key}: ${enabled ? "enabled" : "disabled"}`);
     try {
       await invoke("set_feature_setting", { key, enabled, config: "{}" });
-    } catch {}
+      toggleFeature(key);
+      addStatusMessage(`Feature ${key}: ${enabled ? "enabled" : "disabled"}`);
+    } catch (error) {
+      addStatusMessage(`Feature ${key}: update failed — ${String(error)}`);
+    }
   };
 
   const addRequest = () => {

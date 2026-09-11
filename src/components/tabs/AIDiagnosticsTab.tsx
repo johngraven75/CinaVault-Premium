@@ -33,10 +33,18 @@ import {
   Tag,
   ShieldCheck,
   Trash2,
+  Square,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
+const HF_FREE_MODELS = [
+  { id: "Qwen/Qwen3-4B-Instruct-2507", name: "Qwen3 4B Instruct", reasoning: true, note: "Fast structured library automation" },
+  { id: "HuggingFaceTB/SmolLM3-3B", name: "SmolLM3 3B", reasoning: true, note: "Compact open reasoning model" },
+  { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", name: "DeepSeek R1 Distill 7B", reasoning: true, note: "Deeper multi-step reasoning" },
+  { id: "microsoft/Phi-3.5-mini-instruct", name: "Phi 3.5 Mini", reasoning: false, note: "Efficient instruction following" },
+  { id: "katanemo/Arch-Router-1.5B:hf-inference", name: "Arch Router 1.5B", reasoning: true, note: "Routes tool and library tasks" },
+] as const;
 const BULK_METADATA_BATCH_LIMIT = 500;
 const MAX_VISIBLE_PROVIDER_ERRORS = 40;
 
@@ -46,6 +54,17 @@ type QuickAction = {
   q: string;
   progressTask?: string;
   runNow?: () => Promise<any>;
+};
+
+type SourceDiscoveryResult = {
+  type?: "source_discovery";
+  status: string;
+  roots_checked: number;
+  discovered: number;
+  added: number;
+  existing: number;
+  paths: string[];
+  message: string;
 };
 
 type AiConfig = {
@@ -74,6 +93,22 @@ type AdultMetadataGatherResult = {
   skipped_non_video_items?: number;
   errors?: string[];
   note?: string;
+};
+
+type AdultProviderSetting = {
+  key: string;
+  enabled: boolean;
+  configured: boolean;
+  masked_credential?: string;
+};
+
+const ADULT_PROVIDER_LABELS: Record<string, string> = {
+  tpdb: "ThePornDB",
+  stashdb: "StashDB",
+  porn_site_nuxt: "Nuxt adult endpoint",
+  iafd: "IAFD",
+  phoenixadult: "PhoenixAdult",
+  pgma: "PGMA",
 };
 
 type SingleItemMetadataCheckResult = {
@@ -240,6 +275,11 @@ export default function AIDiagnosticsTab() {
     "https://router.huggingface.co/v1/chat/completions",
   );
   const [showConfig, setShowConfig] = useState(false);
+  const [showModelCatalog, setShowModelCatalog] = useState(false);
+  const [adultProviders, setAdultProviders] = useState<AdultProviderSetting[]>([]);
+  const [adultProviderValues, setAdultProviderValues] = useState<Record<string, string>>({});
+  const [adultProviderNotice, setAdultProviderNotice] = useState("");
+  const [adultProviderBusy, setAdultProviderBusy] = useState<string | null>(null);
   const [history, setHistory] = useState<
     { query: string; result: any; time: string }[]
   >([]);
@@ -248,6 +288,10 @@ export default function AIDiagnosticsTab() {
 
   const loadAiConfig = useCallback(async () => {
     try {
+      // Recover a previously saved environment or Hugging Face CLI credential
+      // before reading status. The backend persists any recovered token in the
+      // app database so upgrades and reinstalls keep AI inference configured.
+      await invoke("ensure_hf_token");
       const config = await invoke<AiConfig>("get_ai_config");
       setModel(config.model || config.default_model || DEFAULT_HF_MODEL);
       setHasHfToken(Boolean(config.has_token));
@@ -267,6 +311,58 @@ export default function AIDiagnosticsTab() {
   useEffect(() => {
     if (showConfig) void loadAiConfig();
   }, [showConfig, loadAiConfig]);
+
+  const loadAdultProviders = useCallback(async () => {
+    try {
+      const result = await invoke<{ providers: AdultProviderSetting[] }>("get_adult_provider_settings");
+      setAdultProviders(result.providers);
+    } catch (error) {
+      setAdultProviderNotice(`Could not load adult provider status: ${error}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showConfig) void loadAdultProviders();
+  }, [showConfig, loadAdultProviders]);
+
+  const saveAdultProviders = async () => {
+    setAdultProviderBusy("save");
+    setAdultProviderNotice("");
+    try {
+      for (const provider of adultProviders) {
+        const value = adultProviderValues[provider.key]?.trim();
+        if (value) await invoke("set_api_key", { provider: provider.key, apiKey: value });
+      }
+      await invoke("save_adult_provider_settings", {
+        enabledProviders: adultProviders.filter((provider) => provider.enabled).map((provider) => provider.key),
+      });
+      setAdultProviderValues({});
+      setAdultProviderNotice("Adult provider settings saved. Credentials remain masked.");
+      await loadAdultProviders();
+    } catch (error) {
+      setAdultProviderNotice(`Could not save adult provider settings: ${error}`);
+    } finally {
+      setAdultProviderBusy(null);
+    }
+  };
+
+  const testAdultProvider = async (provider: AdultProviderSetting) => {
+    const value = adultProviderValues[provider.key]?.trim();
+    if (!value && provider.key !== "pgma") {
+      setAdultProviderNotice(`Enter the ${ADULT_PROVIDER_LABELS[provider.key] || provider.key} credential or endpoint before testing.`);
+      return;
+    }
+    setAdultProviderBusy(provider.key);
+    setAdultProviderNotice("");
+    try {
+      const result = await invoke<{ valid: boolean }>("test_api_key", { provider: provider.key, apiKey: value || "local" });
+      setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key}: ${result.valid ? "connection accepted" : "connection was not accepted"}.`);
+    } catch (error) {
+      setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key} test failed: ${error}`);
+    } finally {
+      setAdultProviderBusy(null);
+    }
+  };
 
   const refreshLoadedLibraryPage = useCallback(async () => {
     const items = await invoke<MediaItem[]>(
@@ -338,6 +434,15 @@ export default function AIDiagnosticsTab() {
       percent: 0,
       message: `Starting ${label}...`,
     });
+  };
+
+  const stopAiAgent = async () => {
+    try {
+      await invoke("stop_ai_agent");
+      addStatusMessage("AI agent stop requested; the current item will finish safely.");
+    } catch (error) {
+      addStatusMessage(`Unable to stop AI agent: ${error}`);
+    }
   };
 
   const updateLocalProgress = (
@@ -492,6 +597,13 @@ export default function AIDiagnosticsTab() {
     } else if (isAdultMetadataGatherResult(result)) {
       message = formatAdultMetadataGatherMessage(label, result);
       await refreshLoadedLibraryPage();
+    } else if (result?.type === "source_discovery" || result?.paths) {
+      const discovery = result as SourceDiscoveryResult;
+      message = `${label}: found ${discovery.discovered || 0}, added ${discovery.added || 0}, already configured ${discovery.existing || 0}`;
+      await refreshLoadedLibraryPage();
+    } else if (result?.type === "ai_library_manage") {
+      message = `${label}: ${result.status || "complete"}, ${result.total_updated || 0} real updates`;
+      await refreshLoadedLibraryPage();
     } else if (result?.type === "purge_photo_items") {
       message =
         result.message ||
@@ -547,9 +659,7 @@ export default function AIDiagnosticsTab() {
       setAiProcessing(true);
       addStatusMessage(`Running: ${label}...`);
       try {
-        const result = await invoke<AdultMetadataGatherResult>("ai_query", {
-          prompt: cleanPrompt,
-        });
+        const result = await invoke<AdultMetadataGatherResult>("gather_adult_metadata");
         await handleTrackedResult(label, cleanPrompt, result);
       } catch (e) {
         const errResult = { status: "error", message: String(e) };
@@ -681,13 +791,33 @@ export default function AIDiagnosticsTab() {
       label: "Network Diagnostics",
       icon: Network,
       q: "Run network diagnostics",
+      runNow: () => invoke("ai_query", { prompt: "Run network diagnostics" }),
     },
     {
       label: "Check Sources",
       icon: FolderSearch,
       q: "Check all media sources",
+      runNow: () => invoke("ai_query", { prompt: "Check all media sources" }),
     },
-    { label: "Check Providers", icon: Database, q: "Check metadata providers" },
+    {
+      label: "Discover Media Sources",
+      icon: FolderSearch,
+      q: "Discover media sources",
+      runNow: () => invoke("discover_media_sources"),
+    },
+    {
+      label: "Check Providers",
+      icon: Database,
+      q: "Check metadata providers",
+      runNow: () => invoke("ai_query", { prompt: "Check metadata providers" }),
+    },
+    {
+      label: "Run Full AI Library Management",
+      icon: Brain,
+      q: "Scan, enrich metadata, normalize titles and filenames, attach posters, write NFO files, and analyze duplicates",
+      progressTask: "ai_library_manage",
+      runNow: () => invoke("ai_library_manage", { tasks: null }),
+    },
     {
       label: "Post Metadata & Posters",
       icon: Sparkles,
@@ -720,11 +850,7 @@ export default function AIDiagnosticsTab() {
       icon: Sparkles,
       q: "Run adult metadata gather for installed providers and generate posters and chapter images",
       progressTask: "adult_metadata_gather",
-      runNow: () =>
-        invoke("ai_query", {
-          prompt:
-            "Run adult metadata gather for installed providers and generate posters and chapter images",
-        }),
+      runNow: () => invoke("gather_adult_metadata"),
     },
     {
       label: "Purge Photo Items",
@@ -815,6 +941,9 @@ export default function AIDiagnosticsTab() {
               <div className="mt-1 truncate text-sm font-bold text-cv-text">
                 {model}
               </div>
+              <button onClick={() => setShowModelCatalog(true)} className="cv-btn cv-btn-gold mt-3 text-xs">
+                <Sparkles size={12} /> Select Free HF Model
+              </button>
             </div>
           </div>
 
@@ -851,6 +980,15 @@ export default function AIDiagnosticsTab() {
             >
               <Sparkles size={14} /> Inference
             </button>
+            {aiProcessing && (
+              <button
+                onClick={() => void stopAiAgent()}
+                className="cv-btn cv-btn-danger"
+                title="Stop the active AI or metadata operation"
+              >
+                <Square size={14} /> Stop AI Agent
+              </button>
+            )}
           </div>
           <div className="mt-2">
             <input
@@ -874,6 +1012,25 @@ export default function AIDiagnosticsTab() {
               </button>
             ))}
           </div>
+          <button
+            disabled={aiProcessing}
+            onClick={async () => {
+              if (!window.confirm("Mark every item currently indexed in CinaVault as adult? Existing poster and backdrop references will be preserved. Future imports will continue to use normal classification.")) return;
+              setAiProcessing(true);
+              try {
+                const result = await invoke<any>("convert_entire_library_to_adult");
+                await handleTrackedResult("Convert Entire Library to Adult", "Convert entire library to adult", result);
+                await refreshLoadedLibraryPage();
+              } catch (error) {
+                addStatusMessage(`Adult library conversion failed: ${error}`);
+              } finally {
+                setAiProcessing(false);
+              }
+            }}
+            className="cv-btn cv-btn-danger mt-3 text-xs disabled:opacity-50"
+          >
+            Mark Current Inventory Adult (CinaVault Only)
+          </button>
         </div>
       </div>
 
@@ -934,6 +1091,12 @@ export default function AIDiagnosticsTab() {
                 >
                   <Cpu size={12} /> Set
                 </button>
+                <button
+                  onClick={() => setShowModelCatalog(true)}
+                  className="cv-btn cv-btn-gold text-xs"
+                >
+                  <Sparkles size={12} /> Browse Free Models
+                </button>
               </div>
               <div className="text-[10px] text-cv-subtext mt-1">
                 Default: {DEFAULT_HF_MODEL}
@@ -943,7 +1106,53 @@ export default function AIDiagnosticsTab() {
           <div className="mt-3 text-[10px] text-cv-subtext">
             Inference URL: {inferenceUrl}
           </div>
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold">Adult metadata providers</h4>
+                <p className="mt-1 text-[10px] text-cv-subtext">Only adult providers are used by Adult Metadata Gather. Saved credentials are never shown here.</p>
+              </div>
+              <button type="button" onClick={() => void saveAdultProviders()} disabled={adultProviderBusy !== null} className="cv-btn cv-btn-primary text-xs disabled:opacity-50"><Key size={12} /> {adultProviderBusy === "save" ? "Saving…" : "Save adult providers"}</button>
+            </div>
+            <div className="mt-3 grid gap-3">
+              {adultProviders.map((provider) => {
+                const label = ADULT_PROVIDER_LABELS[provider.key] || provider.key;
+                const endpoint = provider.key === "porn_site_nuxt";
+                const acceptsCredential = ["tpdb", "stashdb", "porn_site_nuxt"].includes(provider.key);
+                return <div key={provider.key} className="glass-panel-2 rounded-lg border border-white/10 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={provider.enabled} onChange={(event) => setAdultProviders((items) => items.map((item) => item.key === provider.key ? { ...item, enabled: event.target.checked } : item))} /> {label}</label>
+                    <span className={`text-[10px] ${provider.enabled ? "text-cv-accent" : "text-cv-subtext"}`}>{provider.enabled ? (provider.configured || !acceptsCredential ? "enabled" : "enabled — needs setup") : "disabled"}</span>
+                  </div>
+                  {acceptsCredential && <div className="mt-2 flex flex-wrap gap-2"><input type={endpoint ? "url" : "password"} value={adultProviderValues[provider.key] || ""} onChange={(event) => setAdultProviderValues((values) => ({ ...values, [provider.key]: event.target.value }))} className="cv-input min-w-[14rem] flex-1 text-xs" placeholder={endpoint ? (provider.masked_credential ? "Endpoint saved — enter replacement" : "https://your-adult-provider.example/api") : (provider.masked_credential ? "Credential saved — enter replacement" : "Enter credential")} /><button type="button" onClick={() => void testAdultProvider(provider)} disabled={adultProviderBusy !== null} className="cv-btn cv-btn-secondary text-xs disabled:opacity-50">{adultProviderBusy === provider.key ? "Testing…" : "Live test"}</button></div>}
+                  {!acceptsCredential && <p className="mt-2 text-[10px] text-cv-subtext">{provider.key === "pgma" ? "Local sidecar bridge; no credential required." : "This provider is used only when its installed integration is available."}</p>}
+                </div>;
+              })}
+            </div>
+            {adultProviderNotice && <p role="status" className="mt-3 text-[10px] text-cv-subtext">{adultProviderNotice}</p>}
+          </div>
         </motion.div>
+      )}
+
+      {showModelCatalog && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-label="Hugging Face model selection">
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="glass-panel w-full max-w-3xl p-5">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div><h3 className="text-base font-bold">Hugging Face Free Model Catalog</h3><p className="mt-1 text-xs text-cv-subtext">Public, ungated choices only. Reasoning-capable models are labeled.</p></div>
+              <button onClick={() => setShowModelCatalog(false)} className="cv-btn cv-btn-secondary text-xs">Close</button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {HF_FREE_MODELS.map((candidate) => (
+                <button key={candidate.id} onClick={() => { setModel(candidate.id); setShowModelCatalog(false); }} className={`glass-panel-2 rounded-xl border p-4 text-left transition-colors ${model === candidate.id ? "border-cv-accent" : "border-white/10 hover:border-white/25"}`}>
+                  <div className="flex items-center justify-between gap-2"><span className="text-sm font-bold">{candidate.name}</span>{candidate.reasoning && <span className="rounded bg-cv-accent/15 px-2 py-1 text-[9px] font-bold text-cv-accent">REASONING</span>}</div>
+                  <div className="mt-2 break-all font-mono text-[10px] text-cv-subtext">{candidate.id}</div>
+                  <div className="mt-2 text-xs text-cv-subtext">{candidate.note}</div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 text-[10px] text-cv-subtext">Selecting a card fills the model field. Press Set to save it permanently.</div>
+          </motion.div>
+        </div>
       )}
 
       {(aiResult || history.length > 0) && (

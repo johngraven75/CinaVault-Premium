@@ -388,6 +388,62 @@ const FEATURE_REGISTRY = [
     file: "src-tauri/Cargo.toml",
   },
 
+  // ── Build 165: Real Work, NAS, Adult Metadata, Poster Integrity ──────────
+  {
+    build: "165",
+    feature: "Permanent media tools auto-bootstrap at app startup",
+    token: "ensure_media_tools",
+    file: "src-tauri/src/media_tools.rs",
+  },
+  {
+    build: "165",
+    feature: "AI operational prompts execute library automation",
+    token: "AiQueryRoute::LibraryAutomation",
+    file: "src-tauri/src/ai.rs",
+  },
+  {
+    build: "165",
+    feature: "AI source discovery persists real sources",
+    token: "discover_and_add_sources",
+    file: "src-tauri/src/scanner.rs",
+  },
+  {
+    build: "165",
+    feature: "WD and Synology sources use scanner-compatible network paths",
+    token: "network_source_path",
+    file: "src-tauri/src/nas_devices.rs",
+  },
+  {
+    build: "165",
+    feature: "All adult metadata providers participate in runtime routing",
+    token: "configured_adult_provider_order",
+    file: "src-tauri/src/metadata.rs",
+  },
+  {
+    build: "165",
+    feature: "Poster sidecars are validated and atomically written",
+    token: "write_poster_sidecar_bytes",
+    file: "src-tauri/src/enrichment.rs",
+  },
+  {
+    build: "165",
+    feature: "Media cards handle sidecar poster failures",
+    token: "data-poster-fallback",
+    file: "src/components/tabs/HomeTab.tsx",
+  },
+  {
+    build: "165",
+    feature: "Plugin and provider JSON configuration validation",
+    token: "every plugin config is valid, enabled, uniquely identified JSON",
+    file: "tests/build165PluginProviderConfig.test.mjs",
+  },
+  {
+    build: "165",
+    feature: "Real-work regression coverage",
+    token: "Build 165 real-work governance checks",
+    file: "tests/build165RealWorkSideEffects.test.mjs",
+  },
+
   // ── Build 155: Full Automation ────────────────────────────────────────────
   {
     build: "155",
@@ -418,6 +474,36 @@ const FEATURE_REGISTRY = [
     feature: "Carry-forward governance test",
     token: "Carry-Forward Verification Test",
     file: "tests/carryForwardVerification.test.mjs",
+  },
+  {
+    build: "2.0.6",
+    feature: "Secure Hugging Face token recovery before AI status",
+    token: 'invoke("ensure_hf_token")',
+    file: "src/components/tabs/AIDiagnosticsTab.tsx",
+  },
+  {
+    build: "2.0.6",
+    feature: "Metadata provider initialization at every launch",
+    token: "initialize_metadata_providers(&database)",
+    file: "src-tauri/src/lib.rs",
+  },
+  {
+    build: "2.0.6",
+    feature: "Provider readiness persistence",
+    token: "metadata_provider_startup_status",
+    file: "src-tauri/src/metadata_ext.rs",
+  },
+  {
+    build: "2.0.6",
+    feature: "Kodi metadata response envelope handling",
+    token: "const updated = result.updated_item",
+    file: "src/components/kodi/KodiHomeLayout.tsx",
+  },
+  {
+    build: "2.0.6",
+    feature: "Kodi metadata and poster card state merge",
+    token: "{ ...media, ...updated }",
+    file: "src/components/kodi/KodiHomeLayout.tsx",
   },
 ];
 

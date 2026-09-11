@@ -1,24 +1,40 @@
-// CinaVault Premium — Remote Access Management (Unified layout)
+// CinaVault Premium — Build 170 Remote Access Management
 import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import {
-  Router,
-  Globe,
-  ShieldCheck,
-  RefreshCw,
-  CheckCircle,
+  createRemoteAccountFormState,
+  dismissRemoteAccountFormStatus,
+  failRemoteAccountSave,
+  finishRemoteAccountSave,
+  markRemoteAccessKeyCopied,
+  prepareRemoteAccountSave,
+  RemoteAccessKeyReveal,
+  revealRemoteAccessKey,
+  setRemoteAccountFormStatus,
+  updateRemoteAccountFormField,
+} from "../../utils/remoteAccessAccountForm";
+import { rotateRemoteAccessUserKey } from "../../utils/remoteAccessUserCommands";
+import {
   AlertTriangle,
-  PlugZap,
-  SlidersHorizontal,
-  Lock,
-  UserPlus,
-  LogIn,
-  KeyRound,
+  CheckCircle,
+  Cloud,
   Copy,
-  RotateCw,
+  Globe,
+  KeyRound,
+  Link2,
+  Lock,
+  LogIn,
+  PlugZap,
   Power,
+  RefreshCw,
+  RotateCw,
+  Router,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserPlus,
+  Wifi,
 } from "lucide-react";
 
 type SecureMode = "required" | "preferred" | "disabled";
@@ -35,8 +51,14 @@ type RemoteAccessUser = {
   last_login?: string | null;
 };
 
-type RemoteProvision = RemoteAccessUser & {
+type RemoteProvision = {
+  id: number;
+  email: string;
+  display_name?: string | null;
   access_key: string;
+  access_key_preview: string;
+  enabled: boolean;
+  created_at: string;
 };
 
 type RemotePrincipal = {
@@ -49,27 +71,57 @@ type RemotePrincipal = {
   permissions: string[];
 };
 
-type RemoteKeyRotation = {
-  email: string;
-  access_key: string;
-  access_key_preview: string;
+function remoteAccessErrorMessage(error: unknown) {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "The remote-user request could not be completed.";
+}
+
+type RemoteConnectivityStatus = {
+  running: boolean;
+  automatic: boolean;
+  port: number;
+  directAvailable: boolean;
+  directMethod?: string | null;
+  directUrl?: string | null;
+  publicIp?: string | null;
+  relayActive: boolean;
+  relayMode?: "named" | "quick" | string | null;
+  relayUrl?: string | null;
+  preferredUrl?: string | null;
+  lastError?: string | null;
+};
+
+const emptyConnectivity: RemoteConnectivityStatus = {
+  running: false,
+  automatic: true,
+  port: 32400,
+  directAvailable: false,
+  directMethod: null,
+  directUrl: null,
+  publicIp: null,
+  relayActive: false,
+  relayMode: null,
+  relayUrl: null,
+  preferredUrl: null,
+  lastError: null,
 };
 
 const secureOptions: { value: SecureMode; label: string; desc: string }[] = [
   {
     value: "required",
     label: "Required",
-    desc: "Only encrypted remote connections are allowed.",
+    desc: "Require the encrypted HTTPS cloud relay for remote clients.",
   },
   {
     value: "preferred",
     label: "Preferred",
-    desc: "Use secure remote connections when possible.",
+    desc: "Use automatic direct access first and encrypted relay fallback.",
   },
   {
     value: "disabled",
     label: "Disabled",
-    desc: "Allow insecure remote connections.",
+    desc: "Permit direct HTTP access when router mapping succeeds.",
   },
 ];
 
@@ -80,30 +132,29 @@ export function isRemoteAccessConfigurationValid(
 ) {
   if (!remoteEnabled) return false;
   if (!publicPort || Number.isNaN(Number(publicPort))) return false;
-  if (manualPort && (Number(publicPort) < 1 || Number(publicPort) > 65535))
+  if (manualPort && (Number(publicPort) < 1 || Number(publicPort) > 65535)) {
     return false;
+  }
   return true;
 }
 
 export default function RemoteAccessTab() {
   const { settings, setSetting, serverUrl, addStatusMessage } = useAppStore();
   const [testing, setTesting] = useState(false);
-  const [publicIp, setPublicIp] = useState<string>("");
-  const [lastTestAt, setLastTestAt] = useState<string>("");
+  const [lastTestAt, setLastTestAt] = useState("");
+  const [connectivity, setConnectivity] =
+    useState<RemoteConnectivityStatus>(emptyConnectivity);
   const [accounts, setAccounts] = useState<RemoteAccessUser[]>([]);
-  const [accountForm, setAccountForm] = useState({
-    displayName: "",
-    email: "",
-    password: "",
-  });
+  const [accountForm, setAccountForm] = useState(
+    createRemoteAccountFormState,
+  );
   const [passwordLogin, setPasswordLogin] = useState({
     email: "",
     password: "",
   });
   const [keyLogin, setKeyLogin] = useState("");
-  const [latestKey, setLatestKey] = useState<
-    RemoteKeyRotation | RemoteProvision | null
-  >(null);
+  const [latestKey, setLatestKey] =
+    useState<RemoteAccessKeyReveal | null>(null);
   const [lastPrincipal, setLastPrincipal] = useState<RemotePrincipal | null>(
     null,
   );
@@ -121,15 +172,14 @@ export default function RemoteAccessTab() {
   const uploadLimit = settings.remote_upload_limit_mbps || "20";
   const allowedNetworks = settings.remote_allowed_networks || "";
 
-  const remoteOk = useMemo(
+  const configured = useMemo(
     () =>
       isRemoteAccessConfigurationValid(remoteEnabled, publicPort, manualPort),
     [remoteEnabled, publicPort, manualPort],
   );
-
-  useEffect(() => {
-    loadAccounts();
-  }, []);
+  const remotelyReachable =
+    remoteEnabled && (connectivity.directAvailable || connectivity.relayActive);
+  const effectivePreferRelay = preferredRelay || secureMode === "required";
 
   const loadAccounts = async () => {
     try {
@@ -140,39 +190,97 @@ export default function RemoteAccessTab() {
     }
   };
 
+  const loadConnectivity = async () => {
+    try {
+      const status = await invoke<RemoteConnectivityStatus>(
+        "get_remote_connectivity_status",
+      );
+      setConnectivity(status);
+    } catch (error) {
+      addStatusMessage(`Remote connectivity status unavailable: ${error}`);
+    }
+  };
+
+  useEffect(() => {
+    void loadAccounts();
+    void loadConnectivity();
+    const timer = window.setInterval(() => void loadConnectivity(), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const runConnectionTest = async () => {
     setTesting(true);
     try {
-      const res = await fetch("https://api.ipify.org?format=json");
-      const data = await res.json();
-      setPublicIp(data.ip || "");
+      if (!remoteEnabled) {
+        const stopped = await invoke<RemoteConnectivityStatus>(
+          "stop_remote_connectivity",
+        );
+        setConnectivity(stopped);
+        addStatusMessage("Automatic remote access stopped");
+        return;
+      }
+
+      const port = Number(publicPort || 32400);
+      const status = await invoke<RemoteConnectivityStatus>(
+        "start_remote_connectivity",
+        {
+          port,
+          preferRelay: effectivePreferRelay,
+          allowRelay: fallback,
+          enableUpnp: upnp,
+          enableNatPmp: natPmp,
+        },
+      );
+      setConnectivity(status);
       setLastTestAt(new Date().toLocaleTimeString());
-      addStatusMessage("Remote access test complete");
-    } catch {
-      addStatusMessage("Remote access test failed");
+      if (status.preferredUrl) {
+        addStatusMessage(`Remote access ready: ${status.preferredUrl}`);
+      } else {
+        addStatusMessage(
+          `Remote access unavailable: ${status.lastError || "No reachable route"}`,
+        );
+      }
+    } catch (error) {
+      addStatusMessage(`Remote access test failed: ${error}`);
+    } finally {
+      setTesting(false);
     }
-    setTesting(false);
+  };
+
+  const copyRemoteUrl = async () => {
+    if (!connectivity.preferredUrl) return;
+    await navigator.clipboard?.writeText(connectivity.preferredUrl);
+    addStatusMessage("Remote server URL copied");
   };
 
   const createAccount = async () => {
-    setBusy("create");
+    const prepared = prepareRemoteAccountSave(accountForm);
+    setAccountForm(prepared);
+    if (prepared.status.kind !== "saving") return;
+
     try {
       const provision = await invoke<RemoteProvision>(
         "create_remote_access_user",
         {
-          email: accountForm.email,
-          password: accountForm.password,
-          displayName: accountForm.displayName || null,
+          email: prepared.fields.email,
+          password: prepared.fields.password,
+          displayName: prepared.fields.displayName || null,
         },
       );
-      setLatestKey(provision);
-      setAccountForm({ displayName: "", email: "", password: "" });
-      addStatusMessage(`Remote account ready: ${provision.email}`);
+      setLatestKey(
+        revealRemoteAccessKey(
+          provision.email,
+          provision.access_key,
+          "created",
+        ),
+      );
+      setAccountForm(finishRemoteAccountSave(prepared, provision.email));
+      addStatusMessage(`Remote user ready: ${provision.email}`);
       await loadAccounts();
     } catch (error) {
-      addStatusMessage(`Remote account setup failed: ${error}`);
-    } finally {
-      setBusy(null);
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm(failRemoteAccountSave(prepared, message));
+      addStatusMessage(`Remote user setup failed: ${message}`);
     }
   };
 
@@ -202,9 +310,7 @@ export default function RemoteAccessTab() {
     try {
       const principal = await invoke<RemotePrincipal | null>(
         "authenticate_remote_access_key",
-        {
-          accessKey: keyLogin,
-        },
+        { accessKey: keyLogin },
       );
       setLastPrincipal(principal);
       addStatusMessage(
@@ -223,17 +329,37 @@ export default function RemoteAccessTab() {
   const rotateKey = async (email: string) => {
     setBusy(`rotate:${email}`);
     try {
-      const rotated = await invoke<RemoteKeyRotation | null>(
-        "rotate_remote_access_key",
-        { email },
-      );
+      const rotated = await rotateRemoteAccessUserKey(invoke, email);
       if (rotated) {
-        setLatestKey(rotated);
+        setLatestKey(
+          revealRemoteAccessKey(
+            rotated.email,
+            rotated.access_key,
+            "rotated",
+          ),
+        );
+        setAccountForm((state) =>
+          setRemoteAccountFormStatus(state, {
+            kind: "success",
+            message: `Access key rotated for ${email}.`,
+          }),
+        );
         addStatusMessage(`Access key rotated for ${email}`);
+      } else {
+        setAccountForm((state) =>
+          setRemoteAccountFormStatus(state, {
+            kind: "error",
+            message: `Remote user ${email} was not found.`,
+          }),
+        );
       }
       await loadAccounts();
     } catch (error) {
-      addStatusMessage(`Key rotation failed: ${error}`);
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, { kind: "error", message }),
+      );
+      addStatusMessage(`Key rotation failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -249,59 +375,91 @@ export default function RemoteAccessTab() {
       addStatusMessage(
         `${account.email} ${account.enabled ? "disabled" : "enabled"}`,
       );
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, {
+          kind: "success",
+          message: `${account.email} ${account.enabled ? "disabled" : "enabled"}.`,
+        }),
+      );
       await loadAccounts();
     } catch (error) {
-      addStatusMessage(`Remote account update failed: ${error}`);
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, { kind: "error", message }),
+      );
+      addStatusMessage(`Remote user update failed: ${message}`);
     } finally {
       setBusy(null);
     }
   };
 
   const copyLatestKey = async () => {
-    if (!latestKey?.access_key) return;
-    await navigator.clipboard?.writeText(latestKey.access_key);
-    addStatusMessage("Remote access key copied");
+    if (!latestKey) return;
+    try {
+      if (!navigator.clipboard) {
+        throw new Error("Clipboard access is unavailable on this device.");
+      }
+      await navigator.clipboard.writeText(latestKey.accessKey);
+      setLatestKey(markRemoteAccessKeyCopied(latestKey));
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, {
+          kind: "success",
+          message: `Access key copied for ${latestKey.email}.`,
+        }),
+      );
+      addStatusMessage("Remote access key copied");
+    } catch (error) {
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, { kind: "error", message }),
+      );
+    }
   };
+
+  const accountSaving = accountForm.status.kind === "saving";
 
   return (
     <div className="space-y-5">
       <div className="glass-panel p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
-          <h3 className="text-sm font-bold flex items-center gap-2">
-            <Router size={16} className="text-cv-accent" /> Remote Access
-            Management
-          </h3>
+          <div>
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Router size={16} className="text-cv-accent" /> Build 170 Remote
+              Connectivity
+            </h3>
+            <p className="mt-1 text-[11px] text-cv-subtext">
+              Automatic UPnP/NAT-PMP direct access with encrypted outbound cloud
+              relay fallback.
+            </p>
+          </div>
           <button
             onClick={runConnectionTest}
-            disabled={testing}
+            disabled={testing || !configured}
             className="cv-btn cv-btn-secondary text-xs"
           >
             <RefreshCw size={12} className={testing ? "animate-spin" : ""} />
-            {testing ? "Testing..." : "Test Remote Access"}
+            {testing ? "Negotiating..." : "Refresh Automatic Access"}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="glass-panel-2 p-4 rounded-lg">
             <div className="text-[11px] text-cv-subtext mb-2">Status</div>
             <div className="flex items-center gap-2 mb-2">
-              {remoteOk ? (
+              {remotelyReachable ? (
                 <CheckCircle size={14} className="text-green-400" />
               ) : (
                 <AlertTriangle size={14} className="text-amber-400" />
               )}
               <span className="text-sm font-semibold">
-                {remoteOk ? "Fully Configured" : "Needs Attention"}
+                {remotelyReachable ? "Remote Ready" : "Not Reachable"}
               </span>
             </div>
             <div className="text-xs text-cv-subtext">
-              Server URL: {serverUrl}
+              Local server: {serverUrl}
             </div>
             <div className="text-xs text-cv-subtext">
-              Public IP: {publicIp || "Not tested yet"}
-            </div>
-            <div className="text-xs text-cv-subtext">
-              Last check: {lastTestAt || "Never"}
+              Last refresh: {lastTestAt || "Startup automation"}
             </div>
             <div className="text-xs text-cv-subtext">
               Remote users: {accounts.length}
@@ -309,14 +467,77 @@ export default function RemoteAccessTab() {
           </div>
 
           <div className="glass-panel-2 p-4 rounded-lg">
+            <div className="text-[11px] text-cv-subtext mb-2 flex items-center gap-1">
+              <Wifi size={11} /> Direct Route
+            </div>
+            <div className="text-sm font-semibold">
+              {connectivity.directAvailable
+                ? connectivity.directMethod || "Mapped"
+                : "Unavailable"}
+            </div>
+            <div className="text-xs text-cv-subtext break-all mt-1">
+              {connectivity.directUrl || "Router mapping has not succeeded."}
+            </div>
+            <div className="text-xs text-cv-subtext mt-1">
+              Public IP: {connectivity.publicIp || "Not detected"}
+            </div>
+          </div>
+
+          <div className="glass-panel-2 p-4 rounded-lg">
+            <div className="text-[11px] text-cv-subtext mb-2 flex items-center gap-1">
+              <Cloud size={11} /> Cloud Relay
+            </div>
+            <div className="text-sm font-semibold">
+              {connectivity.relayActive
+                ? connectivity.relayMode === "named"
+                  ? "Named Production Tunnel"
+                  : "Automatic Relay"
+                : "Standby"}
+            </div>
+            <div className="text-xs text-cv-subtext break-all mt-1">
+              {connectivity.relayUrl ||
+                "Starts automatically when direct access is unavailable."}
+            </div>
+          </div>
+
+          <div className="glass-panel-2 p-4 rounded-lg">
+            <div className="text-[11px] text-cv-subtext mb-2 flex items-center gap-1">
+              <Link2 size={11} /> Client URL
+            </div>
+            <div className="text-xs text-cv-text break-all min-h-[38px]">
+              {connectivity.preferredUrl || "No public route available"}
+            </div>
+            <button
+              onClick={copyRemoteUrl}
+              disabled={!connectivity.preferredUrl}
+              className="cv-btn cv-btn-secondary text-xs mt-2"
+            >
+              <Copy size={12} /> Copy URL
+            </button>
+          </div>
+        </div>
+
+        {connectivity.lastError && (
+          <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
+            {connectivity.lastError}
+          </div>
+        )}
+      </div>
+
+      <div className="glass-panel p-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="glass-panel-2 p-4 rounded-lg">
             <div className="text-[11px] text-cv-subtext mb-2">Reachability</div>
             <label className="flex items-center justify-between text-xs py-1">
               <span>Enable Remote Access</span>
               <input
                 type="checkbox"
                 checked={remoteEnabled}
-                onChange={(e) =>
-                  setSetting("remote_access_enabled", String(e.target.checked))
+                onChange={(event) =>
+                  setSetting(
+                    "remote_access_enabled",
+                    String(event.target.checked),
+                  )
                 }
               />
             </label>
@@ -325,10 +546,10 @@ export default function RemoteAccessTab() {
               <input
                 type="checkbox"
                 checked={manualPort}
-                onChange={(e) =>
+                onChange={(event) =>
                   setSetting(
                     "remote_manually_specify_port",
-                    String(e.target.checked),
+                    String(event.target.checked),
                   )
                 }
               />
@@ -337,10 +558,10 @@ export default function RemoteAccessTab() {
             <input
               className="cv-input mt-1"
               value={publicPort}
-              onChange={(e) =>
+              onChange={(event) =>
                 setSetting(
                   "remote_public_port",
-                  e.target.value.replace(/[^\d]/g, ""),
+                  event.target.value.replace(/[^\d]/g, ""),
                 )
               }
               placeholder="32400"
@@ -349,7 +570,7 @@ export default function RemoteAccessTab() {
 
           <div className="glass-panel-2 p-4 rounded-lg">
             <div className="text-[11px] text-cv-subtext mb-2">
-              Router Mapping
+              Automatic NAT Traversal
             </div>
             <label className="flex items-center justify-between text-xs py-1">
               <span className="flex items-center gap-1">
@@ -358,8 +579,8 @@ export default function RemoteAccessTab() {
               <input
                 type="checkbox"
                 checked={upnp}
-                onChange={(e) =>
-                  setSetting("remote_enable_upnp", String(e.target.checked))
+                onChange={(event) =>
+                  setSetting("remote_enable_upnp", String(event.target.checked))
                 }
               />
             </label>
@@ -370,31 +591,53 @@ export default function RemoteAccessTab() {
               <input
                 type="checkbox"
                 checked={natPmp}
-                onChange={(e) =>
-                  setSetting("remote_enable_natpmp", String(e.target.checked))
+                onChange={(event) =>
+                  setSetting(
+                    "remote_enable_natpmp",
+                    String(event.target.checked),
+                  )
                 }
               />
             </label>
+            <p className="mt-2 text-[10px] text-cv-subtext">
+              Port mappings use renewable leases and are refreshed automatically.
+            </p>
+          </div>
+
+          <div className="glass-panel-2 p-4 rounded-lg">
+            <div className="text-[11px] text-cv-subtext mb-2">
+              Relay Policy
+            </div>
             <label className="flex items-center justify-between text-xs py-1">
-              <span>Prefer Relay</span>
+              <span>Prefer Encrypted Relay</span>
               <input
                 type="checkbox"
                 checked={preferredRelay}
-                onChange={(e) =>
-                  setSetting("remote_preferred_relay", String(e.target.checked))
+                onChange={(event) =>
+                  setSetting(
+                    "remote_preferred_relay",
+                    String(event.target.checked),
+                  )
                 }
               />
             </label>
             <label className="flex items-center justify-between text-xs py-1">
-              <span>Allow Fallback to Relay</span>
+              <span>Automatic Relay Fallback</span>
               <input
                 type="checkbox"
                 checked={fallback}
-                onChange={(e) =>
-                  setSetting("remote_allow_fallback", String(e.target.checked))
+                onChange={(event) =>
+                  setSetting(
+                    "remote_allow_fallback",
+                    String(event.target.checked),
+                  )
                 }
               />
             </label>
+            <p className="mt-2 text-[10px] text-cv-subtext">
+              Named tunnels use configured deployment credentials. Otherwise the
+              bundled relay client can create a zero-configuration fallback URL.
+            </p>
           </div>
         </div>
       </div>
@@ -402,69 +645,175 @@ export default function RemoteAccessTab() {
       <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
         <div className="glass-panel p-5">
           <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-            <UserPlus size={16} className="text-cv-accent" /> Remote Account
+            <UserPlus size={16} className="text-cv-accent" /> Remote User
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label className="section-label">Display Name</label>
+              <label className="section-label" htmlFor="remote-user-name">
+                Display Name
+              </label>
               <input
+                id="remote-user-name"
                 className="cv-input"
-                value={accountForm.displayName}
-                onChange={(e) =>
-                  setAccountForm({
-                    ...accountForm,
-                    displayName: e.target.value,
-                  })
+                autoComplete="name"
+                disabled={accountSaving}
+                value={accountForm.fields.displayName}
+                onChange={(event) =>
+                  setAccountForm((state) =>
+                    updateRemoteAccountFormField(
+                      state,
+                      "displayName",
+                      event.target.value,
+                    ),
+                  )
                 }
               />
             </div>
             <div>
-              <label className="section-label">Email</label>
+              <label className="section-label" htmlFor="remote-user-email">
+                Email
+              </label>
               <input
-                className="cv-input"
-                value={accountForm.email}
-                onChange={(e) =>
-                  setAccountForm({ ...accountForm, email: e.target.value })
+                id="remote-user-email"
+                type="email"
+                autoComplete="email"
+                disabled={accountSaving}
+                aria-invalid={Boolean(accountForm.errors.email)}
+                aria-describedby={
+                  accountForm.errors.email ? "remote-user-email-error" : undefined
+                }
+                className={`cv-input ${
+                  accountForm.errors.email ? "border-cv-danger/70" : ""
+                }`}
+                value={accountForm.fields.email}
+                onChange={(event) =>
+                  setAccountForm((state) =>
+                    updateRemoteAccountFormField(
+                      state,
+                      "email",
+                      event.target.value,
+                    ),
+                  )
                 }
               />
+              {accountForm.errors.email && (
+                <p
+                  id="remote-user-email-error"
+                  className="mt-1 text-[11px] text-cv-danger"
+                >
+                  {accountForm.errors.email}
+                </p>
+              )}
             </div>
             <div>
-              <label className="section-label">Password</label>
+              <label className="section-label" htmlFor="remote-user-password">
+                Password
+              </label>
               <input
+                id="remote-user-password"
                 type="password"
-                className="cv-input"
-                value={accountForm.password}
-                onChange={(e) =>
-                  setAccountForm({ ...accountForm, password: e.target.value })
+                autoComplete="new-password"
+                disabled={accountSaving}
+                aria-invalid={Boolean(accountForm.errors.password)}
+                aria-describedby={
+                  accountForm.errors.password
+                    ? "remote-user-password-error"
+                    : undefined
+                }
+                className={`cv-input ${
+                  accountForm.errors.password ? "border-cv-danger/70" : ""
+                }`}
+                value={accountForm.fields.password}
+                onChange={(event) =>
+                  setAccountForm((state) =>
+                    updateRemoteAccountFormField(
+                      state,
+                      "password",
+                      event.target.value,
+                    ),
+                  )
                 }
               />
+              {accountForm.errors.password && (
+                <p
+                  id="remote-user-password-error"
+                  className="mt-1 text-[11px] text-cv-danger"
+                >
+                  {accountForm.errors.password}
+                </p>
+              )}
             </div>
           </div>
+          {accountForm.status.kind !== "idle" && (
+            <div
+              className={`mt-3 flex items-start justify-between gap-3 rounded-lg border p-3 text-xs ${
+                accountForm.status.kind === "error"
+                  ? "border-cv-danger/30 bg-cv-danger/10 text-cv-danger"
+                  : accountForm.status.kind === "success"
+                    ? "border-green-500/30 bg-green-500/10 text-green-300"
+                    : "border-cv-accent/30 bg-cv-accent/10 text-cv-text"
+              }`}
+              role={accountForm.status.kind === "error" ? "alert" : "status"}
+              aria-live="polite"
+            >
+              <span>{accountForm.status.message}</span>
+              {accountForm.status.kind !== "saving" && (
+                <button
+                  type="button"
+                  className="text-[11px] underline underline-offset-2"
+                  onClick={() =>
+                    setAccountForm((state) =>
+                      dismissRemoteAccountFormStatus(state),
+                    )
+                  }
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={createAccount}
-              disabled={busy === "create"}
+              disabled={accountSaving}
               className="cv-btn cv-btn-primary text-xs"
             >
-              <UserPlus size={12} />{" "}
-              {busy === "create" ? "Saving..." : "Save Account"}
+              <UserPlus size={12} />
+              {accountSaving ? "Saving..." : "Create Remote User"}
             </button>
-            {latestKey?.access_key && (
+            {latestKey && (
               <button
                 onClick={copyLatestKey}
                 className="cv-btn cv-btn-secondary text-xs"
               >
-                <Copy size={12} /> Copy New Access Key
+                <Copy size={12} />
+                {latestKey.copied ? "Copied" : "Copy Access Key"}
               </button>
             )}
           </div>
-          {latestKey?.access_key && (
-            <div className="mt-4 rounded-lg border border-cv-accent/30 bg-cv-accent/10 p-3">
-              <div className="text-[11px] text-cv-subtext mb-1">
-                New access key for {latestKey.email}
+          {latestKey && (
+            <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-amber-200">
+                    {latestKey.action === "created" ? "New" : "Replacement"}{" "}
+                    access key for {latestKey.email}
+                  </div>
+                  <div className="mt-1 text-[11px] text-cv-subtext">
+                    This key is shown only once. Copy it now; dismissing it
+                    removes it from this screen.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="text-[11px] text-cv-subtext underline underline-offset-2"
+                  onClick={() => setLatestKey(null)}
+                >
+                  Dismiss key
+                </button>
               </div>
-              <code className="block text-xs text-cv-text break-all">
-                {latestKey.access_key}
+              <code className="mt-3 block text-xs text-cv-text break-all">
+                {latestKey.accessKey}
               </code>
             </div>
           )}
@@ -480,8 +829,11 @@ export default function RemoteAccessTab() {
                 className="cv-input"
                 placeholder="email"
                 value={passwordLogin.email}
-                onChange={(e) =>
-                  setPasswordLogin({ ...passwordLogin, email: e.target.value })
+                onChange={(event) =>
+                  setPasswordLogin({
+                    ...passwordLogin,
+                    email: event.target.value,
+                  })
                 }
               />
               <input
@@ -489,10 +841,10 @@ export default function RemoteAccessTab() {
                 className="cv-input"
                 placeholder="password"
                 value={passwordLogin.password}
-                onChange={(e) =>
+                onChange={(event) =>
                   setPasswordLogin({
                     ...passwordLogin,
-                    password: e.target.value,
+                    password: event.target.value,
                   })
                 }
               />
@@ -502,7 +854,7 @@ export default function RemoteAccessTab() {
               disabled={busy === "password"}
               className="cv-btn cv-btn-secondary text-xs w-full justify-center"
             >
-              <LogIn size={12} />{" "}
+              <LogIn size={12} />
               {busy === "password" ? "Checking..." : "Check Email Password"}
             </button>
             <div className="flex gap-2">
@@ -510,7 +862,7 @@ export default function RemoteAccessTab() {
                 className="cv-input flex-1"
                 placeholder="cvra_..."
                 value={keyLogin}
-                onChange={(e) => setKeyLogin(e.target.value)}
+                onChange={(event) => setKeyLogin(event.target.value)}
               />
               <button
                 onClick={loginWithKey}
@@ -557,7 +909,11 @@ export default function RemoteAccessTab() {
                   </div>
                 </div>
                 <div
-                  className={`text-[11px] px-2 py-1 rounded ${account.enabled ? "bg-green-500/15 text-green-300" : "bg-cv-danger/15 text-cv-danger"}`}
+                  className={`text-[11px] px-2 py-1 rounded ${
+                    account.enabled
+                      ? "bg-green-500/15 text-green-300"
+                      : "bg-cv-danger/15 text-cv-danger"
+                  }`}
                 >
                   {account.enabled ? "Enabled" : "Disabled"}
                 </div>
@@ -568,14 +924,22 @@ export default function RemoteAccessTab() {
                   disabled={busy === `rotate:${account.email}`}
                   className="cv-btn cv-btn-secondary text-xs"
                 >
-                  <RotateCw size={12} /> Rotate Key
+                  <RotateCw size={12} />
+                  {busy === `rotate:${account.email}`
+                    ? "Rotating..."
+                    : "Rotate Key"}
                 </button>
                 <button
                   onClick={() => toggleAccount(account)}
                   disabled={busy === `toggle:${account.email}`}
                   className="cv-btn cv-btn-secondary text-xs"
                 >
-                  <Power size={12} /> {account.enabled ? "Disable" : "Enable"}
+                  <Power size={12} />
+                  {busy === `toggle:${account.email}`
+                    ? "Saving..."
+                    : account.enabled
+                      ? "Disable"
+                      : "Enable"}
                 </button>
               </div>
             </div>
@@ -595,24 +959,24 @@ export default function RemoteAccessTab() {
             Connections
           </h3>
           <div className="space-y-2">
-            {secureOptions.map((opt) => (
+            {secureOptions.map((option) => (
               <button
-                key={opt.value}
+                key={option.value}
                 onClick={() =>
-                  setSetting("remote_secure_connections", opt.value)
+                  setSetting("remote_secure_connections", option.value)
                 }
                 className={`w-full text-left rounded-lg p-3 border transition ${
-                  secureMode === opt.value
+                  secureMode === option.value
                     ? "border-cv-accent/40 bg-cv-accent/10"
                     : "border-white/10 bg-white/[0.02]"
                 }`}
               >
                 <div className="text-xs font-semibold flex items-center gap-2">
                   <Lock size={12} />
-                  {opt.label}
+                  {option.label}
                 </div>
                 <div className="text-[11px] text-cv-subtext mt-1">
-                  {opt.desc}
+                  {option.desc}
                 </div>
               </button>
             ))}
@@ -628,10 +992,10 @@ export default function RemoteAccessTab() {
           <input
             className="cv-input mb-3"
             value={uploadLimit}
-            onChange={(e) =>
+            onChange={(event) =>
               setSetting(
                 "remote_upload_limit_mbps",
-                e.target.value.replace(/[^\d]/g, ""),
+                event.target.value.replace(/[^\d]/g, ""),
               )
             }
             placeholder="20"
@@ -642,15 +1006,15 @@ export default function RemoteAccessTab() {
           <textarea
             className="cv-input min-h-[100px]"
             value={allowedNetworks}
-            onChange={(e) =>
-              setSetting("remote_allowed_networks", e.target.value)
+            onChange={(event) =>
+              setSetting("remote_allowed_networks", event.target.value)
             }
             placeholder="192.168.1.0/24,10.0.0.0/8"
           />
           <div className="text-[10px] text-cv-subtext mt-2 flex items-center gap-1">
             <Globe size={10} />
-            Match unified remote access controls; values are persisted in
-            CinaVault settings.
+            Account authentication remains mandatory through direct and relayed
+            connections.
           </div>
         </div>
       </div>
@@ -663,7 +1027,12 @@ export default function RemoteAccessTab() {
         Remote profile saved:{" "}
         <span className="text-cv-text">
           {remoteEnabled ? "Enabled" : "Disabled"} / {secureMode} secure / port{" "}
-          {publicPort || "n/a"}
+          {publicPort || "n/a"} /{" "}
+          {connectivity.relayActive
+            ? `${connectivity.relayMode || "cloud"} relay active`
+            : connectivity.directAvailable
+              ? `${connectivity.directMethod || "direct"} active`
+              : "route pending"}
         </span>
       </motion.div>
     </div>

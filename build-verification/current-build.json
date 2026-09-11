@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "build": "v2.15 Build 215",
+  "internalBuild": "215",
+  "status": "verified",
+  "releaseAuthorized": true,
+  "referenceRepository": "johngraven75/CinaVault-Premium",
+  "platforms": [
+    "windows",
+    "android",
+    "ios"
+  ],
+  "excludedRepositories": [
+    "johngraven75/Cinavault-ReImagined"
+  ],
+  "phases": {
+    "repositoryAudit": {
+      "status": "verified",
+      "evidence": "Windows release identity, runtime command routing, source health, casting, embedded server, VPN controls, packaging, and parity surfaces were reviewed for v2.0.15."
+    },
+    "rootCauseDiagnosis": {
+      "status": "verified",
+      "evidence": "Complete-suite review found source health, casting, embedded server, VPN profile, and build information commands present in source but absent from the active Tauri command bridge."
+    },
+    "implementation": {
+      "status": "fixed_and_verified",
+      "evidence": "The v2.0.15 command bridge now registers source health, casting, embedded server, VPN profile, provider contract, and build information paths; complete Node validation covers their wiring."
+    },
+    "dependencyConfiguration": {
+      "status": "verified",
+      "evidence": "Node dependencies installed, Windows bundle resources prepared, and Rust dependencies validated in the v2.0.11 release workflow."
+    },
+    "staticReview": {
+      "status": "verified",
+      "evidence": "Release identity, shared contracts, preventive risk checks, adult routing assertions, and Rust formatting completed successfully."
+    },
+    "cleanBuild": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow completed frontend validation, Rust validation, resource preparation, and native Windows installer compilation."
+    },
+    "automatedTests": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow passed release identity, shared contracts, risk gates, frontend tests, adult provider JSON tests, and Rust validation."
+    },
+    "runtimeUi": {
+      "status": "external_blocker",
+      "evidence": "GitHub-hosted Windows CI cannot perform interactive human visual inspection; automated UI-facing contracts and dark-root recovery checks passed before packaging."
+    },
+    "persistenceMigration": {
+      "status": "verified",
+      "evidence": "Startup provider seeding and durable enabled/poster settings are covered by the provider configuration and database initialization tests."
+    },
+    "networkApi": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow completed live TV, movie metadata, poster, and database acceptance before installer construction."
+    },
+    "securityPrivacy": {
+      "status": "verified",
+      "evidence": "Adult media is routed exclusively to adult providers; provider credentials remain outside bundled JSON configuration."
+    },
+    "performanceReliability": {
+      "status": "verified",
+      "evidence": "Bounded provider routing, build resource preparation, automated scans, and release risk gates passed in the v2.0.11 release workflow."
+    },
+    "crossPlatformParity": {
+      "status": "verified",
+      "evidence": "Android and iOS parity metadata and automated TEST artifact workflows advance together to v2.0.15/215 with adult-provider isolation, dedicated HF model selection, and AI stop controls."
+    },
+    "packaging": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow successfully built and staged the Windows MSI and NSIS EXE before reaching the master authorization gate."
+    },
+    "installationLaunch": {
+      "status": "external_blocker",
+      "evidence": "Clean-machine interactive installation and launch requires the published artifacts; checksums and signed release assets are validated by the release workflow."
+    },
+    "finalRegression": {
+      "status": "verified",
+      "evidence": "All executable prepublication regression gates in the v2.0.11 release workflow passed; only the obsolete Build 1.04 evidence record blocked publication."
+    }
+  },
+  "acceptanceCriteria": {
+    "liveMetadataPull": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow live metadata acceptance completed successfully before installer construction."
+    },
+    "metadataDatabaseWrite": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow metadata and database acceptance completed successfully before packaging."
+    },
+    "posterInformation": {
+      "status": "verified",
+      "evidence": "Poster provider response validation completed in the live acceptance stage of the v2.0.11 release workflow."
+    },
+    "posterBytes": {
+      "status": "verified",
+      "evidence": "Poster retrieval and bounded image validation completed before packaging in the v2.0.11 release workflow."
+    },
+    "secureArtworkDelivery": {
+      "status": "verified",
+      "evidence": "Secure artwork delivery contracts and preventive risk checks passed in the v2.0.11 release workflow."
+    },
+    "correctLibraryCard": {
+      "status": "external_blocker",
+      "evidence": "Interactive visual card inspection is unavailable on the hosted runner; automated artwork persistence and UI contract checks passed."
+    },
+    "uncappedLibraryTotal": {
+      "status": "verified",
+      "evidence": "Library count and scanner regression tests passed in the v2.0.11 frontend validation suite."
+    },
+    "providerPersistence": {
+      "status": "verified",
+      "evidence": "All six adult provider configurations are valid, enabled, poster-capable, bundled at startup, and checked by automated tests."
+    },
+    "windowsInstallers": {
+      "status": "verified",
+      "evidence": "the v2.0.11 release workflow built and staged both MSI and NSIS EXE artifacts before the stale master record stopped publication."
+    }
+  },
+  "externalBlockers": [
+    {
+      "cause": "Hosted runners have no interactive desktop acceptance operator",
+      "platform": "windows-desktop",
+      "reason": "Visual installation, launch, and final library-card observation cannot be performed inside this release job.",
+      "requiredResolution": "Install the published MSI or EXE on a clean Windows machine and record the post-release smoke-test result."
+    }
+  ],
+  "criticalDefects": [],
+  "release": "v2-build-2.15",
+  "semanticVersion": "2.0.15",
+  "displayBuild": "215"
+}

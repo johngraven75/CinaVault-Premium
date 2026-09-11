@@ -219,6 +219,9 @@ pnpm-debug.log*
 src-tauri/target/
 *.pdb
 
+# Prepared from the signed official WireGuard MSI by scripts/prepare-wireguard.ps1.
+src-tauri/tools/wireguard/wireguard.exe
+
 # --- Local tooling caches ---
 .snapshots/
 .DS_Store

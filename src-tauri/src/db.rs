@@ -5,6 +5,10 @@
 use crate::library_artifacts::sidecar_poster_path_for_video;
 use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
 use crate::AppState;
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -92,6 +96,13 @@ pub struct RemoteAccessKeyRotation {
 
 pub struct Database {
     pub conn: Connection,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct AdultLibraryLabelResult {
+    pub inventory_items: usize,
+    pub items_labeled_adult: usize,
+    pub items_already_adult: usize,
 }
 
 impl Database {
@@ -247,6 +258,7 @@ impl Database {
                 user_id INTEGER NOT NULL,
                 token_salt TEXT NOT NULL,
                 token_hash TEXT NOT NULL UNIQUE,
+                token_lookup TEXT NOT NULL UNIQUE,
                 auth_method TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
@@ -262,6 +274,18 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_remote_access_users_email ON remote_access_users(email);
             CREATE INDEX IF NOT EXISTS idx_remote_access_sessions_user ON remote_access_sessions(user_id);
         ")?;
+        self.ensure_column("remote_access_sessions", "token_lookup", "TEXT")?;
+        // Existing sessions cannot be indexed safely because only their salted hashes are stored.
+        // Revoking them forces one reauthentication and avoids a linear token scan on every request.
+        self.conn.execute(
+            "UPDATE remote_access_sessions SET revoked = 1 WHERE token_lookup IS NULL",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_access_sessions_token_lookup
+             ON remote_access_sessions(token_lookup) WHERE token_lookup IS NOT NULL",
+            [],
+        )?;
         self.ensure_column("plugins", "plugin_key", "TEXT")?;
         self.ensure_column("plugins", "platform", "TEXT")?;
         self.ensure_column("plugins", "install_path", "TEXT")?;
@@ -299,7 +323,7 @@ impl Database {
             ("glassmorphism", "true"),
             ("starfield_header", "true"),
             ("offline_mode", "false"),
-            ("ai_model", "mistralai/Mistral-7B-Instruct-v0.3"),
+            ("ai_model", "Qwen/Qwen3-4B-Instruct-2507"),
             ("hf_token", ""),
             ("synology_connection", ""),
             ("wd_mycloud_connection", ""),
@@ -318,6 +342,13 @@ impl Database {
         self.conn.execute(
             "UPDATE settings SET value = 'true' WHERE key = 'prefer_embedded_titles' AND value = 'false'",
             [],
+        )?;
+        self.conn.execute(
+            "UPDATE settings SET value = ?1 WHERE key = 'ai_model' AND value = ?2",
+            params![
+                "Qwen/Qwen3-4B-Instruct-2507",
+                "mistralai/Mistral-7B-Instruct-v0.3"
+            ],
         )?;
 
         // ── Premium feature defaults: ALL enabled ──
@@ -617,7 +648,7 @@ impl Database {
             (
                 "cv-ai-match",
                 "AI Media Matcher",
-                r#"{"enabled":true,"model":"mistralai/Mistral-7B-Instruct-v0.3","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#,
+                r#"{"enabled":true,"model":"Qwen/Qwen3-4B-Instruct-2507","confidence_threshold":0.75,"use_audio_fingerprint":true,"use_visual_recognition":false,"fallback_to_filename":true}"#,
             ),
             (
                 "cv-cloud-sync",
@@ -804,6 +835,32 @@ impl Database {
     }
 
     // ── Media items ──
+    pub fn mark_current_library_adult(&mut self) -> SqlResult<AdultLibraryLabelResult> {
+        let transaction = self.conn.transaction()?;
+        let inventory_items =
+            transaction.query_row("SELECT COUNT(*) FROM media_items", [], |row| {
+                row.get::<_, usize>(0)
+            })?;
+        let items_already_adult = transaction.query_row(
+            "SELECT COUNT(*) FROM media_items WHERE lower(trim(media_type)) = 'adult'",
+            [],
+            |row| row.get::<_, usize>(0),
+        )?;
+        let items_labeled_adult = transaction.execute(
+            "UPDATE media_items
+             SET media_type = 'adult'
+             WHERE lower(trim(media_type)) <> 'adult'",
+            [],
+        )?;
+        transaction.commit()?;
+
+        Ok(AdultLibraryLabelResult {
+            inventory_items,
+            items_labeled_adult,
+            items_already_adult,
+        })
+    }
+
     pub fn get_media_items_data(
         &self,
         media_type: Option<&str>,
@@ -1025,9 +1082,22 @@ impl Database {
         let email = normalize_remote_email(email)?;
         validate_remote_password(password)?;
 
+        let email_exists = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM remote_access_users WHERE email = ?1)",
+                params![email],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|err| err.to_string())?;
+        if email_exists {
+            return Err("A remote user with this email already exists.".to_string());
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
-        let password_salt = new_secret_salt();
-        let password_hash = hash_secret(&password_salt, password);
+        // The PHC string produced by Argon2id includes the random salt and cost parameters.
+        let password_salt = "argon2id".to_string();
+        let password_hash = hash_remote_password(password)?;
         let access_key = generate_remote_access_key();
         let access_key_salt = new_secret_salt();
         let access_key_hash = hash_secret(&access_key_salt, &access_key);
@@ -1041,16 +1111,7 @@ impl Database {
                 "INSERT INTO remote_access_users
                  (email, display_name, password_salt, password_hash, access_key_salt,
                   access_key_hash, access_key_preview, enabled, permissions, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'server:read,library:read,stream:play', ?8, ?8)
-                 ON CONFLICT(email) DO UPDATE SET
-                   display_name = excluded.display_name,
-                   password_salt = excluded.password_salt,
-                   password_hash = excluded.password_hash,
-                   access_key_salt = excluded.access_key_salt,
-                   access_key_hash = excluded.access_key_hash,
-                   access_key_preview = excluded.access_key_preview,
-                   enabled = 1,
-                   updated_at = excluded.updated_at",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'server:read,library:read,stream:play', ?8, ?8)",
                 params![
                     email,
                     display_name,
@@ -1128,9 +1189,32 @@ impl Database {
         if !enabled {
             return Ok(None);
         }
-        let actual_hash = hash_secret(&salt, password);
-        if !constant_time_eq(&actual_hash, &expected_hash) {
+        let verified = if is_argon2_password_hash(&expected_hash) {
+            verify_argon2_password(password, &expected_hash)
+        } else {
+            // Legacy SHA-256 hashes are accepted once, then upgraded after a successful login.
+            let actual_hash = hash_secret(&salt, password);
+            constant_time_eq(&actual_hash, &expected_hash)
+        };
+        if !verified {
             return Ok(None);
+        }
+
+        if !is_argon2_password_hash(&expected_hash) {
+            let upgraded_hash = hash_remote_password(password)?;
+            self.conn
+                .execute(
+                    "UPDATE remote_access_users
+                     SET password_salt = 'argon2id', password_hash = ?1, updated_at = ?2
+                     WHERE id = ?3 AND password_hash = ?4",
+                    params![
+                        upgraded_hash,
+                        chrono::Utc::now().to_rfc3339(),
+                        id,
+                        expected_hash
+                    ],
+                )
+                .map_err(|err| err.to_string())?;
         }
 
         self.create_remote_access_session(id, email, display_name, "password", &permissions)
@@ -1270,6 +1354,69 @@ impl Database {
             .map_err(|err| err.to_string())
     }
 
+    pub fn validate_remote_access_session(
+        &self,
+        session_token: &str,
+    ) -> Result<Option<RemoteAccessPrincipal>, String> {
+        if session_token.trim().len() < 32 || session_token.len() > 512 {
+            return Ok(None);
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let token_lookup = hash_session_token_lookup(session_token);
+        let row = self
+            .conn
+            .query_row(
+                "SELECT s.token_salt, s.token_hash, s.auth_method, s.expires_at,
+                        u.id, u.email, u.display_name, u.permissions
+                 FROM remote_access_sessions s
+                 INNER JOIN remote_access_users u ON u.id = s.user_id
+                 WHERE s.token_lookup = ?1 AND s.revoked = 0 AND s.expires_at > ?2 AND u.enabled = 1",
+                params![token_lookup, now],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, String>(7)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let Some((
+            token_salt,
+            token_hash,
+            auth_method,
+            expires_at,
+            id,
+            email,
+            display_name,
+            permissions,
+        )) = row
+        else {
+            return Ok(None);
+        };
+        let candidate_hash = hash_secret(&token_salt, session_token);
+        if !constant_time_eq(&candidate_hash, &token_hash) {
+            return Ok(None);
+        }
+
+        Ok(Some(RemoteAccessPrincipal {
+            id,
+            email,
+            display_name,
+            auth_method,
+            session_token: session_token.to_string(),
+            expires_at,
+            permissions: parse_permissions(&permissions),
+        }))
+    }
+
     fn create_remote_access_session(
         &self,
         user_id: i64,
@@ -1281,6 +1428,7 @@ impl Database {
         let session_token = generate_remote_session_token();
         let token_salt = new_secret_salt();
         let token_hash = hash_secret(&token_salt, &session_token);
+        let token_lookup = hash_session_token_lookup(&session_token);
         let created_at = chrono::Utc::now();
         let expires_at = created_at + chrono::Duration::hours(12);
         let created_at = created_at.to_rfc3339();
@@ -1289,12 +1437,13 @@ impl Database {
         self.conn
             .execute(
                 "INSERT INTO remote_access_sessions
-                 (user_id, token_salt, token_hash, auth_method, created_at, expires_at, revoked)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+                 (user_id, token_salt, token_hash, token_lookup, auth_method, created_at, expires_at, revoked)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
                 params![
                     user_id,
                     token_salt,
                     token_hash,
+                    token_lookup,
                     auth_method,
                     created_at,
                     expires_at_string
@@ -1403,6 +1552,43 @@ fn preview_secret(secret: &str) -> String {
     chars[start..].iter().collect()
 }
 
+fn hash_remote_password(password: &str) -> Result<String, String> {
+    let random_salt = uuid::Uuid::new_v4();
+    let salt = SaltString::encode_b64(random_salt.as_bytes())
+        .map_err(|error| format!("Unable to generate remote-access password salt: {error}"))?;
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|error| format!("Unable to hash remote-access password: {error}"))
+}
+
+fn is_argon2_password_hash(password_hash: &str) -> bool {
+    password_hash.starts_with("$argon2")
+}
+
+fn verify_argon2_password(password: &str, password_hash: &str) -> bool {
+    PasswordHash::new(password_hash)
+        .ok()
+        .and_then(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .ok()
+        })
+        .is_some()
+}
+
+fn hash_session_token_lookup(session_token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"cinavault-remote-session-lookup-v1:");
+    hasher.update(session_token.as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+// High-entropy access and session tokens may use a fast salted hash; user passwords must not.
 fn hash_secret(salt: &str, secret: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(salt.as_bytes());
@@ -1743,7 +1929,7 @@ pub fn remove_source(state: State<AppState>, id: i64) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Database, MediaItem};
+    use super::{hash_secret, hash_session_token_lookup, new_secret_salt, Database, MediaItem};
     use rusqlite::params;
     use std::fs;
 
@@ -1778,6 +1964,71 @@ mod tests {
             imdb_id: None,
             source_id: None,
         }
+    }
+
+    #[test]
+    fn current_inventory_adult_label_is_idempotent_and_preserves_artwork() {
+        let db_path = test_db_path("current-inventory-adult");
+        let mut db = Database::new(&db_path).expect("db should open");
+
+        let mut movie = sample_item("Movie", r"C:\media\movie.mkv");
+        movie.poster_path = Some(r"C:\media\movie-poster.jpg".to_string());
+        movie.backdrop_path = Some(r"C:\media\movie-fanart.jpg".to_string());
+        db.add_media_item_data(&movie)
+            .expect("movie fixture should insert");
+
+        let mut existing_adult = sample_item("Existing Adult", r"C:\media\adult.mkv");
+        existing_adult.media_type = "Adult".to_string();
+        db.add_media_item_data(&existing_adult)
+            .expect("adult fixture should insert");
+
+        let first = db
+            .mark_current_library_adult()
+            .expect("current inventory should be labeled");
+        assert_eq!(first.inventory_items, 2);
+        assert_eq!(first.items_labeled_adult, 1);
+        assert_eq!(first.items_already_adult, 1);
+
+        let preserved = db
+            .conn
+            .query_row(
+                "SELECT media_type, poster_path, backdrop_path FROM media_items WHERE file_path = ?1",
+                params![&movie.file_path],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .expect("labeled movie should remain readable");
+        assert_eq!(preserved.0, "adult");
+        assert_eq!(preserved.1, movie.poster_path);
+        assert_eq!(preserved.2, movie.backdrop_path);
+
+        let second = db
+            .mark_current_library_adult()
+            .expect("repeated labeling should succeed");
+        assert_eq!(second.inventory_items, 2);
+        assert_eq!(second.items_labeled_adult, 0);
+        assert_eq!(second.items_already_adult, 2);
+
+        let future_import = sample_item("Future Import", r"C:\media\future.mkv");
+        db.add_media_item_data(&future_import)
+            .expect("future import should insert normally");
+        let future_type = db
+            .conn
+            .query_row(
+                "SELECT media_type FROM media_items WHERE file_path = ?1",
+                params![&future_import.file_path],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("future import should remain readable");
+        assert_eq!(future_type, "movie");
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
     }
 
     #[test]
@@ -2156,6 +2407,7 @@ mod tests {
             )
             .expect("stored secrets should load");
         assert!(!stored_secret.0.contains("CorrectHorse42!"));
+        assert!(stored_secret.0.starts_with("$argon2id$"));
         assert!(!stored_secret.1.contains(&created.access_key));
 
         let password_auth = db
@@ -2176,6 +2428,132 @@ mod tests {
             .expect("correct key should authenticate");
         assert_eq!(key_auth.email, "owner@example.com");
         assert_eq!(key_auth.auth_method, "access_key");
+
+        // Legacy SHA-256 credentials are upgraded only after a successful password login.
+        let legacy_salt = new_secret_salt();
+        let legacy_hash = hash_secret(&legacy_salt, "CorrectHorse42!");
+        db.conn
+            .execute(
+                "UPDATE remote_access_users SET password_salt = ?1, password_hash = ?2 WHERE email = ?3",
+                params![legacy_salt, legacy_hash, "owner@example.com"],
+            )
+            .expect("legacy password fixture should save");
+        let migrated_auth = db
+            .authenticate_remote_password("owner@example.com", "CorrectHorse42!")
+            .expect("legacy password authentication should run")
+            .expect("legacy password should authenticate once");
+        let migrated_hash: String = db
+            .conn
+            .query_row(
+                "SELECT password_hash FROM remote_access_users WHERE email = ?1",
+                params!["owner@example.com"],
+                |row| row.get(0),
+            )
+            .expect("migrated hash should load");
+        assert!(migrated_hash.starts_with("$argon2id$"));
+
+        assert!(db
+            .validate_remote_access_session(&migrated_auth.session_token)
+            .expect("session lookup should run")
+            .is_some());
+        db.conn
+            .execute(
+                "UPDATE remote_access_sessions SET revoked = 1 WHERE token_lookup = ?1",
+                params![hash_session_token_lookup(&migrated_auth.session_token)],
+            )
+            .expect("session revocation should save");
+        assert!(db
+            .validate_remote_access_session(&migrated_auth.session_token)
+            .expect("revoked session lookup should run")
+            .is_none());
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn creating_duplicate_normalized_remote_email_preserves_existing_credentials() {
+        let db_path = test_db_path("remote-access-duplicate-email");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let original = db
+            .create_remote_access_user(
+                "owner@example.com",
+                "OriginalPassword42!",
+                Some("Original Owner"),
+            )
+            .expect("first remote user should be created");
+
+        let error = db
+            .create_remote_access_user(
+                " OWNER@EXAMPLE.COM ",
+                "ReplacementPassword42!",
+                Some("Replacement Owner"),
+            )
+            .expect_err("duplicate normalized email should be rejected");
+
+        assert_eq!(error, "A remote user with this email already exists.");
+        assert!(db
+            .authenticate_remote_password("owner@example.com", "OriginalPassword42!")
+            .expect("original password auth should run")
+            .is_some());
+        assert!(db
+            .authenticate_remote_password("owner@example.com", "ReplacementPassword42!")
+            .expect("replacement password auth should run")
+            .is_none());
+        assert!(db
+            .authenticate_remote_access_key(&original.access_key)
+            .expect("original access-key auth should run")
+            .is_some());
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn explicit_remote_access_key_rotation_invalidates_old_key_and_lists_safe_summary() {
+        let db_path = test_db_path("remote-access-explicit-rotation");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let created = db
+            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", None)
+            .expect("remote user should be created");
+        let rotated = db
+            .rotate_remote_access_key(" VIEWER@EXAMPLE.COM ")
+            .expect("rotation should run")
+            .expect("remote user should exist");
+
+        assert_ne!(rotated.access_key, created.access_key);
+        assert!(db
+            .authenticate_remote_access_key(&created.access_key)
+            .expect("old access-key auth should run")
+            .is_none());
+        assert!(db
+            .authenticate_remote_access_key(&rotated.access_key)
+            .expect("replacement access-key auth should run")
+            .is_some());
+
+        let summaries = db
+            .list_remote_access_users()
+            .expect("safe summaries should load");
+        assert_eq!(summaries.len(), 1);
+        let summary_json = serde_json::to_value(&summaries[0]).expect("summary should serialize");
+        assert!(summary_json.get("access_key").is_none());
+        assert!(summary_json.get("access_key_hash").is_none());
+        assert!(summary_json.get("password_hash").is_none());
+        assert_eq!(
+            summary_json
+                .get("access_key_preview")
+                .and_then(serde_json::Value::as_str),
+            Some(rotated.access_key_preview.as_str()),
+        );
+
+        db.set_remote_access_user_enabled("viewer@example.com", false)
+            .expect("disable should succeed");
+        assert!(db
+            .authenticate_remote_access_key(&rotated.access_key)
+            .expect("disabled access-key auth should run")
+            .is_none());
 
         drop(db);
         let _ = fs::remove_file(db_path);

@@ -10,18 +10,38 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::State;
 
-// Best free HuggingFace model for media library management (instruction-following, free tier)
-const DEFAULT_MODEL: &str = "mistralai/Mistral-7B-Instruct-v0.3";
+// Efficient multilingual instruction model selected for structured media-library work.
+const DEFAULT_MODEL: &str = "Qwen/Qwen3-4B-Instruct-2507";
 const ROUTING_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+fn read_hf_token_file(path: &Path) -> Option<String> {
+    let token = std::fs::read_to_string(path).ok()?;
+    let token = token.trim();
+    if token.starts_with("hf_") && token.len() > 20 {
+        Some(token.to_string())
+    } else {
+        None
+    }
+}
+
+fn cached_hf_token() -> Option<String> {
+    let token_path = dirs::home_dir()?
+        .join(".cache")
+        .join("huggingface")
+        .join("token");
+    read_hf_token_file(&token_path)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiQueryRoute {
     NetworkDiagnostics,
     AdultMetadataGather,
+    SourceDiscovery,
+    LibraryAutomation,
     SourceCheck,
     ProviderCheck,
     Inference,
@@ -44,6 +64,37 @@ fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
     {
         return AiQueryRoute::AdultMetadataGather;
     }
+    if lower.contains("discover sources")
+        || lower.contains("discover media")
+        || lower.contains("find media folders")
+        || lower.contains("locate media folders")
+    {
+        return AiQueryRoute::SourceDiscovery;
+    }
+
+    let requests_library_change = [
+        "enrich",
+        "normalize",
+        "clean up",
+        "cleanup",
+        "rename",
+        "poster",
+        "nfo",
+        "duplicate",
+        "tag",
+    ]
+    .iter()
+    .any(|term| lower.contains(term));
+    if requests_library_change
+        && (lower.contains("metadata")
+            || lower.contains("title")
+            || lower.contains("filename")
+            || lower.contains("library")
+            || lower.contains("media"))
+    {
+        return AiQueryRoute::LibraryAutomation;
+    }
+
     if lower.contains("source")
         || lower.contains("folder")
         || lower.contains("media")
@@ -56,6 +107,39 @@ fn classify_ai_query_prompt(prompt: &str) -> AiQueryRoute {
     }
 
     AiQueryRoute::Inference
+}
+
+fn automation_tasks_from_prompt(prompt: &str) -> Vec<String> {
+    let lower = prompt.to_lowercase();
+    let mut tasks = BTreeSet::new();
+
+    if lower.contains("scan") {
+        tasks.insert("scan".to_string());
+    }
+    if lower.contains("metadata") || lower.contains("enrich") {
+        tasks.insert("enrich".to_string());
+        tasks.insert("posters".to_string());
+        tasks.insert("nfo".to_string());
+        tasks.insert("tags".to_string());
+    }
+    if lower.contains("title")
+        || lower.contains("filename")
+        || lower.contains("normalize")
+        || lower.contains("rename")
+        || lower.contains("clean up")
+        || lower.contains("cleanup")
+    {
+        tasks.insert("enrich".to_string());
+        tasks.insert("normalize".to_string());
+    }
+    if lower.contains("duplicate") {
+        tasks.insert("duplicates".to_string());
+    }
+
+    if tasks.is_empty() {
+        tasks.insert("enrich".to_string());
+    }
+    tasks.into_iter().collect()
 }
 
 pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bool {
@@ -176,7 +260,18 @@ pub async fn ai_query(
 ) -> Result<serde_json::Value, String> {
     match classify_ai_query_prompt(&prompt) {
         AiQueryRoute::NetworkDiagnostics => run_network_diagnostics().await,
-        AiQueryRoute::AdultMetadataGather => gather_adult_metadata_assets(state).await,
+        // Adult inventory must never fall through to the general-film gatherer.  The
+        // dedicated command owns the provider allow-list, artwork persistence, and
+        // sidecar contract used by the adult library UI.
+        AiQueryRoute::AdultMetadataGather => {
+            serde_json::to_value(crate::enrichment::gather_adult_metadata(state).await?)
+                .map_err(|error| error.to_string())
+        }
+        AiQueryRoute::SourceDiscovery => crate::scanner::discover_media_sources(state).await,
+        AiQueryRoute::LibraryAutomation => {
+            let tasks = automation_tasks_from_prompt(&prompt);
+            crate::ai_automation::ai_library_manage(state, Some(tasks)).await
+        }
         AiQueryRoute::SourceCheck => check_sources(state).await,
         AiQueryRoute::ProviderCheck => check_providers(state).await,
         AiQueryRoute::Inference => ai_inference(state, prompt, None, None).await,
@@ -197,6 +292,7 @@ pub async fn ai_inference(
             .filter(|t| !t.trim().is_empty())
             .or_else(|| std::env::var("CINAVAULT_HF_TOKEN").ok())
             .or_else(|| std::env::var("HF_TOKEN").ok())
+            .or_else(cached_hf_token)
     };
 
     let model_id = model.unwrap_or_else(|| {
@@ -903,6 +999,10 @@ async fn gather_adult_metadata_assets_inner(
         ),
     ) in media_items.iter().enumerate()
     {
+        if task_progress::stop_requested() {
+            errors.push("Stopped by user before processing the next item".to_string());
+            break;
+        }
         progress.update(
             index + 1,
             format!(
@@ -1207,9 +1307,9 @@ async fn gather_adult_metadata_assets_inner(
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_ai_query_prompt, is_adult_gather_candidate, is_adult_library_item,
-        metadata_sidecar_path, normalize_adult_provider_key, normalize_provider_key,
-        should_prefer_remote_poster, AiQueryRoute,
+        automation_tasks_from_prompt, classify_ai_query_prompt, is_adult_gather_candidate,
+        is_adult_library_item, metadata_sidecar_path, normalize_adult_provider_key,
+        normalize_provider_key, should_prefer_remote_poster, AiQueryRoute,
     };
 
     #[test]
@@ -1224,6 +1324,23 @@ mod tests {
             classify_ai_query_prompt("Run adult metadata gather for installed providers and generate posters and chapter images"),
             AiQueryRoute::AdultMetadataGather
         );
+    }
+
+    #[test]
+    fn operational_prompts_route_to_real_side_effect_commands() {
+        assert_eq!(
+            classify_ai_query_prompt("Enrich metadata and clean up titles"),
+            AiQueryRoute::LibraryAutomation
+        );
+        assert_eq!(
+            classify_ai_query_prompt("AI discover sources"),
+            AiQueryRoute::SourceDiscovery
+        );
+        let tasks = automation_tasks_from_prompt("Enrich metadata and clean up titles");
+        assert!(tasks.iter().any(|task| task == "enrich"));
+        assert!(tasks.iter().any(|task| task == "normalize"));
+        assert!(tasks.iter().any(|task| task == "posters"));
+        assert!(tasks.iter().any(|task| task == "nfo"));
     }
 
     #[test]
@@ -1296,7 +1413,8 @@ pub fn set_hf_token(state: State<AppState>, token: String) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
-/// Checks if a HuggingFace token is available (DB or env var) and auto-seeds it into DB.
+/// Checks DB, environment variables, and the persistent Hugging Face CLI cache.
+/// A valid fallback credential is copied into the app DB so subsequent calls are stable.
 /// Returns availability status and source so the UI can show the correct state.
 #[tauri::command]
 pub fn ensure_hf_token(state: State<AppState>) -> Result<serde_json::Value, String> {
@@ -1311,26 +1429,31 @@ pub fn ensure_hf_token(state: State<AppState>) -> Result<serde_json::Value, Stri
             }));
         }
     }
-    // 2. Check env vars and auto-seed into DB so future calls find it
-    let env_token = std::env::var("CINAVAULT_HF_TOKEN")
+    // 2. Import a valid environment or Hugging Face CLI cached credential.
+    let (source, fallback_token) = if let Some(token) = std::env::var("CINAVAULT_HF_TOKEN")
         .ok()
-        .or_else(|| std::env::var("HF_TOKEN").ok());
-    if let Some(token) = env_token {
-        if !token.trim().is_empty() {
-            let _ = db.set_setting_data("hf_token", &token);
-            return Ok(serde_json::json!({
-                "available": true,
-                "source": "env_auto_seeded",
-                "model": DEFAULT_MODEL,
-            }));
-        }
+        .or_else(|| std::env::var("HF_TOKEN").ok())
+        .filter(|token| !token.trim().is_empty())
+    {
+        ("env_auto_seeded", Some(token))
+    } else {
+        ("hf_cache_auto_seeded", cached_hf_token())
+    };
+    if let Some(token) = fallback_token {
+        db.set_setting_data("hf_token", &token)
+            .map_err(|error| error.to_string())?;
+        return Ok(serde_json::json!({
+            "available": true,
+            "source": source,
+            "model": DEFAULT_MODEL,
+        }));
     }
     Ok(serde_json::json!({
         "available": false,
         "source": "missing",
         "model": DEFAULT_MODEL,
         "get_token_url": "https://huggingface.co/settings/tokens",
-        "hint": "Enter your HuggingFace token in the AI Configure panel, or set CINAVAULT_HF_TOKEN env var",
+        "hint": "Sign in with the Hugging Face CLI, enter a token in AI Configure, or set CINAVAULT_HF_TOKEN",
     }))
 }
 
@@ -1354,7 +1477,8 @@ pub fn get_ai_config(state: State<AppState>) -> Result<serde_json::Value, String
         || std::env::var("HF_TOKEN")
             .map(|t| !t.trim().is_empty())
             .unwrap_or(false);
-    let has_token = db_token_present || env_token_present;
+    let cached_token_present = cached_hf_token().is_some();
+    let has_token = db_token_present || env_token_present || cached_token_present;
     Ok(serde_json::json!({
         "model": model,
         "has_token": has_token,

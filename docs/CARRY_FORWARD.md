@@ -150,6 +150,20 @@ Each new build must:
 
 ---
 
+### Build 165 (Real Work + NAS + Metadata + Poster Integrity)
+
+| Feature | Token to Verify | Source File |
+|---|---|---|
+| Automatic FFmpeg/download tool bootstrap | `ensure_media_tools` | `src-tauri/src/media_tools.rs` |
+| Operational AI routing | `AiQueryRoute::LibraryAutomation` | `src-tauri/src/ai.rs` |
+| Real media-source discovery | `discover_and_add_sources` | `src-tauri/src/scanner.rs` |
+| Scanner-compatible WD/Synology sources | `network_source_path` | `src-tauri/src/nas_devices.rs` |
+| Complete adult provider routing | `configured_adult_provider_order` | `src-tauri/src/metadata.rs` |
+| Validated atomic poster sidecars | `write_poster_sidecar_bytes` | `src-tauri/src/enrichment.rs` |
+| Media-card poster fallback | `data-poster-fallback` | `src/components/tabs/HomeTab.tsx` |
+| Provider/plugin JSON validation | `build165PluginProviderConfig` | `tests/build165PluginProviderConfig.test.mjs` |
+| Real side-effect regression tests | `build165RealWorkSideEffects` | `tests/build165RealWorkSideEffects.test.mjs` |
+
 ## Build History Summary
 
 | Build | Key Features Added | Carry-Forward Status |
@@ -167,8 +181,31 @@ Each new build must:
 | 150 | Plugin manager fully implemented (8 Tauri commands) | ✅ Verified |
 | 151–153 | (No release notes on file — features carried forward from 150) | ⚠️ No release notes |
 | 154 | Synology + WD My Cloud NAS integration, CinaVault logo branding | ✅ Verified |
-| 155 | Full automation: CI/CD, maintenance, library, carry-forward governance | ✅ Current |
+| 155 | Full automation: CI/CD, maintenance, library, carry-forward governance | ✅ Verified |
+| 156–164 | Features preserved; Build 164 audited against the 20 most recent published releases | ✅ Verified by Build 165 audit |
+| 165 | Real AI work, source discovery, WD/Synology scanning, adult providers, poster integrity | ✅ Current |
 
 ---
 
-*Last updated: Build 155 — Generated automatically by CI carry-forward governance pipeline.*
+### Build 166 (Persistent Hugging Face Model Selection)
+
+- Selected `Qwen/Qwen3-4B-Instruct-2507` after a successful authenticated structured-output inference test.
+- Restores a valid credential from the standard Hugging Face CLI cache when the application database is empty after reinstall.
+- Migrates only the former Mistral default, preserving explicit user model choices.
+- Carries forward all Build 165 AI, NAS, metadata-provider, poster-sidecar, media-tool, cloud, casting, and plugin behavior.
+- Publishes both MSI and NSIS EXE installers with SHA-256 checksums.
+
+*Last updated: Build 166 — verified by CI carry-forward governance, live Hugging Face inference, and installer tests.*
+
+
+### v2.0.6 (Persistent AI, Metadata Providers, and Media Cards)
+
+| Feature | Token to Verify | Source File |
+|---|---|---|
+| Secure Hugging Face token recovery before AI status | `ensure_hf_token` | `src/components/tabs/AIDiagnosticsTab.tsx` |
+| Metadata provider initialization at every launch | `initialize_metadata_providers(&database)` | `src-tauri/src/lib.rs` |
+| Provider readiness and environment-key import | `metadata_provider_startup_status` | `src-tauri/src/metadata_ext.rs` |
+| Kodi media-card metadata response contract | `const updated = result.updated_item` | `src/components/kodi/KodiHomeLayout.tsx` |
+| Metadata/poster card state merge | `{ ...media, ...updated }` | `src/components/kodi/KodiHomeLayout.tsx` |
+
+> These v2.0.6 contracts are permanent carry-forward requirements. Removal requires the owner's explicit instruction and a documented release-note removal entry.

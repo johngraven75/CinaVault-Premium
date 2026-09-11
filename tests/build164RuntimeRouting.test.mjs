@@ -16,15 +16,11 @@ function assertIncludes(text, expected, label = expected) {
 }
 
 test("Build 164 routes user-facing metadata commands through metadata_ext at runtime", () => {
-  const main = source("src-tauri/src/main.rs");
-  const commandBlock = main.slice(
-    main.indexOf("// Metadata commands route through metadata_ext"),
-    main.indexOf("// Chapters"),
-  );
+  const commandBlock = source("src-tauri/src/lib.rs");
 
   assertIncludes(commandBlock, "metadata_ext::fetch_metadata");
   assertIncludes(commandBlock, "metadata_ext::search_metadata");
-  assertIncludes(commandBlock, "metadata_ext::check_media_item_metadata");
+  assertIncludes(commandBlock, "metadata_enrichment_runtime::check_media_item_metadata");
   assertIncludes(commandBlock, "metadata_ext::get_provider_status");
   assertIncludes(commandBlock, "metadata_ext::test_api_key");
   assertIncludes(commandBlock, "metadata_ext::set_api_key");
