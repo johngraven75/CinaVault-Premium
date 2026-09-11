@@ -1,0 +1,5 @@
+CinaVault Premium v2.15 Build 215 immutable release trigger.
+
+Publish only from a green, merged mainline commit. The release workflow must attach
+the validated MSI, NSIS setup EXE, SHA-256 checksums, and complete test notes to
+the immutable v2-build-2.15 GitHub release tag.

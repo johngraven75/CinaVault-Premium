@@ -290,7 +290,12 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
         let mut stmt = db.conn.prepare("SELECT provider,api_key FROM api_keys").map_err(|e| e.to_string())?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
         let mut keys = HashMap::new();
-        for row in rows { let (provider, key) = row.map_err(|e| e.to_string())?; keys.insert(normalize_provider_key(&provider), key); }
+        for row in rows {
+            let (provider, stored) = row.map_err(|e| e.to_string())?;
+            if let Some(key) = metadata_ext::resolve_stored_provider_key(&provider, &stored)? {
+                keys.insert(normalize_provider_key(&provider), key);
+            }
+        }
         (item, keys)
     };
 
@@ -309,7 +314,31 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
     }
 
     let providers = matches.iter().map(|value| value.provider.clone()).collect::<Vec<_>>();
-    let update = merge_matches(&item, &matches, adult);
+    let mut update = merge_matches(&item, &matches, adult);
+    // Individual card refresh uses the same durable artwork rule as the bulk
+    // adult gather: a remote URL is never posted to the card.  The image must
+    // download, decode, and atomically become a sidecar before SQLite changes.
+    if adult {
+        if let Some(remote_poster) = update
+            .poster_path
+            .clone()
+            .filter(|path| path.starts_with("https://"))
+        {
+            match crate::enrichment::download_poster_to_sidecar(
+                &client,
+                &remote_poster,
+                &item.file_path,
+            )
+            .await
+            {
+                Ok(local_poster) => update.poster_path = Some(local_poster),
+                Err(error) => {
+                    errors.push(format!("adult poster was not posted: {error}"));
+                    update.poster_path = None;
+                }
+            }
+        }
+    }
     let count = changed_fields(&update);
     if count > 0 {
         let db = state.db.lock().map_err(|e| e.to_string())?;

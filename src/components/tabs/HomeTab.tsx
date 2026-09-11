@@ -61,6 +61,12 @@ interface MetadataCheckResult {
   updated_item?: Partial<MediaItem> & { id?: number };
 }
 
+interface ChapterThumb {
+  timestamp: number;
+  path: string;
+  label: string;
+}
+
 const SHELF_OPTIONS: ShelfOption[] = [
   { id: "recent", label: "Trending Now", icon: Clock },
   { id: "verified", label: "Verified Signal", icon: CheckCircle },
@@ -574,6 +580,7 @@ export default function HomeTab(): JSX.Element {
               <TerminalLine label="Favorite" value={selectedMedia.favorite ? "Vaulted" : "Not Set"} />
             </div>
             {selectedMedia.overview && <p className="mt-4 rounded border border-cyan-300/10 bg-black/30 p-3 text-xs leading-6 text-cv-subtext">{selectedMedia.overview}</p>}
+            {selectedMedia.media_type === "adult" && <AdultChapterArtwork filePath={selectedMedia.file_path} />}
             <div className="mt-4 grid gap-2">
               <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button"><Play size={14} /> Quick Play</button>
               <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button"><CheckCircle size={14} /> Verify Signal</button>
@@ -591,6 +598,35 @@ export default function HomeTab(): JSX.Element {
       )}
     </div>
   );
+}
+
+function AdultChapterArtwork({ filePath }: { filePath: string }): JSX.Element | null {
+  const [thumbs, setThumbs] = useState<ChapterThumb[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+
+  useEffect(() => {
+    const normalized = filePath.replace(/\\/g, "/");
+    const slash = normalized.lastIndexOf("/");
+    const dot = normalized.lastIndexOf(".");
+    const directory = `${normalized.slice(0, slash + 1)}${normalized.slice(slash + 1, dot > slash ? dot : normalized.length)}_chapters`;
+    let active = true;
+    setStatus("loading");
+    void invoke<ChapterThumb[]>("get_chapter_thumbs", { chapterDir: directory })
+      .then((result) => {
+        if (!active) return;
+        setThumbs(result);
+        setStatus(result.length ? "ready" : "empty");
+      })
+      .catch(() => {
+        if (active) setStatus("error");
+      });
+    return () => { active = false; };
+  }, [filePath]);
+
+  if (status === "empty") return <p className="mt-4 text-[10px] text-cv-subtext">No chapter artwork has been generated for this item yet.</p>;
+  if (status === "error") return <p role="status" className="mt-4 text-[10px] text-amber-200">Chapter artwork could not be loaded. Generate chapter images and try again.</p>;
+  if (status === "loading") return <p className="mt-4 text-[10px] text-cv-subtext">Loading chapter artwork…</p>;
+  return <section className="mt-4 border-t border-cyan-300/15 pt-3" aria-label="Chapter artwork"><div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100">Chapter artwork</span><span className="text-[10px] text-cv-subtext">{thumbs.length} frames</span></div><div className="grid grid-cols-3 gap-2">{thumbs.slice(0, 9).map((thumb) => <figure key={thumb.path} className="overflow-hidden rounded border border-cyan-300/15 bg-black/30"><img src={resolveMediaImageSrc(thumb.path)} alt={`Chapter at ${thumb.label}`} className="aspect-video w-full object-cover" loading="lazy" /><figcaption className="px-1.5 py-1 text-[9px] text-cv-subtext">{thumb.label}</figcaption></figure>)}</div></section>;
 }
 
 function StatCard({ icon: Icon, label, value, detail }: { icon: LucideIcon; label: string; value: string; detail: string }): JSX.Element {

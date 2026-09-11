@@ -6,7 +6,7 @@ use crate::shared_contracts::{
     MetadataProviderRegistryInterface,
 };
 use axum::body::Body;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -14,49 +14,22 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::{Path as FilePath, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::sync::oneshot;
+use tokio::sync::RwLock;
 use tokio_util::io::ReaderStream;
+use tower_http::cors::{Any, CorsLayer};
 
-const DEFAULT_PORT: u16 = 32400;
 const MAX_ARTWORK_BYTES: usize = 25 * 1024 * 1024;
-const MAX_LOGIN_FAILURES: u32 = 5;
-const LOGIN_BLOCK_DURATION: Duration = Duration::from_secs(5 * 60);
-const LOGIN_ATTEMPT_RETENTION: Duration = Duration::from_secs(60 * 60);
 // This domain is intentionally stable so existing opaque remote media keys do not change on upgrade.
 const REMOTE_MEDIA_KEY_DOMAIN: &[u8] = b"cinavault-build-170-remote-media-v1";
 
 #[derive(Clone)]
 struct HttpState {
     database_path: String,
-    login_attempts: Arc<Mutex<HashMap<std::net::IpAddr, LoginAttempt>>>,
-}
-
-#[derive(Clone, Copy)]
-struct LoginAttempt {
-    failures: u32,
-    blocked_until: Option<std::time::Instant>,
-    last_seen: std::time::Instant,
-}
-
-struct ServerRuntime {
-    port: u16,
-    shutdown: oneshot::Sender<()>,
-}
-
-static DATABASE_PATH: OnceLock<String> = OnceLock::new();
-static SERVER_RUNTIME: OnceLock<Mutex<Option<ServerRuntime>>> = OnceLock::new();
-
-fn runtime() -> &'static Mutex<Option<ServerRuntime>> {
-    SERVER_RUNTIME.get_or_init(|| Mutex::new(None))
-}
-
-pub fn configure(database_path: String) {
-    let _ = DATABASE_PATH.set(database_path);
+    sessions: Arc<RwLock<HashMap<String, RemoteAccessPrincipal>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,18 +43,6 @@ struct PasswordLogin {
 #[serde(rename_all = "camelCase")]
 struct AccessKeyLogin {
     access_key: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ServerStatus {
-    running: bool,
-    port: u16,
-    local_url: String,
-    remote_ready: bool,
-    authentication: &'static str,
-    remote_transport: &'static str,
-    local_paths_exposed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +67,13 @@ struct LibraryCount {
     total_items: i64,
     count_policy: &'static str,
     capped: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LibraryQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,108 +177,49 @@ fn remote_media_item(item: MediaItem) -> Option<RemoteMediaItem> {
     })
 }
 
-fn register_session(principal: RemoteAccessPrincipal) -> Json<RemoteAccessPrincipal> {
+async fn register_session(
+    state: &HttpState,
+    principal: RemoteAccessPrincipal,
+) -> Json<RemoteAccessPrincipal> {
+    state
+        .sessions
+        .write()
+        .await
+        .insert(principal.session_token.clone(), principal.clone());
     Json(principal)
-}
-
-fn login_is_allowed(state: &HttpState, client: std::net::IpAddr) -> bool {
-    let now = std::time::Instant::now();
-    let Ok(mut attempts) = state.login_attempts.lock() else {
-        return true;
-    };
-    attempts.retain(|_, attempt| {
-        now.duration_since(attempt.last_seen) < LOGIN_ATTEMPT_RETENTION
-            || attempt.blocked_until.is_some_and(|until| until > now)
-    });
-    let attempt = attempts.entry(client).or_insert(LoginAttempt {
-        failures: 0,
-        blocked_until: None,
-        last_seen: now,
-    });
-    attempt.last_seen = now;
-    !attempt.blocked_until.is_some_and(|until| until > now)
-}
-
-fn record_login_failure(state: &HttpState, client: std::net::IpAddr) {
-    let now = std::time::Instant::now();
-    if let Ok(mut attempts) = state.login_attempts.lock() {
-        let attempt = attempts.entry(client).or_insert(LoginAttempt {
-            failures: 0,
-            blocked_until: None,
-            last_seen: now,
-        });
-        attempt.last_seen = now;
-        attempt.failures = attempt.failures.saturating_add(1);
-        if attempt.failures >= MAX_LOGIN_FAILURES {
-            attempt.failures = 0;
-            attempt.blocked_until = Some(now + LOGIN_BLOCK_DURATION);
-        }
-    }
-}
-
-fn record_login_success(state: &HttpState, client: std::net::IpAddr) {
-    if let Ok(mut attempts) = state.login_attempts.lock() {
-        attempts.remove(&client);
-    }
 }
 
 async fn login_password(
     State(state): State<Arc<HttpState>>,
-    ConnectInfo(client): ConnectInfo<SocketAddr>,
     Json(payload): Json<PasswordLogin>,
 ) -> Result<Json<RemoteAccessPrincipal>, (StatusCode, String)> {
-    if !login_is_allowed(&state, client.ip()) {
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many failed login attempts. Try again later.".into(),
-        ));
-    }
     let database = open_database(&state.database_path)?;
     match database
         .authenticate_remote_password(&payload.email, &payload.password)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
     {
-        Some(principal) => {
-            record_login_success(&state, client.ip());
-            Ok(register_session(principal))
-        }
-        None => {
-            record_login_failure(&state, client.ip());
-            Err((
-                StatusCode::UNAUTHORIZED,
-                "Invalid account credentials".into(),
-            ))
-        }
+        Some(principal) => Ok(register_session(&state, principal).await),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid account credentials".into(),
+        )),
     }
 }
 
 async fn login_access_key(
     State(state): State<Arc<HttpState>>,
-    ConnectInfo(client): ConnectInfo<SocketAddr>,
     Json(payload): Json<AccessKeyLogin>,
 ) -> Result<Json<RemoteAccessPrincipal>, (StatusCode, String)> {
-    if !login_is_allowed(&state, client.ip()) {
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many failed login attempts. Try again later.".into(),
-        ));
-    }
     let database = open_database(&state.database_path)?;
     match database
         .authenticate_remote_access_key(&payload.access_key)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
     {
-        Some(principal) => {
-            record_login_success(&state, client.ip());
-            Ok(register_session(principal))
-        }
-        None => {
-            record_login_failure(&state, client.ip());
-            Err((
-                StatusCode::UNAUTHORIZED,
-                "Invalid account access key".into(),
-            ))
-        }
+        Some(principal) => Ok(register_session(&state, principal).await),
+        None => Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid account access key".into(),
+        )),
     }
 }
 
@@ -327,14 +236,10 @@ async fn authenticated_principal(
         .filter(|value| !value.is_empty())
         .ok_or((StatusCode::UNAUTHORIZED, "Bearer token required".into()))?;
 
-    let database = open_database(&state.database_path)?;
-    let principal = database
-        .validate_remote_access_session(token)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
-        .ok_or((
-            StatusCode::UNAUTHORIZED,
-            "Session is invalid, revoked, or expired".into(),
-        ))?;
+    let principal = state.sessions.read().await.get(token).cloned().ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Session is invalid or expired".into(),
+    ))?;
 
     if !principal
         .permissions
@@ -367,18 +272,31 @@ fn hardened_response_headers(response: &mut Response<Body>) {
     );
 }
 
-async fn health() -> impl IntoResponse {
+async fn health(State(state): State<Arc<HttpState>>) -> impl IntoResponse {
     let build = build_identity::current();
-    Json(serde_json::json!({
-        "status": "ok",
-        "product": "CinaVault Embedded Media Server",
-        "version": build.semantic_version,
-        "build": build.display_build,
-        "displayName": build.display_name,
-        "releaseTag": build.release_tag,
-        "remoteTransport": "HTTPS relay required by default",
-        "localPathsExposed": false
-    }))
+    let database_health = open_database(&state.database_path)
+        .map(|_| (true, None))
+        .unwrap_or_else(|(_, error)| (false, Some(error)));
+    let status = if database_health.0 {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "status": if database_health.0 { "ok" } else { "unhealthy" },
+            "databaseHealthy": database_health.0,
+            "error": database_health.1,
+            "product": "CinaVault Embedded Media Server",
+            "version": build.semantic_version,
+            "build": build.display_build,
+            "displayName": build.display_name,
+            "releaseTag": build.release_tag,
+            "remoteTransport": "HTTPS relay required by default",
+            "localPathsExposed": false
+        })),
+    )
 }
 
 async fn server_info(
@@ -439,11 +357,14 @@ async fn library_count(
 async fn library(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
+    Query(query): Query<LibraryQuery>,
 ) -> Result<Json<Vec<RemoteMediaItem>>, (StatusCode, String)> {
     authenticated_principal(&state, &headers, "library:read").await?;
     let database = open_database(&state.database_path)?;
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
     let items = database
-        .get_media_items_data(None, None, None)
+        .get_media_items_data(None, Some(limit), Some(offset))
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     Ok(Json(
         items.into_iter().filter_map(remote_media_item).collect(),
@@ -694,7 +615,11 @@ async fn stream_media(
     Ok(response)
 }
 
-fn router(state: Arc<HttpState>) -> Router {
+pub(crate) fn router(database_path: String) -> Router {
+    let state = Arc::new(HttpState {
+        database_path,
+        sessions: Arc::new(RwLock::new(HashMap::new())),
+    });
     Router::new()
         .route("/health", get(health))
         .route("/api/auth/password", post(login_password))
@@ -707,107 +632,149 @@ fn router(state: Arc<HttpState>) -> Router {
         .route("/api/artwork/{media_key}", get(artwork_media))
         .route("/api/artwork/{media_key}/{kind}", get(artwork_media_kind))
         .route("/api/stream/{media_key}", get(stream_media))
-        // Native clients and the authenticated relay do not require browser cross-origin access.
-        .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::RANGE])
+                .allow_methods(Any),
+        )
         .with_state(state)
 }
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::db::MediaItem;
+    use serde_json::Value;
+    use tokio::sync::oneshot;
 
-#[tauri::command]
-pub async fn start_embedded_server(port: Option<u16>) -> Result<serde_json::Value, String> {
-    let port = port.unwrap_or(DEFAULT_PORT);
-    {
-        let guard = runtime().lock().map_err(|error| error.to_string())?;
-        if let Some(active) = guard.as_ref() {
-            return Ok(serde_json::json!({
-                "running": true,
-                "port": active.port,
-                "localUrl": format!("http://127.0.0.1:{}", active.port),
-                "remoteReady": false,
-                "authentication": "CinaVault account session",
-                "remoteTransport": "HTTPS relay required by default",
-                "localPathsExposed": false
-            }));
+    async fn spawn_test_server(database_path: String) -> (String, oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind ephemeral loopback listener");
+        let address = listener.local_addr().expect("read listener address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            axum::serve(listener, router(database_path))
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .expect("serve test API");
+        });
+        (format!("http://{address}"), shutdown_tx)
+    }
+
+    fn media(title: &str, path: &str, date_added: &str) -> MediaItem {
+        MediaItem {
+            id: None,
+            title: title.into(),
+            file_path: path.into(),
+            media_type: "movie".into(),
+            year: None,
+            rating: None,
+            overview: None,
+            poster_path: None,
+            backdrop_path: None,
+            genre: None,
+            duration: None,
+            file_size: None,
+            resolution: None,
+            codec: None,
+            verified: true,
+            watched: false,
+            favorite: false,
+            date_added: date_added.into(),
+            last_played: None,
+            tmdb_id: None,
+            imdb_id: None,
+            source_id: None,
         }
     }
 
-    let database_path = DATABASE_PATH
-        .get()
-        .cloned()
-        .ok_or("Embedded server database is not configured")?;
-    // The public relay terminates TLS separately; the local media server is never exposed on the LAN.
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .map_err(|error| format!("Unable to bind embedded server on port {port}: {error}"))?;
-    let state = Arc::new(HttpState {
-        database_path,
-        login_attempts: Arc::new(Mutex::new(HashMap::new())),
-    });
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    *runtime().lock().map_err(|error| error.to_string())? = Some(ServerRuntime {
-        port,
-        shutdown: shutdown_tx,
-    });
+    #[tokio::test]
+    async fn remote_client_authenticates_and_reads_paginated_library_across_restart() {
+        let database_path = std::env::temp_dir().join(format!(
+            "cinavault-embedded-http-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let database_path_text = database_path.to_string_lossy().into_owned();
+        let database = Database::new(&database_path_text).expect("create temporary database");
+        let provision = database
+            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", Some("Viewer"))
+            .expect("provision remote user");
+        database
+            .add_media_item_data(&media(
+                "Older",
+                "C:/media/older.mp4",
+                "2026-01-01T00:00:00Z",
+            ))
+            .expect("insert older media");
+        database
+            .add_media_item_data(&media(
+                "Newest",
+                "C:/media/newest.mp4",
+                "2026-02-01T00:00:00Z",
+            ))
+            .expect("insert newest media");
+        drop(database);
 
-    tauri::async_runtime::spawn(async move {
-        let result = axum::serve(
-            listener,
-            router(state).into_make_service_with_connect_info::<SocketAddr>(),
-        )
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await;
-        if let Err(error) = result {
-            log::error!("Embedded media server stopped unexpectedly: {error}");
-        }
-        if let Ok(mut guard) = runtime().lock() {
-            *guard = None;
-        }
-    });
+        let client = reqwest::Client::new();
+        let (base_url, shutdown) = spawn_test_server(database_path_text.clone()).await;
+        let invalid = client
+            .post(format!("{base_url}/api/auth/access-key"))
+            .json(&serde_json::json!({ "accessKey": "cvra_invalid" }))
+            .send()
+            .await
+            .expect("send invalid-key request");
+        assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
 
-    Ok(serde_json::json!({
-        "running": true,
-        "port": port,
-        "localUrl": format!("http://127.0.0.1:{port}"),
-        "remoteReady": false,
-        "authentication": "CinaVault account session",
-        "remoteTransport": "HTTPS relay required by default",
-        "localPathsExposed": false
-    }))
-}
+        let login = client
+            .post(format!("{base_url}/api/auth/access-key"))
+            .json(&serde_json::json!({ "accessKey": provision.access_key }))
+            .send()
+            .await
+            .expect("send access-key login");
+        assert_eq!(login.status(), StatusCode::OK);
+        let principal: Value = login.json().await.expect("decode login response");
+        let token = principal["session_token"].as_str().expect("session token");
 
-#[tauri::command]
-pub async fn stop_embedded_server() -> Result<serde_json::Value, String> {
-    let active = runtime().lock().map_err(|error| error.to_string())?.take();
-    if let Some(active) = active {
-        let _ = active.shutdown.send(());
+        let info: Value = client
+            .get(format!("{base_url}/api/server/info"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request server info")
+            .error_for_status()
+            .expect("authorized server info")
+            .json()
+            .await
+            .expect("decode server info");
+        assert_eq!(info["accountEmail"], "viewer@example.com");
+
+        let library: Vec<Value> = client
+            .get(format!("{base_url}/api/library?limit=1&offset=0"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request library page")
+            .error_for_status()
+            .expect("authorized library page")
+            .json()
+            .await
+            .expect("decode library page");
+        assert_eq!(library.len(), 1);
+        assert_eq!(library[0]["title"], "Newest");
+
+        shutdown.send(()).expect("stop first server");
+        let (restarted_url, restarted_shutdown) = spawn_test_server(database_path_text).await;
+        let stale_session = client
+            .get(format!("{restarted_url}/api/server/info"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request with stale session");
+        assert_eq!(stale_session.status(), StatusCode::UNAUTHORIZED);
+        restarted_shutdown.send(()).expect("stop restarted server");
+        let _ = std::fs::remove_file(database_path);
     }
-    Ok(serde_json::json!({ "running": false }))
-}
-
-#[tauri::command]
-pub fn get_embedded_server_status() -> Result<serde_json::Value, String> {
-    let guard = runtime().lock().map_err(|error| error.to_string())?;
-    let status = if let Some(active) = guard.as_ref() {
-        ServerStatus {
-            running: true,
-            port: active.port,
-            local_url: format!("http://127.0.0.1:{}", active.port),
-            remote_ready: false,
-            authentication: "CinaVault account session",
-            remote_transport: "HTTPS relay required by default",
-            local_paths_exposed: false,
-        }
-    } else {
-        ServerStatus {
-            running: false,
-            port: DEFAULT_PORT,
-            local_url: format!("http://127.0.0.1:{DEFAULT_PORT}"),
-            remote_ready: false,
-            authentication: "CinaVault account session",
-            remote_transport: "HTTPS relay required by default",
-            local_paths_exposed: false,
-        }
-    };
-    serde_json::to_value(status).map_err(|error| error.to_string())
 }

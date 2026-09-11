@@ -1,6 +1,6 @@
 [package]
 name = "cinavault-premium"
-version = "2.0.14"
+version = "2.0.15"
 description = "CinaVault Premium — A Full-Featured Media Server"
 authors = ["CinaVault Team"]
 edition = "2021"
@@ -33,7 +33,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 reqwest = { version = "0.12", features = ["json", "stream", "blocking", "rustls-tls", "cookies"] }
 igd-next = "0.17.1"
 natpmp = { version = "0.5", features = ["tokio"] }
-zip = "2"
+zip = "8"
 walkdir = "2"
 sha2 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
@@ -42,10 +42,12 @@ glob = "0.3"
 regex = "1"
 percent-encoding = "2"
 dirs = "5"
+keyring = "3"
 env_logger = "0.11"
 open = "5"
 log = "0.4"
 base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 
 # Backport RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g without a breaking GTK-rs upgrade.
 [patch.crates-io]

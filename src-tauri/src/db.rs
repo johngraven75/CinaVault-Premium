@@ -1082,6 +1082,18 @@ impl Database {
         let email = normalize_remote_email(email)?;
         validate_remote_password(password)?;
 
+        let email_exists = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM remote_access_users WHERE email = ?1)",
+                params![email],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|err| err.to_string())?;
+        if email_exists {
+            return Err("A remote user with this email already exists.".to_string());
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
         // The PHC string produced by Argon2id includes the random salt and cost parameters.
         let password_salt = "argon2id".to_string();
@@ -1099,16 +1111,7 @@ impl Database {
                 "INSERT INTO remote_access_users
                  (email, display_name, password_salt, password_hash, access_key_salt,
                   access_key_hash, access_key_preview, enabled, permissions, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'server:read,library:read,stream:play', ?8, ?8)
-                 ON CONFLICT(email) DO UPDATE SET
-                   display_name = excluded.display_name,
-                   password_salt = excluded.password_salt,
-                   password_hash = excluded.password_hash,
-                   access_key_salt = excluded.access_key_salt,
-                   access_key_hash = excluded.access_key_hash,
-                   access_key_preview = excluded.access_key_preview,
-                   enabled = 1,
-                   updated_at = excluded.updated_at",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'server:read,library:read,stream:play', ?8, ?8)",
                 params![
                     email,
                     display_name,
@@ -1204,7 +1207,12 @@ impl Database {
                     "UPDATE remote_access_users
                      SET password_salt = 'argon2id', password_hash = ?1, updated_at = ?2
                      WHERE id = ?3 AND password_hash = ?4",
-                    params![upgraded_hash, chrono::Utc::now().to_rfc3339(), id, expected_hash],
+                    params![
+                        upgraded_hash,
+                        chrono::Utc::now().to_rfc3339(),
+                        id,
+                        expected_hash
+                    ],
                 )
                 .map_err(|err| err.to_string())?;
         }
@@ -1380,7 +1388,17 @@ impl Database {
             )
             .optional()
             .map_err(|error| error.to_string())?;
-        let Some((token_salt, token_hash, auth_method, expires_at, id, email, display_name, permissions)) = row else {
+        let Some((
+            token_salt,
+            token_hash,
+            auth_method,
+            expires_at,
+            id,
+            email,
+            display_name,
+            permissions,
+        )) = row
+        else {
             return Ok(None);
         };
         let candidate_hash = hash_secret(&token_salt, session_token);
@@ -1551,7 +1569,11 @@ fn is_argon2_password_hash(password_hash: &str) -> bool {
 fn verify_argon2_password(password: &str, password_hash: &str) -> bool {
     PasswordHash::new(password_hash)
         .ok()
-        .and_then(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).ok())
+        .and_then(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .ok()
+        })
         .is_some()
 }
 
@@ -2443,6 +2465,94 @@ mod tests {
         assert!(db
             .validate_remote_access_session(&migrated_auth.session_token)
             .expect("revoked session lookup should run")
+            .is_none());
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn creating_duplicate_normalized_remote_email_preserves_existing_credentials() {
+        let db_path = test_db_path("remote-access-duplicate-email");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let original = db
+            .create_remote_access_user(
+                "owner@example.com",
+                "OriginalPassword42!",
+                Some("Original Owner"),
+            )
+            .expect("first remote user should be created");
+
+        let error = db
+            .create_remote_access_user(
+                " OWNER@EXAMPLE.COM ",
+                "ReplacementPassword42!",
+                Some("Replacement Owner"),
+            )
+            .expect_err("duplicate normalized email should be rejected");
+
+        assert_eq!(error, "A remote user with this email already exists.");
+        assert!(db
+            .authenticate_remote_password("owner@example.com", "OriginalPassword42!")
+            .expect("original password auth should run")
+            .is_some());
+        assert!(db
+            .authenticate_remote_password("owner@example.com", "ReplacementPassword42!")
+            .expect("replacement password auth should run")
+            .is_none());
+        assert!(db
+            .authenticate_remote_access_key(&original.access_key)
+            .expect("original access-key auth should run")
+            .is_some());
+
+        drop(db);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn explicit_remote_access_key_rotation_invalidates_old_key_and_lists_safe_summary() {
+        let db_path = test_db_path("remote-access-explicit-rotation");
+        let db = Database::new(&db_path).expect("db should open");
+
+        let created = db
+            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", None)
+            .expect("remote user should be created");
+        let rotated = db
+            .rotate_remote_access_key(" VIEWER@EXAMPLE.COM ")
+            .expect("rotation should run")
+            .expect("remote user should exist");
+
+        assert_ne!(rotated.access_key, created.access_key);
+        assert!(db
+            .authenticate_remote_access_key(&created.access_key)
+            .expect("old access-key auth should run")
+            .is_none());
+        assert!(db
+            .authenticate_remote_access_key(&rotated.access_key)
+            .expect("replacement access-key auth should run")
+            .is_some());
+
+        let summaries = db
+            .list_remote_access_users()
+            .expect("safe summaries should load");
+        assert_eq!(summaries.len(), 1);
+        let summary_json = serde_json::to_value(&summaries[0]).expect("summary should serialize");
+        assert!(summary_json.get("access_key").is_none());
+        assert!(summary_json.get("access_key_hash").is_none());
+        assert!(summary_json.get("password_hash").is_none());
+        assert_eq!(
+            summary_json
+                .get("access_key_preview")
+                .and_then(serde_json::Value::as_str),
+            Some(rotated.access_key_preview.as_str()),
+        );
+
+        db.set_remote_access_user_enabled("viewer@example.com", false)
+            .expect("disable should succeed");
+        assert!(db
+            .authenticate_remote_access_key(&rotated.access_key)
+            .expect("disabled access-key auth should run")
             .is_none());
 
         drop(db);

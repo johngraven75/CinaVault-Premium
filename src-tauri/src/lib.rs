@@ -49,6 +49,8 @@ mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
 mod scanner;
+pub mod server_lifecycle;
+mod secure_credentials;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
@@ -90,6 +92,8 @@ pub fn run() {
             let db_path = app_dir.join("cinavault.db");
             let database = Database::new(db_path.to_str().unwrap())
                 .expect("Failed to initialize database");
+            server_lifecycle::configure(db_path.clone())
+                .expect("Failed to configure native server database");
 
             // Recover the persistent Hugging Face credential on every launch if the DB
             // copy is missing. This keeps upgrades/reinstalls stable without embedding a
@@ -126,6 +130,14 @@ pub fn run() {
                 }
             }
 
+            // Provision all native adult provider manifests and config files on every launch.
+            // This installs runtime entries without embedding API keys or pretending that
+            // optional external credentials or local scraper services are available.
+            match plugin_configs::ensure_adult_provider_configs() {
+                Ok(status) => log::info!("Adult provider configs provisioned at startup: {status:?}"),
+                Err(error) => log::warn!("Adult provider startup provisioning failed: {error}"),
+            }
+
             // Initialize the full metadata-provider catalog on every launch. Existing
             // database credentials are retained, supported environment credentials are
             // imported once, and a provider-by-provider readiness report is persisted.
@@ -158,6 +170,13 @@ pub fn run() {
             app.manage(AppState {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
+            });
+            let startup_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let result = vpn::startup_auto_connect(startup_handle).await;
+                if result.get("status").and_then(|value| value.as_str()) == Some("failed") {
+                    log::warn!("WireGuard startup auto-connect failed safely: {result}");
+                }
             });
             log::info!("{} initialized successfully", build_identity::current().display_name);
             Ok(())
@@ -216,9 +235,10 @@ pub fn run() {
             jellyfin::import_libraries,
             jellyfin::check_emby_compat,
             jellyfin::open_admin_page,
-            embedded_server::start_embedded_server,
-            embedded_server::stop_embedded_server,
-            embedded_server::get_embedded_server_status,
+            server_lifecycle::start_embedded_server,
+            server_lifecycle::stop_embedded_server,
+            server_lifecycle::get_embedded_server_status,
+            server_lifecycle::get_embedded_server_health,
             remote_connectivity::start_remote_connectivity,
             remote_connectivity::stop_remote_connectivity,
             remote_connectivity::get_remote_connectivity_status,
@@ -246,6 +266,8 @@ pub fn run() {
             metadata_ext::search_metadata,
             metadata_enrichment_runtime::check_media_item_metadata,
             metadata_ext::get_provider_status,
+            metadata_ext::get_adult_provider_settings,
+            metadata_ext::save_adult_provider_settings,
             metadata_ext::test_api_key,
             metadata_ext::set_api_key,
             metadata_ext::get_api_keys,
@@ -270,6 +292,7 @@ pub fn run() {
             vpn::vpn_status,
             vpn::vpn_import_profile,
             vpn::vpn_profiles,
+            vpn::vpn_select_default,
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,
@@ -299,6 +322,8 @@ pub fn run() {
             nas_devices::wd_mycloud_disconnect,
             nas_devices::wd_mycloud_get_status,
             nas_devices::wd_mycloud_add_library,
+            nas_devices::list_nas_shares,
+            nas_devices::browse_nas_path,
             build_identity::get_current_build_info,
             open_external_url,
             get_system_info,

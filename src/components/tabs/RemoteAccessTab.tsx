@@ -4,6 +4,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import {
+  createRemoteAccountFormState,
+  dismissRemoteAccountFormStatus,
+  failRemoteAccountSave,
+  finishRemoteAccountSave,
+  markRemoteAccessKeyCopied,
+  prepareRemoteAccountSave,
+  RemoteAccessKeyReveal,
+  revealRemoteAccessKey,
+  setRemoteAccountFormStatus,
+  updateRemoteAccountFormField,
+} from "../../utils/remoteAccessAccountForm";
+import { rotateRemoteAccessUserKey } from "../../utils/remoteAccessUserCommands";
+import {
   AlertTriangle,
   CheckCircle,
   Cloud,
@@ -38,8 +51,14 @@ type RemoteAccessUser = {
   last_login?: string | null;
 };
 
-type RemoteProvision = RemoteAccessUser & {
+type RemoteProvision = {
+  id: number;
+  email: string;
+  display_name?: string | null;
   access_key: string;
+  access_key_preview: string;
+  enabled: boolean;
+  created_at: string;
 };
 
 type RemotePrincipal = {
@@ -52,11 +71,11 @@ type RemotePrincipal = {
   permissions: string[];
 };
 
-type RemoteKeyRotation = {
-  email: string;
-  access_key: string;
-  access_key_preview: string;
-};
+function remoteAccessErrorMessage(error: unknown) {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "The remote-user request could not be completed.";
+}
 
 type RemoteConnectivityStatus = {
   running: boolean;
@@ -126,19 +145,16 @@ export default function RemoteAccessTab() {
   const [connectivity, setConnectivity] =
     useState<RemoteConnectivityStatus>(emptyConnectivity);
   const [accounts, setAccounts] = useState<RemoteAccessUser[]>([]);
-  const [accountForm, setAccountForm] = useState({
-    displayName: "",
-    email: "",
-    password: "",
-  });
+  const [accountForm, setAccountForm] = useState(
+    createRemoteAccountFormState,
+  );
   const [passwordLogin, setPasswordLogin] = useState({
     email: "",
     password: "",
   });
   const [keyLogin, setKeyLogin] = useState("");
-  const [latestKey, setLatestKey] = useState<
-    RemoteKeyRotation | RemoteProvision | null
-  >(null);
+  const [latestKey, setLatestKey] =
+    useState<RemoteAccessKeyReveal | null>(null);
   const [lastPrincipal, setLastPrincipal] = useState<RemotePrincipal | null>(
     null,
   );
@@ -238,24 +254,33 @@ export default function RemoteAccessTab() {
   };
 
   const createAccount = async () => {
-    setBusy("create");
+    const prepared = prepareRemoteAccountSave(accountForm);
+    setAccountForm(prepared);
+    if (prepared.status.kind !== "saving") return;
+
     try {
       const provision = await invoke<RemoteProvision>(
         "create_remote_access_user",
         {
-          email: accountForm.email,
-          password: accountForm.password,
-          displayName: accountForm.displayName || null,
+          email: prepared.fields.email,
+          password: prepared.fields.password,
+          displayName: prepared.fields.displayName || null,
         },
       );
-      setLatestKey(provision);
-      setAccountForm({ displayName: "", email: "", password: "" });
-      addStatusMessage(`Remote account ready: ${provision.email}`);
+      setLatestKey(
+        revealRemoteAccessKey(
+          provision.email,
+          provision.access_key,
+          "created",
+        ),
+      );
+      setAccountForm(finishRemoteAccountSave(prepared, provision.email));
+      addStatusMessage(`Remote user ready: ${provision.email}`);
       await loadAccounts();
     } catch (error) {
-      addStatusMessage(`Remote account setup failed: ${error}`);
-    } finally {
-      setBusy(null);
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm(failRemoteAccountSave(prepared, message));
+      addStatusMessage(`Remote user setup failed: ${message}`);
     }
   };
 
@@ -304,17 +329,37 @@ export default function RemoteAccessTab() {
   const rotateKey = async (email: string) => {
     setBusy(`rotate:${email}`);
     try {
-      const rotated = await invoke<RemoteKeyRotation | null>(
-        "rotate_remote_access_key",
-        { email },
-      );
+      const rotated = await rotateRemoteAccessUserKey(invoke, email);
       if (rotated) {
-        setLatestKey(rotated);
+        setLatestKey(
+          revealRemoteAccessKey(
+            rotated.email,
+            rotated.access_key,
+            "rotated",
+          ),
+        );
+        setAccountForm((state) =>
+          setRemoteAccountFormStatus(state, {
+            kind: "success",
+            message: `Access key rotated for ${email}.`,
+          }),
+        );
         addStatusMessage(`Access key rotated for ${email}`);
+      } else {
+        setAccountForm((state) =>
+          setRemoteAccountFormStatus(state, {
+            kind: "error",
+            message: `Remote user ${email} was not found.`,
+          }),
+        );
       }
       await loadAccounts();
     } catch (error) {
-      addStatusMessage(`Key rotation failed: ${error}`);
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, { kind: "error", message }),
+      );
+      addStatusMessage(`Key rotation failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -330,19 +375,48 @@ export default function RemoteAccessTab() {
       addStatusMessage(
         `${account.email} ${account.enabled ? "disabled" : "enabled"}`,
       );
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, {
+          kind: "success",
+          message: `${account.email} ${account.enabled ? "disabled" : "enabled"}.`,
+        }),
+      );
       await loadAccounts();
     } catch (error) {
-      addStatusMessage(`Remote account update failed: ${error}`);
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, { kind: "error", message }),
+      );
+      addStatusMessage(`Remote user update failed: ${message}`);
     } finally {
       setBusy(null);
     }
   };
 
   const copyLatestKey = async () => {
-    if (!latestKey?.access_key) return;
-    await navigator.clipboard?.writeText(latestKey.access_key);
-    addStatusMessage("Remote access key copied");
+    if (!latestKey) return;
+    try {
+      if (!navigator.clipboard) {
+        throw new Error("Clipboard access is unavailable on this device.");
+      }
+      await navigator.clipboard.writeText(latestKey.accessKey);
+      setLatestKey(markRemoteAccessKeyCopied(latestKey));
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, {
+          kind: "success",
+          message: `Access key copied for ${latestKey.email}.`,
+        }),
+      );
+      addStatusMessage("Remote access key copied");
+    } catch (error) {
+      const message = remoteAccessErrorMessage(error);
+      setAccountForm((state) =>
+        setRemoteAccountFormStatus(state, { kind: "error", message }),
+      );
+    }
   };
+
+  const accountSaving = accountForm.status.kind === "saving";
 
   return (
     <div className="space-y-5">
@@ -571,69 +645,175 @@ export default function RemoteAccessTab() {
       <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
         <div className="glass-panel p-5">
           <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-            <UserPlus size={16} className="text-cv-accent" /> Remote Account
+            <UserPlus size={16} className="text-cv-accent" /> Remote User
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label className="section-label">Display Name</label>
+              <label className="section-label" htmlFor="remote-user-name">
+                Display Name
+              </label>
               <input
+                id="remote-user-name"
                 className="cv-input"
-                value={accountForm.displayName}
+                autoComplete="name"
+                disabled={accountSaving}
+                value={accountForm.fields.displayName}
                 onChange={(event) =>
-                  setAccountForm({
-                    ...accountForm,
-                    displayName: event.target.value,
-                  })
+                  setAccountForm((state) =>
+                    updateRemoteAccountFormField(
+                      state,
+                      "displayName",
+                      event.target.value,
+                    ),
+                  )
                 }
               />
             </div>
             <div>
-              <label className="section-label">Email</label>
+              <label className="section-label" htmlFor="remote-user-email">
+                Email
+              </label>
               <input
-                className="cv-input"
-                value={accountForm.email}
+                id="remote-user-email"
+                type="email"
+                autoComplete="email"
+                disabled={accountSaving}
+                aria-invalid={Boolean(accountForm.errors.email)}
+                aria-describedby={
+                  accountForm.errors.email ? "remote-user-email-error" : undefined
+                }
+                className={`cv-input ${
+                  accountForm.errors.email ? "border-cv-danger/70" : ""
+                }`}
+                value={accountForm.fields.email}
                 onChange={(event) =>
-                  setAccountForm({ ...accountForm, email: event.target.value })
+                  setAccountForm((state) =>
+                    updateRemoteAccountFormField(
+                      state,
+                      "email",
+                      event.target.value,
+                    ),
+                  )
                 }
               />
+              {accountForm.errors.email && (
+                <p
+                  id="remote-user-email-error"
+                  className="mt-1 text-[11px] text-cv-danger"
+                >
+                  {accountForm.errors.email}
+                </p>
+              )}
             </div>
             <div>
-              <label className="section-label">Password</label>
+              <label className="section-label" htmlFor="remote-user-password">
+                Password
+              </label>
               <input
+                id="remote-user-password"
                 type="password"
-                className="cv-input"
-                value={accountForm.password}
+                autoComplete="new-password"
+                disabled={accountSaving}
+                aria-invalid={Boolean(accountForm.errors.password)}
+                aria-describedby={
+                  accountForm.errors.password
+                    ? "remote-user-password-error"
+                    : undefined
+                }
+                className={`cv-input ${
+                  accountForm.errors.password ? "border-cv-danger/70" : ""
+                }`}
+                value={accountForm.fields.password}
                 onChange={(event) =>
-                  setAccountForm({ ...accountForm, password: event.target.value })
+                  setAccountForm((state) =>
+                    updateRemoteAccountFormField(
+                      state,
+                      "password",
+                      event.target.value,
+                    ),
+                  )
                 }
               />
+              {accountForm.errors.password && (
+                <p
+                  id="remote-user-password-error"
+                  className="mt-1 text-[11px] text-cv-danger"
+                >
+                  {accountForm.errors.password}
+                </p>
+              )}
             </div>
           </div>
+          {accountForm.status.kind !== "idle" && (
+            <div
+              className={`mt-3 flex items-start justify-between gap-3 rounded-lg border p-3 text-xs ${
+                accountForm.status.kind === "error"
+                  ? "border-cv-danger/30 bg-cv-danger/10 text-cv-danger"
+                  : accountForm.status.kind === "success"
+                    ? "border-green-500/30 bg-green-500/10 text-green-300"
+                    : "border-cv-accent/30 bg-cv-accent/10 text-cv-text"
+              }`}
+              role={accountForm.status.kind === "error" ? "alert" : "status"}
+              aria-live="polite"
+            >
+              <span>{accountForm.status.message}</span>
+              {accountForm.status.kind !== "saving" && (
+                <button
+                  type="button"
+                  className="text-[11px] underline underline-offset-2"
+                  onClick={() =>
+                    setAccountForm((state) =>
+                      dismissRemoteAccountFormStatus(state),
+                    )
+                  }
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={createAccount}
-              disabled={busy === "create"}
+              disabled={accountSaving}
               className="cv-btn cv-btn-primary text-xs"
             >
               <UserPlus size={12} />
-              {busy === "create" ? "Saving..." : "Save Account"}
+              {accountSaving ? "Saving..." : "Create Remote User"}
             </button>
-            {latestKey?.access_key && (
+            {latestKey && (
               <button
                 onClick={copyLatestKey}
                 className="cv-btn cv-btn-secondary text-xs"
               >
-                <Copy size={12} /> Copy New Access Key
+                <Copy size={12} />
+                {latestKey.copied ? "Copied" : "Copy Access Key"}
               </button>
             )}
           </div>
-          {latestKey?.access_key && (
-            <div className="mt-4 rounded-lg border border-cv-accent/30 bg-cv-accent/10 p-3">
-              <div className="text-[11px] text-cv-subtext mb-1">
-                New access key for {latestKey.email}
+          {latestKey && (
+            <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-amber-200">
+                    {latestKey.action === "created" ? "New" : "Replacement"}{" "}
+                    access key for {latestKey.email}
+                  </div>
+                  <div className="mt-1 text-[11px] text-cv-subtext">
+                    This key is shown only once. Copy it now; dismissing it
+                    removes it from this screen.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="text-[11px] text-cv-subtext underline underline-offset-2"
+                  onClick={() => setLatestKey(null)}
+                >
+                  Dismiss key
+                </button>
               </div>
-              <code className="block text-xs text-cv-text break-all">
-                {latestKey.access_key}
+              <code className="mt-3 block text-xs text-cv-text break-all">
+                {latestKey.accessKey}
               </code>
             </div>
           )}
@@ -744,14 +924,22 @@ export default function RemoteAccessTab() {
                   disabled={busy === `rotate:${account.email}`}
                   className="cv-btn cv-btn-secondary text-xs"
                 >
-                  <RotateCw size={12} /> Rotate Key
+                  <RotateCw size={12} />
+                  {busy === `rotate:${account.email}`
+                    ? "Rotating..."
+                    : "Rotate Key"}
                 </button>
                 <button
                   onClick={() => toggleAccount(account)}
                   disabled={busy === `toggle:${account.email}`}
                   className="cv-btn cv-btn-secondary text-xs"
                 >
-                  <Power size={12} /> {account.enabled ? "Disable" : "Enable"}
+                  <Power size={12} />
+                  {busy === `toggle:${account.email}`
+                    ? "Saving..."
+                    : account.enabled
+                      ? "Disable"
+                      : "Enable"}
                 </button>
               </div>
             </div>

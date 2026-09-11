@@ -51,7 +51,7 @@ test("Synology and WD shares become reachable scanner filesystem sources", () =>
   assert.match(nas, /authenticate_windows_shares/);
   assert.match(nas, /ensure_network_source_reachable/);
   assert.match(nas, /wd_mycloud_login/);
-  assert.match(nas, /cookie_store\(true\)/);
+  assert.match(nas, /http_client\(true\)/);
   assert.match(nas, /db\.add_source_data/);
   assert.match(scanner, /WalkDir::new\(path\)/);
   assert.doesNotMatch(

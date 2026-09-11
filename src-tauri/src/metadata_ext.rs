@@ -6,12 +6,33 @@ use crate::adult_site_provider::{
 };
 use crate::metadata::MetadataProvider;
 use crate::db::Database;
+use crate::secure_credentials::{self, SECURE_STORE_MARKER};
 use crate::AppState;
 use rusqlite::params;
 use tauri::State;
 
 const PGMA_PROVIDER_KEY: &str = "pgma";
 const PGMA_PROVIDER_BASE_URL: &str = "cinavault://pgma-bridge";
+const ADULT_PROVIDER_KEYS: &[&str] = &[
+    "tpdb", "stashdb", "porn_site_nuxt", "iafd", "phoenixadult", "pgma",
+];
+const ADULT_PROVIDER_ENABLED_SETTING: &str = "adult_metadata_enabled_providers";
+
+fn adult_provider_enabled_keys(database: &Database) -> Result<Vec<String>, String> {
+    let value = database
+        .get_setting_data(ADULT_PROVIDER_ENABLED_SETTING)
+        .map_err(|error| error.to_string())?;
+    match value {
+        Some(value) => serde_json::from_str::<Vec<String>>(&value)
+            .map_err(|error| format!("Invalid adult provider settings: {error}")),
+        None => Ok(ADULT_PROVIDER_KEYS.iter().map(|key| (*key).to_string()).collect()),
+    }
+}
+
+pub fn is_adult_provider_enabled(database: &Database, provider: &str) -> Result<bool, String> {
+    let provider = normalize_provider_key(provider);
+    Ok(adult_provider_enabled_keys(database)?.iter().any(|key| key == &provider))
+}
 
 fn is_pgma_alias(provider: &str) -> bool {
     matches!(
@@ -32,6 +53,16 @@ fn normalize_provider_key(provider: &str) -> String {
         "theporndb" | "tpdb" => "tpdb".to_string(),
         "open_movie_db" | "openmoviedb" | "omdb" => "omdb".to_string(),
         other => other.to_string(),
+    }
+}
+
+pub(crate) fn resolve_stored_provider_key(provider: &str, stored: &str) -> Result<Option<String>, String> {
+    if stored == SECURE_STORE_MARKER {
+        secure_credentials::get(&normalize_provider_key(provider))
+    } else if stored.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(stored.to_string()))
     }
 }
 
@@ -236,13 +267,21 @@ pub fn initialize_metadata_providers(database: &Database) -> Result<serde_json::
     {
         let mut stmt = database
             .conn
-            .prepare("SELECT provider FROM api_keys WHERE trim(api_key) <> ''")
+            .prepare("SELECT provider, api_key FROM api_keys WHERE trim(api_key) <> ''")
             .map_err(|error| error.to_string())?;
         let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
             .map_err(|error| error.to_string())?;
         for row in rows {
-            configured.insert(normalize_provider_key(&row.map_err(|error| error.to_string())?));
+            let (provider, stored) = row.map_err(|error| error.to_string())?;
+            let normalized = normalize_provider_key(&provider);
+            if stored != SECURE_STORE_MARKER && !stored.starts_with("http://") && !stored.starts_with("https://") && stored != "pgma_local_bridge" && stored != "iafd_scrape" && stored != "phoenixadult_manifest" {
+                secure_credentials::set(&normalized, &stored)?;
+                database.conn.execute("UPDATE api_keys SET api_key = ?1 WHERE provider = ?2", params![SECURE_STORE_MARKER, provider]).map_err(|error| error.to_string())?;
+            }
+            if resolve_stored_provider_key(&normalized, &stored)?.is_some() {
+                configured.insert(normalized);
+            }
         }
     }
 
@@ -256,11 +295,12 @@ pub fn initialize_metadata_providers(database: &Database) -> Result<serde_json::
             .find_map(|name| std::env::var(name).ok())
             .filter(|value| !value.trim().is_empty());
         if let Some(token) = token {
+            secure_credentials::set(provider, token.trim())?;
             database
                 .conn
                 .execute(
                     "INSERT OR REPLACE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
-                    params![provider, token.trim()],
+                    params![provider, SECURE_STORE_MARKER],
                 )
                 .map_err(|error| error.to_string())?;
             configured.insert((*provider).to_string());
@@ -333,6 +373,61 @@ pub fn get_provider_status(state: State<AppState>) -> Result<serde_json::Value, 
 }
 
 #[tauri::command]
+pub fn get_adult_provider_settings(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    let enabled = adult_provider_enabled_keys(&db)?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT provider, api_key FROM api_keys")
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?;
+    let mut masked = serde_json::Map::new();
+    for row in rows {
+        let (provider, key) = row.map_err(|error| error.to_string())?;
+        let value = if key.len() > 4 {
+            format!("{}...{}", &key[..2], &key[key.len() - 2..])
+        } else {
+            "****".to_string()
+        };
+        masked.insert(normalize_provider_key(&provider), serde_json::Value::String(value));
+    }
+    let providers = ADULT_PROVIDER_KEYS
+        .iter()
+        .map(|key| serde_json::json!({
+            "key": key,
+            "enabled": enabled.iter().any(|entry| entry == key),
+            "configured": masked.contains_key(*key),
+            "masked_credential": masked.get(*key),
+        }))
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "providers": providers }))
+}
+
+#[tauri::command]
+pub fn save_adult_provider_settings(
+    state: State<AppState>,
+    enabled_providers: Vec<String>,
+) -> Result<(), String> {
+    let mut normalized = enabled_providers
+        .iter()
+        .map(|provider| normalize_provider_key(provider))
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    if normalized.iter().any(|provider| !ADULT_PROVIDER_KEYS.contains(&provider.as_str())) {
+        return Err("Only supported adult metadata providers can be saved here".to_string());
+    }
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+    db.set_setting_data(
+        ADULT_PROVIDER_ENABLED_SETTING,
+        &serde_json::to_string(&normalized).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_json::Value, String> {
     let provider = normalize_provider_key(&provider);
     let valid = match provider.as_str() {
@@ -369,10 +464,18 @@ pub fn set_api_key(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let provider = normalize_provider_key(&provider);
+    if api_key.trim().is_empty() {
+        secure_credentials::delete(&provider)?;
+        db.conn
+            .execute("DELETE FROM api_keys WHERE provider = ?1", params![provider])
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    secure_credentials::set(&provider, api_key.trim())?;
     db.conn
         .execute(
             "INSERT OR REPLACE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
-            params![provider, api_key],
+            params![provider, SECURE_STORE_MARKER],
         )
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -393,8 +496,9 @@ pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String>
 
     let mut keys = serde_json::Map::new();
     for row in rows {
-        let (provider, key) = row.map_err(|e| e.to_string())?;
+        let (provider, stored) = row.map_err(|e| e.to_string())?;
         let normalized_provider = normalize_provider_key(&provider);
+        let key = resolve_stored_provider_key(&normalized_provider, &stored)?.unwrap_or_default();
         let masked = if key.len() > 4 {
             format!("{}...{}", &key[..2], &key[key.len() - 2..])
         } else {
