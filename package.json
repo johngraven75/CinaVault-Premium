@@ -53,6 +53,8 @@
     "mdns-js": "^0.2.9",
     "react": "19.2.8",
     "react-dom": "18.3.1",
+    "react": "18.3.1",
+    "react-dom": "19.2.8",
     "react-virtuoso": "4.7.0",
     "zustand": "4.5.0"
   },
@@ -63,6 +65,8 @@
     "@types/node": "^26.1.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "18.3.0",
+    "@types/react": "18.3.0",
+    "@types/react-dom": "19.2.7",
     "@vitejs/plugin-react": "4.7.0",
     "autoprefixer": "10.4.19",
     "postcss": "8.5.26",

@@ -25,7 +25,7 @@ tauri-plugin-os = "2"
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 axum = "0.8"
@@ -41,12 +41,12 @@ uuid = { version = "1", features = ["v4"] }
 glob = "0.3"
 regex = "1"
 percent-encoding = "2"
-dirs = "5"
+dirs = "6"
 keyring = "3"
 env_logger = "0.11"
 open = "5"
 log = "0.4"
-base64 = "0.22"
+base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 
 # Backport RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g without a breaking GTK-rs upgrade.
