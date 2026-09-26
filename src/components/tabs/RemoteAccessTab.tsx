@@ -36,6 +36,7 @@ import {
   UserPlus,
   Wifi,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 type SecureMode = "required" | "preferred" | "disabled";
 
@@ -420,6 +421,7 @@ export default function RemoteAccessTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Router} eyebrow="Anywhere Access" title="Remote Orbit" subtitle="Automatic NAT traversal, encrypted cloud relay, account sessions, and remote client reachability." accent="from-cyan-300/30 to-violet-500/10" accentText="text-cyan-100" />
       <div className="glass-panel p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>

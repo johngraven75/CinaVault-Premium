@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { motion } from "framer-motion";
 import { useAppStore, type LibraryEnrichmentResult } from "../../store/appStore";
 import { ExternalLink, File, FolderOpen, HardDrive, Link, Plus, RefreshCw, Scan, Sparkles, Trash2 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; errors?: string[] };
 type SourceLike = { id?: number; path: string; source_type: string; name: string; enabled: boolean; last_scanned?: string; item_count: number };
@@ -143,6 +144,7 @@ export default function MediaSourcesTab() {
   };
 
   return <div className="space-y-5">
+    <TabBanner icon={FolderOpen} eyebrow="Autonomous Ingestion" title="Source Constellation" subtitle="Connect local folders, drives, cloud storage, and network libraries. New sources scan and enrich automatically." accent="from-emerald-400/25 to-cyan-400/15" accentText="text-emerald-100" />
     <section className="glass-panel p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-bold"><Plus size={16} className="text-cv-accent" /> Add, Scan, and Enrich</h3><p className="mt-1 text-xs text-cv-subtext">Add a folder or external drive. Scans index quickly, attach local artwork, then enrich metadata.</p></div><button type="button" onClick={() => window.dispatchEvent(new Event("cinavault:ai-autopilot-run"))} className="cv-btn cv-btn-gold text-xs"><Sparkles size={13} /> Run AI Autopilot</button></div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4"><div className="md:col-span-2"><label className="section-label">Local path</label><div className="flex gap-2"><input value={newSourcePath} onChange={(e) => setNewSourcePath(e.target.value)} placeholder="E:\\ or E:\\Movies" className="cv-input flex-1" /><button type="button" onClick={() => void browseForSource()} className="cv-btn cv-btn-secondary shrink-0"><FolderOpen size={14} /> Browse</button></div></div><div><label className="section-label">Display name</label><input value={newSourceName} onChange={(e) => setNewSourceName(e.target.value)} placeholder="External Movies" className="cv-input" /></div><div><label className="section-label">Source type</label><select value={newSourceType} onChange={(e) => setNewSourceType(e.target.value)} className="cv-select w-full"><option value="folder">Folder</option><option value="drive">External Drive</option><option value="adult">Adult Media</option><option value="file">File</option></select></div></div>

@@ -287,10 +287,10 @@ fn non_empty_string(value: Option<&str>) -> Option<String> {
 
 fn parse_year_prefix(value: Option<&str>) -> Option<i32> {
     let text = value?.trim();
-    if text.len() < 4 {
-        return None;
-    }
-    text[..4].parse::<i32>().ok()
+    // Byte-slicing a &str panics if the cut point isn't a char boundary;
+    // provider-supplied date strings aren't guaranteed ASCII, so use the
+    // checked form instead of `text[..4]`.
+    text.get(..4)?.parse::<i32>().ok()
 }
 
 fn has_adult_hint(text: &str) -> bool {
@@ -972,7 +972,14 @@ pub async fn fetch_metadata(
     query: String,
     api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    // Every branch below is a live network call with no other timeout in
+    // front of it; a slow or unreachable provider (including a
+    // porn_site_nuxt local service that isn't running) would otherwise hang
+    // this command for however long the OS-level TCP timeout takes.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(|err| err.to_string())?;
     let provider = normalize_provider_key(&provider);
 
     match provider.as_str() {

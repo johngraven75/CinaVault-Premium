@@ -25,6 +25,7 @@ import {
   RefreshCw,
   HardDrive,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 export default function SettingsTab() {
   const {
@@ -113,7 +114,9 @@ export default function SettingsTab() {
   ];
 
   return (
-    <div className="flex gap-5 h-full">
+    <div className="flex h-full flex-col gap-5">
+      <TabBanner icon={Settings} eyebrow="Experience Design" title="Personalize CinaVault" subtitle="Shape appearance, behavior, automation policy, and persistent application preferences." accent="from-slate-200/24 to-cyan-500/10" accentText="text-slate-100" />
+      <div className="flex flex-1 gap-5 min-h-0">
       {/* ── Section Nav ── */}
       <div className="w-48 shrink-0 space-y-1">
         {SECTIONS.map((s) => (
@@ -555,6 +558,7 @@ export default function SettingsTab() {
             </>
           )}
         </motion.div>
+      </div>
       </div>
     </div>
   );

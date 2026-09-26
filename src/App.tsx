@@ -1,5 +1,4 @@
 // Build 140 Futuristic Application Shell compatibility retained by Build 170.
-import CastButton from "./components/CastButton";
 import "./styles/poster-card-standard.css";
 import "./styles/media-row-poster-final-fix.css";
 import "./styles/media-card-hard-fix.css";
@@ -20,6 +19,7 @@ import HomeTab from "./components/tabs/HomeTab";
 import MediaSourcesTab from "./components/tabs/MediaSourcesTab";
 import DownloadsTab from "./components/tabs/DownloadsTab";
 import LiveTVTab from "./components/tabs/LiveTVTab";
+import CastingTab from "./components/tabs/CastingTab";
 import ServerTab from "./components/tabs/ServerTab";
 import SecurityTab from "./components/tabs/SecurityTab";
 import RemoteAccessTab from "./components/tabs/RemoteAccessTab";
@@ -48,6 +48,7 @@ const TAB_COMPONENTS: Record<TabId, FC> = {
   sources: MediaSourcesTab,
   downloads: DownloadsTab,
   livetv: LiveTVTab,
+  casting: CastingTab,
   server: ServerTab,
   security: SecurityTab,
   remote: RemoteAccessTab,
@@ -90,6 +91,13 @@ const TAB_TITLES: Record<
     subtitle:
       "Navigate channels, guide intelligence, and live streams through a unified cinematic interface.",
     mode: "Broadcast",
+  },
+  casting: {
+    eyebrow: "Connected Experience",
+    title: "Casting Center",
+    subtitle:
+      "Discover Chromecast, AirPlay, Smart View, and DLNA receivers on the network, connect, and beam what's playing.",
+    mode: "Beam",
   },
   server: {
     eyebrow: "Embedded Media Core",
@@ -263,7 +271,14 @@ export default function App(): JSX.Element {
   const activeTitle = TAB_TITLES[activeTab];
   const featureCount = useMemo(() => getEnabledCinaVaultFeatures().length, []);
   const serverName = useMemo(() => getPreferredMediaServer().primary, []);
-  const startupPluginsReady = initializePermanentMediaPluginsAtStartup().ready;
+  // initializePermanentMediaPluginsAtStartup() re-derives its result from a
+  // static plugin bundle check (not reactive state), so it belongs behind
+  // useMemo like the two calls above it — calling it bare in the render body
+  // re-ran it on every activeTab/theme/etc. change instead of once.
+  const startupPluginsReady = useMemo(
+    () => initializePermanentMediaPluginsAtStartup().ready,
+    [],
+  );
   const aiAutopilotEnabled = settings.ai_media_autopilot_enabled !== "false";
 
   const saveState = useCallback(async () => {
@@ -299,8 +314,14 @@ export default function App(): JSX.Element {
         hasRestoredSettings.current = true;
         if (cancelled) return;
 
-        await pluginEngine.initialize();
-        const mediaTools = await ensurePermanentMediaPluginsAtStartup();
+        // These two don't depend on each other's results, so run them
+        // concurrently instead of back to back — the media-tools check in
+        // particular is a real network/subprocess round trip on the Rust
+        // side and was previously the dominant cost in cold-start time.
+        const [, mediaTools] = await Promise.all([
+          pluginEngine.initialize(),
+          ensurePermanentMediaPluginsAtStartup(),
+        ]);
         if (!mediaTools.ready) {
           const missing = mediaTools.tools
             .filter((tool) => !tool.installed)
@@ -400,7 +421,6 @@ export default function App(): JSX.Element {
         transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
       >
         <Sidebar />
-        <CastButton />
 
         <div data-testid="cinavault-permanent-media-plugins" style={{ display: "none" }}>
           {startupPluginsReady

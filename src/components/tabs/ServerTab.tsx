@@ -27,6 +27,7 @@ import {
   Wifi,
   XCircle,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 const ADMIN_PAGES = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -234,6 +235,7 @@ export default function ServerTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Server} eyebrow="Embedded Media Core" title="Server Nexus" subtitle="Control the zero-setup media server, runtime services, streaming health, and connected clients." accent="from-blue-300/32 to-indigo-500/10" accentText="text-blue-100" />
       <div className="glass-panel p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-bold flex items-center gap-2">

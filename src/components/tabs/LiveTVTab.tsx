@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { buildAddXtreamProfileArgs } from "../../utils/xtreamProfile";
 import IPTVPlayer from "../IPTVPlayer";
+import TabBanner from "../experience/TabBanner";
 
 export default function LiveTVTab() {
   const { addStatusMessage } = useAppStore();
@@ -128,6 +129,7 @@ export default function LiveTVTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Tv} eyebrow="Broadcast Fabric" title="Live Signal" subtitle="Navigate channels, guide intelligence, and live streams through a unified cinematic interface." accent="from-fuchsia-400/32 to-purple-500/10" accentText="text-fuchsia-100" />
       {/* Xtream Profiles */}
       <div className="glass-panel p-5">
         <div className="flex items-center justify-between mb-4">

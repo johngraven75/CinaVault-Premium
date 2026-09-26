@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 interface FeatureCategory {
   name: string;
@@ -143,6 +144,7 @@ export default function AdvancedTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Sliders} eyebrow="Expert Systems" title="Control Lab" subtitle="Deep diagnostics, repair controls, platform tuning, and advanced operational tooling." accent="from-orange-300/28 to-fuchsia-500/10" accentText="text-orange-100" />
       {/* Feature Matrix */}
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">

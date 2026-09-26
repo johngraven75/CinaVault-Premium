@@ -16,6 +16,7 @@ import {
   CheckCircle,
   AlertTriangle,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 type VpnProfile = {
   name: string;
@@ -178,6 +179,7 @@ export default function SecurityTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Shield} eyebrow="Trusted Compute" title="Security Matrix" subtitle="Manage identity, encryption, VPN protection, threat scanning, and privacy boundaries." accent="from-emerald-300/28 to-teal-500/10" accentText="text-emerald-100" />
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
           <Shield size={16} className="text-cv-accent" /> VPN — Official WireGuard

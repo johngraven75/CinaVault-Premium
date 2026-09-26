@@ -39,7 +39,9 @@ import {
   Film,
   Tag,
   Zap,
+  Puzzle,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 type SubView = "plugins" | "metadata" | "tasks";
 
@@ -262,6 +264,7 @@ export default function PluginsTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Puzzle} eyebrow="Capability Layer" title="Extension Forge" subtitle="Manage metadata engines, compatibility bridges, playback tools, and permanent media extensions." accent="from-violet-400/30 to-pink-500/10" accentText="text-violet-100" />
       {/* ── Sub-navigation ── */}
       <div className="flex items-center gap-2 flex-wrap">
         {[

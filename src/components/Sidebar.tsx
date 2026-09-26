@@ -59,6 +59,14 @@ const NAV_ITEMS: NavItem[] = [
     accent: "from-amber-300/30 to-orange-500/10",
   },
   {
+    id: "casting",
+    label: "Casting",
+    icon: Cast,
+    zone: "Experience",
+    detail: "Discover & beam",
+    accent: "from-fuchsia-300/30 to-cyan-400/10",
+  },
+  {
     id: "sources",
     label: "Sources",
     icon: FolderOpen,
@@ -162,9 +170,11 @@ function NavItemButton({
       type="button"
       onClick={() => setActiveTab(item.id)}
       title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      aria-current={active ? "page" : undefined}
       whileHover={{ x: collapsed ? 0 : 5, scale: collapsed ? 1.035 : 1 }}
       whileTap={{ scale: 0.975 }}
-      className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-[18px] border px-2.5 py-2.5 text-left transition-colors ${
+      className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-[18px] border px-2.5 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-cyan-300/70 ${
         active
           ? "border-white/22 text-white"
           : "border-transparent text-slate-400 hover:border-white/10 hover:text-white"
@@ -262,39 +272,6 @@ export default function Sidebar(): JSX.Element {
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-          <div className="mb-3">
-            {!sidebarCollapsed && (
-              <div className="mb-1 px-2 text-[9px] font-black uppercase tracking-[0.24em] text-slate-500">
-                Connected experience
-              </div>
-            )}
-            <motion.button
-              type="button"
-              onClick={() =>
-                window.dispatchEvent(new Event("cinavault:open-casting"))
-              }
-              whileHover={{ x: sidebarCollapsed ? 0 : 5 }}
-              whileTap={{ scale: 0.98 }}
-              className="group relative flex w-full items-center gap-3 overflow-hidden rounded-[18px] border border-fuchsia-300/18 bg-[linear-gradient(90deg,rgba(255,79,207,0.15),rgba(105,247,255,0.07))] px-2.5 py-2.5 text-left text-white"
-              title={sidebarCollapsed ? "Casting" : undefined}
-            >
-              <span className="absolute inset-y-0 right-0 w-20 bg-[radial-gradient(circle,rgba(255,255,255,0.16),transparent_65%)] opacity-70" />
-              <span className="relative z-10 grid h-10 w-10 shrink-0 place-items-center rounded-[14px] border border-fuchsia-200/20 bg-black/28 text-fuchsia-100 shadow-[0_0_18px_rgba(255,79,207,0.12)]">
-                <Cast size={18} />
-              </span>
-              {!sidebarCollapsed && (
-                <span className="relative z-10 min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-extrabold">
-                    Casting Center
-                  </span>
-                  <span className="block text-[9px] font-semibold uppercase tracking-[0.19em] text-fuchsia-100/60">
-                    Discover & beam
-                  </span>
-                </span>
-              )}
-            </motion.button>
-          </div>
-
           {ZONES.map((zone) => (
             <div key={zone} className="mb-3 last:mb-0">
               {!sidebarCollapsed && (
@@ -342,8 +319,10 @@ export default function Sidebar(): JSX.Element {
           <button
             type="button"
             onClick={toggleSidebar}
-            className="flex h-11 w-full items-center justify-center rounded-[16px] border border-white/[0.08] bg-white/[0.035] text-slate-400 transition hover:border-cyan-200/20 hover:bg-cyan-200/[0.07] hover:text-white"
+            className="flex h-11 w-full items-center justify-center rounded-[16px] border border-white/[0.08] bg-white/[0.035] text-slate-400 outline-none transition hover:border-cyan-200/20 hover:bg-cyan-200/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/70"
             title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-expanded={!sidebarCollapsed}
           >
             {sidebarCollapsed ? (
               <ChevronRight size={16} />

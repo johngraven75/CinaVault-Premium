@@ -170,12 +170,29 @@ fn executable_status(tool: MediaTool) -> ToolStatus {
     }
 }
 
+/// Checks all required tools concurrently instead of one at a time. Each
+/// check spawns a subprocess and waits for it to exit (`Command::output`),
+/// so running the 5 checks sequentially means paying for 5 process-spawn
+/// round trips back to back — the dominant cost in the whole startup path
+/// on a cold Windows boot. A scoped thread per tool collapses that to the
+/// slowest single check instead of the sum of all five.
 fn current_statuses() -> Vec<ToolStatus> {
-    REQUIRED_MEDIA_TOOLS
-        .iter()
-        .copied()
-        .map(executable_status)
-        .collect()
+    std::thread::scope(|scope| {
+        REQUIRED_MEDIA_TOOLS
+            .iter()
+            .copied()
+            .map(|tool| scope.spawn(move || executable_status(tool)))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap_or(ToolStatus {
+                id: "unknown".to_string(),
+                installed: false,
+                version: None,
+                auto_install: false,
+                package: String::new(),
+            }))
+            .collect()
+    })
 }
 
 fn validate_media_path(path: &str) -> Result<PathBuf, String> {

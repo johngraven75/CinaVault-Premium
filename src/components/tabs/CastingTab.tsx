@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
+import TabBanner from "../experience/TabBanner";
 import {
   type CastingDevice,
   type CastingDeviceType,
@@ -176,6 +177,31 @@ export default function CastingTab() {
 
   return (
     <section className="space-y-5" data-testid="cinavault-casting-tab">
+      <TabBanner
+        icon={Cast}
+        eyebrow="Connected Experience"
+        title="Casting Center"
+        subtitle="Discover Chromecast, AirPlay, Smart View, and DLNA receivers on the network, connect, and beam what's playing."
+        accent="from-fuchsia-500/25 to-cyan-400/15"
+        accentText="text-fuchsia-100"
+      >
+        <div
+          className={`flex items-center gap-2 rounded-2xl border px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] ${
+            scanning
+              ? "border-white/15 bg-black/20 text-white/70"
+              : "border-emerald-300/30 bg-emerald-400/10 text-emerald-200"
+          }`}
+          role="status"
+        >
+          {scanning ? (
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Wifi size={14} aria-hidden="true" />
+          )}
+          {scanning ? "Scanning…" : `${devices.length} device${devices.length === 1 ? "" : "s"} found`}
+        </div>
+      </TabBanner>
+
       <div className="grid gap-3 md:grid-cols-4">
         {(Object.keys(DEVICE_META) as CastingDeviceType[]).map((type) => {
           const meta = DEVICE_META[type];

@@ -14,6 +14,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 type ToolRecord = {
   id?: string;
@@ -188,6 +189,7 @@ export default function DownloadsTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Download} eyebrow="Acquisition Stream" title="Incoming Media" subtitle="Observe downloads, imports, and automated handoff into the managed library pipeline." accent="from-amber-300/30 to-orange-500/10" accentText="text-amber-100" />
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
           <Wrench size={16} className="text-cv-accent" /> Download Tools Status

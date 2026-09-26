@@ -1,8 +1,15 @@
+use rust_cast::channels::media::{Media, StreamType};
+use rust_cast::channels::receiver::CastDeviceApp;
+use rust_cast::CastDevice;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+/// Virtual connection id every Cast receiver's platform channel listens on
+/// before an app is launched. Part of the CASTV2 protocol, not this crate.
+const CAST_PLATFORM_DESTINATION: &str = "receiver-0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -334,6 +341,57 @@ async fn start_airplay(session: &CastingSession) -> Result<(), String> {
     Ok(())
 }
 
+/// Connects to a Chromecast / Google Cast receiver over CASTV2 (TLS on the
+/// device's own port, no CA validation since receivers use self-signed
+/// certs), launches the Default Media Receiver app, and loads the given
+/// media URL into it. Blocking (real TCP/TLS I/O) — always run this inside
+/// `spawn_blocking`, never directly on the async runtime.
+fn cast_chromecast_media(session: &CastingSession) -> Result<(), String> {
+    let host = session
+        .device
+        .address
+        .as_deref()
+        .ok_or("Chromecast device has no address")?;
+    let port = session.device.port.unwrap_or(8009);
+
+    let device = CastDevice::connect_without_host_verification(host, port)
+        .map_err(|error| format!("Could not reach {host}:{port} — {error}"))?;
+
+    device
+        .connection
+        .connect(CAST_PLATFORM_DESTINATION)
+        .map_err(|error| error.to_string())?;
+
+    let app = device
+        .receiver
+        .launch_app(&CastDeviceApp::DefaultMediaReceiver)
+        .map_err(|error| format!("Could not launch the media receiver app: {error}"))?;
+
+    device
+        .connection
+        .connect(app.transport_id.as_str())
+        .map_err(|error| error.to_string())?;
+
+    let media = Media {
+        content_id: session.media_url.clone(),
+        stream_type: StreamType::Buffered,
+        content_type: session
+            .content_type
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "video/mp4".to_string()),
+        metadata: None,
+        duration: session.duration.map(|value| value as f32),
+    };
+
+    device
+        .media
+        .load(app.transport_id.as_str(), app.session_id.as_str(), &media)
+        .map_err(|error| format!("Device rejected the media load: {error}"))?;
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn start_casting(session: CastingSession) -> Result<String, String> {
     if session.media_url.trim().is_empty() {
@@ -342,7 +400,12 @@ pub async fn start_casting(session: CastingSession) -> Result<String, String> {
     match session.device.device_type {
         CastingDeviceType::Airplay => start_airplay(&session).await?,
         CastingDeviceType::Chromecast => {
-            return Err("Chromecast transport requires the bundled Cast bridge service".to_string())
+            let session_clone = session.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                cast_chromecast_media(&session_clone)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
         }
         CastingDeviceType::Smartview | CastingDeviceType::Dlna => {
             return Err(

@@ -368,9 +368,10 @@ export default function Header(): JSX.Element {
 
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new Event("cinavault:open-casting"))}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-fuchsia-200/16 bg-fuchsia-300/[0.07] text-fuchsia-100 transition hover:border-fuchsia-200/35 hover:bg-fuchsia-300/[0.13]"
+            onClick={() => setActiveTab("casting")}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-fuchsia-200/16 bg-fuchsia-300/[0.07] text-fuchsia-100 outline-none transition hover:border-fuchsia-200/35 hover:bg-fuchsia-300/[0.13] focus-visible:ring-2 focus-visible:ring-fuchsia-300/70"
             title="Open Casting Center"
+            aria-label="Open Casting Center"
           >
             <Cast size={16} />
           </button>
@@ -378,8 +379,9 @@ export default function Header(): JSX.Element {
           <button
             type="button"
             onClick={() => void toggleFullscreen()}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.035] text-slate-300 transition hover:border-cyan-200/25 hover:bg-cyan-200/[0.07] hover:text-white"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.035] text-slate-300 outline-none transition hover:border-cyan-200/25 hover:bg-cyan-200/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/70"
             title="Toggle fullscreen"
+            aria-label="Toggle fullscreen"
           >
             <Maximize2 size={16} />
           </button>
@@ -390,8 +392,15 @@ export default function Header(): JSX.Element {
               setShowNotifications((open) => !open);
               setLastReadMessageIndex(statusMessages.length);
             }}
-            className="relative grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.035] text-slate-300 transition hover:border-cyan-200/25 hover:bg-cyan-200/[0.07] hover:text-white"
+            className="relative grid h-11 w-11 shrink-0 place-items-center rounded-[15px] border border-white/[0.08] bg-white/[0.035] text-slate-300 outline-none transition hover:border-cyan-200/25 hover:bg-cyan-200/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/70"
             title="Open command feed"
+            aria-label={
+              unreadMessages.length > 0
+                ? `Open command feed, ${unreadMessages.length} unread`
+                : "Open command feed"
+            }
+            aria-expanded={showNotifications}
+            aria-haspopup="true"
           >
             <Bell size={16} />
             {unreadMessages.length > 0 && (

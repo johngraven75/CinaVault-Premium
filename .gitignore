@@ -235,3 +235,9 @@ data/
 !src/data/
 !src/data/**
 installer/
+
+Cinavault Project/
+CinaVault Premium*/
+New folder/
+*.spk
+*.rej

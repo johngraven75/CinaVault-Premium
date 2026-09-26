@@ -7,6 +7,7 @@ export type TabId =
   | "sources"
   | "downloads"
   | "livetv"
+  | "casting"
   | "server"
   | "security"
   | "remote"
@@ -22,6 +23,7 @@ const VALID_TAB_IDS: readonly TabId[] = [
   "sources",
   "downloads",
   "livetv",
+  "casting",
   "server",
   "security",
   "remote",

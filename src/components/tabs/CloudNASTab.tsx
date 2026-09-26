@@ -25,6 +25,7 @@ import {
   Shield,
   AlertTriangle,
 } from "lucide-react";
+import TabBanner from "../experience/TabBanner";
 
 // ── OAuth endpoints ──
 const ONEDRIVE_AUTH_URL =
@@ -501,6 +502,7 @@ export default function CloudNASTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Cloud} eyebrow="Storage Fabric" title="Cloud Mesh" subtitle="Unify NAS devices, cloud providers, sync paths, and distributed media storage." accent="from-sky-300/30 to-blue-500/10" accentText="text-sky-100" />
       {/* ── Cloud Storage ── */}
       <div className="cv-card p-4">
         <div className="flex items-center gap-2 mb-4">

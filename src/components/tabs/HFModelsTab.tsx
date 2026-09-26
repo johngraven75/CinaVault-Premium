@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Brain, CheckCircle, Key, Search, Sparkles, Loader2 } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
+import TabBanner from "../experience/TabBanner";
 
 interface HuggingFaceModel {
   id: string;
@@ -128,6 +129,7 @@ export default function HFModelsTab() {
 
   return (
     <div className="space-y-5">
+      <TabBanner icon={Sparkles} eyebrow="Public Model Intelligence" title="Hugging Face Models" subtitle="Search and select free, public, ungated reasoning models for CinaVault AI." accent="from-amber-300/30 to-fuchsia-500/10" accentText="text-amber-100" />
       <section className="glass-panel p-5">
         <h3 className="flex items-center gap-2 text-lg font-bold">
           <Brain className="text-cv-accent" /> Hugging Face Models
