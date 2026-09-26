@@ -1,4 +1,4 @@
-{
+﻿{
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
   "productName": "CinaVault Premium",
   "version": "2.0.15",
@@ -36,7 +36,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "targets": [
+      "msi",
+      "nsis"
+    ],
     "resources": [
       "tools/wireguard/*",
       "tools/cloudflared/*",
@@ -56,6 +59,12 @@
     }
   },
   "plugins": {
-    "shell": { "open": true }
+    "shell": {
+      "open": true
+    }
+  },
+  "package": {
+    "productName": "CinaVault Premium",
+    "version": "2.0.15"
   }
 }
