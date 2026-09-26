@@ -839,12 +839,12 @@ impl Database {
         let transaction = self.conn.transaction()?;
         let inventory_items =
             transaction.query_row("SELECT COUNT(*) FROM media_items", [], |row| {
-                row.get::<_, usize>(0)
+                row.get::<_, i64>(0).map(|v| v as usize)
             })?;
         let items_already_adult = transaction.query_row(
             "SELECT COUNT(*) FROM media_items WHERE lower(trim(media_type)) = 'adult'",
             [],
-            |row| row.get::<_, usize>(0),
+            |row| row.get::<_, i64>(0).map(|v| v as usize),
         )?;
         let items_labeled_adult = transaction.execute(
             "UPDATE media_items
@@ -2587,3 +2587,4 @@ mod tests {
         let _ = fs::remove_file(db_path);
     }
 }
+
