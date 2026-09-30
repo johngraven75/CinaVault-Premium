@@ -42,6 +42,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Live metadata and poster acceptance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path validation-logs -Force | Out-Null
+          cmd /d /s /c "npm run test:metadata-live > validation-logs\live-metadata.log 2>&1"
+          $exitCode = $LASTEXITCODE
+          $log = Get-Content validation-logs/live-metadata.log -Raw
+          Write-Host $log
+          if ($exitCode -ne 0) { throw "Live metadata acceptance failed: $exitCode" }
+          if ($log -notmatch 'live_metadata_poster_acceptance_tvmaze_series') { throw 'TVMaze series acceptance test did not execute.' }
+          if ($log -notmatch 'live_metadata_poster_acceptance_cinemeta_movie') { throw 'Cinemeta movie acceptance test did not execute.' }
+          if ($log -notmatch 'test result: ok\. 2 passed; 0 failed') { throw 'Live metadata gate did not report exactly two passing acceptance tests.' }
+
+      - name: Master release authorization gate
+        run: npm run verify:master-release
+
       - name: Build frontend
         run: npm run build
 
