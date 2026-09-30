@@ -119,9 +119,9 @@ const FEATURE_REGISTRY = [
   },
   {
     build: "140",
-    feature: "Google Cast service",
-    token: "castToGoogleDevice",
-    file: "src/services/googleCast.ts",
+    feature: "Multi-protocol casting service",
+    token: "discoverCastingDevices",
+    file: "src/services/castingService.ts",
   },
   {
     build: "140",
@@ -152,8 +152,8 @@ const FEATURE_REGISTRY = [
   {
     build: "141",
     feature: "Cast type safety",
-    token: "GoogleCastMedia",
-    file: "src/services/googleCast.ts",
+    token: "CastingDeviceType",
+    file: "src/services/castingService.ts",
   },
 
   // ── Build 142: Plugin Safety + Card Sizing Fix ───────────────────────────
@@ -448,7 +448,7 @@ const FEATURE_REGISTRY = [
   {
     build: "155",
     feature: "Automated CI/CD pipeline",
-    token: "Auto Build, Test, Cleanup",
+    token: "npm run test:metadata-live",
     file: ".github/workflows/windows-installer.yml",
   },
   {

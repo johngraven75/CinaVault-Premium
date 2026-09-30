@@ -99,7 +99,8 @@ test("AI Media Autopilot still manages recurring library work", () => {
 test("structural spatial redesign remains intact", () => {
   requireTokens(read("src/App.tsx"), ["ExperienceBackdrop", "cv-command-deck", "cv-workspace-panel"], "application shell");
   requireTokens(read("src/components/Header.tsx"), ["Ctrl K", "cv-command-palette", "BUILD_INFO.displayName"], "command deck");
-  requireTokens(read("src/components/Sidebar.tsx"), ["Spatial Media OS", "Casting Center", "BUILD_INFO.displayName"], "navigation");
+  requireTokens(read("src/components/Sidebar.tsx"), ["Spatial Media OS", 'label: "Casting"', "BUILD_INFO.displayName"], "navigation");
+  requireTokens(read("src/components/tabs/CastingTab.tsx"), ['title="Casting Center"'], "casting workspace");
   requireTokens(read("src/styles/experience-shell.css"), [".cv-command-deck", ".cv-command-palette", "prefers-reduced-motion"], "experience styles");
 });
 
