@@ -401,11 +401,9 @@ pub async fn start_casting(session: CastingSession) -> Result<String, String> {
         CastingDeviceType::Airplay => start_airplay(&session).await?,
         CastingDeviceType::Chromecast => {
             let session_clone = session.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                cast_chromecast_media(&session_clone)
-            })
-            .await
-            .map_err(|error| error.to_string())??;
+            tauri::async_runtime::spawn_blocking(move || cast_chromecast_media(&session_clone))
+                .await
+                .map_err(|error| error.to_string())??;
         }
         CastingDeviceType::Smartview | CastingDeviceType::Dlna => {
             return Err(

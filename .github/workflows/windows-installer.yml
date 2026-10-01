@@ -1,4 +1,4 @@
-name: Build and Release Windows Installer
+name: Auto Build, Test, Cleanup & Release Windows Installer
 
 on:
   push:
@@ -41,6 +41,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Regression test suite
+        run: npm test
 
       - name: Live metadata and poster acceptance
         shell: pwsh

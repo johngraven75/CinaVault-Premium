@@ -806,6 +806,7 @@ fn merge_remote_metadata(
 async fn gather_adult_metadata_assets(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
+    crate::edition::ensure_adult_allowed()?;
     if ADULT_GATHER_RUNNING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -1551,10 +1552,15 @@ async fn ai_library_manage(
         .await
         {
             Ok(report) => {
-                results.insert("duplicates".to_string(), serde_json::json!({
-                    "status": "ok",
-                    "groups_found": report.get("groups_found").cloned().unwrap_or(serde_json::json!(0)),
-                }));
+                results.insert(
+                    "duplicates".to_string(),
+                    serde_json::json!({
+                        "status": "ok",
+                        "groups_found": report.groups.len(),
+                        "total_wasted_bytes": report.total_wasted_bytes,
+                        "scanned_files": report.scanned_files,
+                    }),
+                );
             }
             Err(e) => {
                 errors.push(format!("duplicates: {}", e));

@@ -1,0 +1,17 @@
+{
+  "_plugin": "CinaVault Store-safe Metadata Engine",
+  "_key": "cv-metadata-engine",
+  "_category": "Metadata",
+  "_platform": "cinavault",
+  "_description": "Store-safe metadata aggregator for general-audience media.",
+  "enabled": true,
+  "providers": ["tmdb", "omdb", "tvdb", "fanart", "trakt", "anidb", "mal", "kitsu", "anilist", "audiodb", "tvmaze"],
+  "conflict_resolution": "highest_confidence",
+  "merge_strategy": "union",
+  "auto_enrich": true,
+  "poster_download": true,
+  "nfo_write": true,
+  "batch_size": 20,
+  "concurrent_requests": 4,
+  "timeout_seconds": 30
+}

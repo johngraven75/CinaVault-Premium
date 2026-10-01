@@ -13,6 +13,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.2", features = [] }
 serde_json = "1"
 
+[features]
+# Microsoft Store edition: refuses adult commands, sources and provider provisioning.
+store-safe = []
+
 [dependencies]
 # Argon2id is required for adaptive, memory-hard remote-access password storage.
 argon2 = "0.5"

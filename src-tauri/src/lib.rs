@@ -12,6 +12,7 @@ mod cloud_storage;
 mod db;
 mod downloads;
 mod duplicates;
+mod edition;
 mod embedded_server;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
@@ -49,8 +50,8 @@ mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
 mod scanner;
-pub mod server_lifecycle;
 mod secure_credentials;
+pub mod server_lifecycle;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
@@ -133,9 +134,14 @@ pub fn run() {
             // Provision all native adult provider manifests and config files on every launch.
             // This installs runtime entries without embedding API keys or pretending that
             // optional external credentials or local scraper services are available.
-            match plugin_configs::ensure_adult_provider_configs() {
-                Ok(status) => log::info!("Adult provider configs provisioned at startup: {status:?}"),
-                Err(error) => log::warn!("Adult provider startup provisioning failed: {error}"),
+            // The Store edition never provisions adult providers.
+            if !edition::STORE_SAFE {
+                match plugin_configs::ensure_adult_provider_configs() {
+                    Ok(status) => {
+                        log::info!("Adult provider configs provisioned at startup: {status:?}")
+                    }
+                    Err(error) => log::warn!("Adult provider startup provisioning failed: {error}"),
+                }
             }
 
             // Initialize the full metadata-provider catalog on every launch. Existing
@@ -400,6 +406,7 @@ fn get_poster_data_url(state: tauri::State<AppState>, path: String) -> Result<St
 async fn convert_entire_library_to_adult(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
+    edition::ensure_adult_allowed()?;
     let labeling = {
         let mut db = state.db.lock().map_err(|error| error.to_string())?;
         db.mark_current_library_adult()

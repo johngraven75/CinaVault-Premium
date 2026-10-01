@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useAppStore, type MediaItem } from "../../store/appStore";
 import "../../styles/kodi-skin.css";
+import { IS_STORE_SAFE } from "../../config/edition";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -638,7 +639,7 @@ export default function KodiHomeLayout(): JSX.Element {
     { id: "all", label: "All" },
     { id: "movie", label: "Movies" },
     { id: "episode", label: "TV" },
-    { id: "adult", label: "Adult" },
+    ...(!IS_STORE_SAFE ? [{ id: "adult" as FilterType, label: "Adult" }] : []),
     { id: "video", label: "Videos" },
   ];
 
