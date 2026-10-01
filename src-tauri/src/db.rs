@@ -2587,4 +2587,3 @@ mod tests {
         let _ = fs::remove_file(db_path);
     }
 }
-

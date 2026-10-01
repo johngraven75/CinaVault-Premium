@@ -1,3 +1,4 @@
+use crate::AppState;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -7,7 +8,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
-use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DuplicateFile {
@@ -73,7 +73,8 @@ pub async fn find_duplicates(
         Err(e) => return Err(format!("Failed to lock DB state: {}", e)),
     };
 
-    let mut stmt = db.conn
+    let mut stmt = db
+        .conn
         .prepare("SELECT id, path, title, file_size FROM media_items WHERE file_size > 0")
         .map_err(|e| e.to_string())?;
 
@@ -141,10 +142,7 @@ pub async fn get_duplicate_groups(
 }
 
 #[tauri::command]
-pub async fn remove_duplicate(
-    state: State<'_, AppState>,
-    item_id: i64,
-) -> Result<bool, String> {
+pub async fn remove_duplicate(state: State<'_, AppState>, item_id: i64) -> Result<bool, String> {
     let db = match state.db.lock() {
         Ok(guard) => guard,
         Err(e) => return Err(format!("Failed to lock DB state: {}", e)),
@@ -171,16 +169,14 @@ pub async fn remove_duplicate(
 }
 
 #[tauri::command]
-pub async fn quarantine(
-    state: State<'_, AppState>,
-    item_id: i64,
-) -> Result<String, String> {
+pub async fn quarantine(state: State<'_, AppState>, item_id: i64) -> Result<String, String> {
     let db = match state.db.lock() {
         Ok(guard) => guard,
         Err(e) => return Err(format!("Failed to lock DB state: {}", e)),
     };
 
-    let source_path: String = db.conn
+    let source_path: String = db
+        .conn
         .query_row(
             "SELECT path FROM media_items WHERE id = ?1",
             params![item_id],

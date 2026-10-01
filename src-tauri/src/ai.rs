@@ -1551,12 +1551,15 @@ async fn ai_library_manage(
         .await
         {
             Ok(report) => {
-                results.insert("duplicates".to_string(), serde_json::json!({
-                    "status": "ok",
-                    "groups_found": report.groups.len(),
-                    "total_wasted_bytes": report.total_wasted_bytes,
-                    "scanned_files": report.scanned_files,
-                }));
+                results.insert(
+                    "duplicates".to_string(),
+                    serde_json::json!({
+                        "status": "ok",
+                        "groups_found": report.groups.len(),
+                        "total_wasted_bytes": report.total_wasted_bytes,
+                        "scanned_files": report.scanned_files,
+                    }),
+                );
             }
             Err(e) => {
                 errors.push(format!("duplicates: {}", e));
