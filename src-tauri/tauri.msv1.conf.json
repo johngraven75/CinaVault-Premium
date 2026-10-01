@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "CinaVault MS-v1",
+  "version": "2.0.15",
+  "identifier": "com.cinavault.msv1",
+  "build": {
+    "beforeBuildCommand": "npm run build:ms-v1"
+  },
+  "app": {
+    "windows": [{
+      "title": "CinaVault MS-v1 — v2.15 Build 215",
+      "width": 1400,
+      "height": 900,
+      "minWidth": 1024,
+      "minHeight": 700,
+      "resizable": true,
+      "fullscreen": false,
+      "decorations": true,
+      "transparent": false,
+      "center": true
+    }]
+  },
+  "bundle": {
+    "resources": ["../plugins/configs/store-safe/*.json"]
+  }
+}

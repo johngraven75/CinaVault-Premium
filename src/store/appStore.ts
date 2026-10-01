@@ -1,6 +1,11 @@
 // CinaVault Premium — Global State Store (Zustand) with Persistence
 import { create } from "zustand";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
+import {
+  filterStoreSafeMedia,
+  filterStoreSafeProviders,
+  filterStoreSafeSources,
+} from "../config/edition";
 
 export type TabId =
   | "home"
@@ -393,7 +398,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   mediaItems: [],
   setMediaItems: (items) =>
     set((s) => ({
-      mediaItems: typeof items === "function" ? items(s.mediaItems) : items,
+      mediaItems: filterStoreSafeMedia(
+        typeof items === "function" ? items(s.mediaItems) : items,
+      ),
     })),
   selectedMedia: null,
   setSelectedMedia: (item) => set({ selectedMedia: item }),
@@ -404,7 +411,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Sources
   sources: [],
-  setSources: (sources) => set({ sources }),
+  setSources: (sources) => set({ sources: filterStoreSafeSources(sources) }),
 
   // Scanning
   scanning: false,
@@ -456,8 +463,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   // Metadata Providers
-  metadataProviders: [...DEFAULT_PROVIDERS],
-  setMetadataProviders: (p) => set({ metadataProviders: p }),
+  metadataProviders: filterStoreSafeProviders([...DEFAULT_PROVIDERS]),
+  setMetadataProviders: (p) => set({ metadataProviders: filterStoreSafeProviders(p) }),
   toggleMetadataProvider: (id) =>
     set((s) => ({
       metadataProviders: s.metadataProviders.map((p) =>

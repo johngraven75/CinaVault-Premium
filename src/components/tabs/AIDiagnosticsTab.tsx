@@ -36,6 +36,7 @@ import {
   Square,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { IS_STORE_SAFE } from "../../config/edition";
 
 const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_FREE_MODELS = [
@@ -858,7 +859,7 @@ export default function AIDiagnosticsTab() {
       q: "Purge all photo/poster items incorrectly listed as standalone media",
       runNow: () => invoke("purge_photo_items"),
     },
-  ];
+  ].filter((action) => !IS_STORE_SAFE || action.progressTask !== "adult_metadata_gather");
 
   return (
     <div className="space-y-5">
@@ -1012,7 +1013,7 @@ export default function AIDiagnosticsTab() {
               </button>
             ))}
           </div>
-          <button
+          {!IS_STORE_SAFE && <button
             disabled={aiProcessing}
             onClick={async () => {
               if (!window.confirm("Mark every item currently indexed in CinaVault as adult? Existing poster and backdrop references will be preserved. Future imports will continue to use normal classification.")) return;
@@ -1030,7 +1031,7 @@ export default function AIDiagnosticsTab() {
             className="cv-btn cv-btn-danger mt-3 text-xs disabled:opacity-50"
           >
             Mark Current Inventory Adult (CinaVault Only)
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -1106,7 +1107,7 @@ export default function AIDiagnosticsTab() {
           <div className="mt-3 text-[10px] text-cv-subtext">
             Inference URL: {inferenceUrl}
           </div>
-          <div className="mt-5 border-t border-white/10 pt-4">
+          {!IS_STORE_SAFE && <div className="mt-5 border-t border-white/10 pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h4 className="text-xs font-bold">Adult metadata providers</h4>
@@ -1130,7 +1131,7 @@ export default function AIDiagnosticsTab() {
               })}
             </div>
             {adultProviderNotice && <p role="status" className="mt-3 text-[10px] text-cv-subtext">{adultProviderNotice}</p>}
-          </div>
+          </div>}
         </motion.div>
       )}
 

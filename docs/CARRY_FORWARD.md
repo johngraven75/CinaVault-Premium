@@ -41,7 +41,7 @@ Each new build must:
 | HUD sidebar navigation | `Build 140 Futuristic Sidebar Navigation` | `src/components/Sidebar.tsx` |
 | Sidebar active panel indicator | `sidebar-active-panel` | `src/components/Sidebar.tsx` |
 | Sidebar active rail indicator | `sidebar-active-rail` | `src/components/Sidebar.tsx` |
-| Google Cast service | `googleCast` | `src/services/googleCast.ts` |
+| Google Cast service | `cast_chromecast_media` | `src-tauri/src/casting.rs` |
 | Metadata extension commands | `metadata_ext` | `src-tauri/src/metadata_ext.rs` |
 | PGMA bridge | `pgma_bridge` | `src-tauri/src/pgma_bridge.rs` |
 | Adult site provider | `adult_site_provider` | `src-tauri/src/adult_site_provider.rs` |
@@ -51,7 +51,7 @@ Each new build must:
 
 | Feature | Token to Verify | Source File |
 |---|---|---|
-| Cast type safety | `CastSession` | `src/services/googleCast.ts` |
+| Cast type safety | `CastingDeviceType` | `src/services/castingService.ts` |
 
 ### Build 142 (Plugin Safety + Card Sizing Fix)
 
