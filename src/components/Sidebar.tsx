@@ -60,7 +60,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "casting",
-    label: "Casting",
+    label: "Casting Center",
     icon: Cast,
     zone: "Experience",
     detail: "Discover & beam",

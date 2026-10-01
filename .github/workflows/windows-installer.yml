@@ -1,4 +1,5 @@
-name: Build and Release Windows Installer
+# Build 155: Auto Build, Test, Cleanup & Release pipeline
+name: Auto Build, Test, Cleanup & Release Windows Installer
 
 on:
   push:
