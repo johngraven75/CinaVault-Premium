@@ -1908,6 +1908,9 @@ pub fn add_source(
     source_type: String,
     name: String,
 ) -> Result<i64, String> {
+    if crate::edition::source_type_blocked(&source_type) {
+        return Err(crate::edition::STORE_SAFE_REFUSAL.into());
+    }
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let source = MediaSource {
         id: None,

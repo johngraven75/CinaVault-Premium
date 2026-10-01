@@ -30,6 +30,9 @@ fn adult_provider_enabled_keys(database: &Database) -> Result<Vec<String>, Strin
 }
 
 pub fn is_adult_provider_enabled(database: &Database, provider: &str) -> Result<bool, String> {
+    if crate::edition::STORE_SAFE {
+        return Ok(false);
+    }
     let provider = normalize_provider_key(provider);
     Ok(adult_provider_enabled_keys(database)?.iter().any(|key| key == &provider))
 }
@@ -582,6 +585,7 @@ pub fn save_adult_provider_settings(
     state: State<AppState>,
     enabled_providers: Vec<String>,
 ) -> Result<(), String> {
+    crate::edition::ensure_adult_allowed()?;
     let mut normalized = enabled_providers
         .iter()
         .map(|provider| normalize_provider_key(provider))

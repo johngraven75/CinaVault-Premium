@@ -591,7 +591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentTheme,
       libraryView,
       featureSettings,
-      metadataProviders,
+      metadataProviders: filterStoreSafeProviders(metadataProviders),
       scheduledTasks,
       cloudServices,
     });

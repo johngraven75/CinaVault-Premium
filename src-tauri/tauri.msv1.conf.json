@@ -21,6 +21,10 @@
     }]
   },
   "bundle": {
-    "resources": ["../plugins/configs/store-safe/*.json"]
+    "resources": [
+      "tools/wireguard/*",
+      "tools/cloudflared/*",
+      "../plugins/configs/store-safe/*.json"
+    ]
   }
 }

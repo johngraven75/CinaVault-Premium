@@ -653,6 +653,7 @@ export default function AIDiagnosticsTab() {
     }
 
     const tracksAdultGather =
+      !IS_STORE_SAFE &&
       /adult metadata|chapter images|adult providers/i.test(cleanPrompt);
     if (tracksAdultGather) {
       const label = "Adult Metadata Gather";

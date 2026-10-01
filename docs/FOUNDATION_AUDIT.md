@@ -30,9 +30,12 @@ billing, purchase, unlock). That work still needs to be located or rebuilt.
   `npm run tauri:build:ms-v1:windows` build the store-safe edition from this
   same codebase. `src/config/edition.ts` exposes `IS_STORE_SAFE`; adult sources,
   media, providers, plugins, filters and AI actions are gated on it, and the
-  store bundle ships only `plugins/configs/store-safe/*.json`. Vite drops the
+  store bundle ships only the `plugins/configs/store-safe/*.json` plugin configs. Vite drops the
   gated code from the store bundle entirely (verified: no "Adult Media" string in
-  the store build output). The Premium build is unchanged.
+  the store build output). The Windows Store build also compiles the Rust back
+  end with the `store-safe` Cargo feature (`src-tauri/src/edition.rs`), which
+  skips adult provider provisioning, skips adult sources when scanning, and
+  refuses the adult commands. The Premium build is unchanged.
 - **Rust back end compiles again.** `main` failed to compile: the restored
   `duplicates::find_duplicates` returns `DuplicateScanResult`, but `ai.rs` and
   `ai_automation.rs` still treated it as JSON. Both callers now use the struct.

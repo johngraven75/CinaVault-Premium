@@ -155,10 +155,9 @@ pub async fn remove_duplicate(state: State<'_, AppState>, item_id: i64) -> Resul
     );
 
     if let Ok(path) = source_path {
-        let path_obj = PathBuf::from(&path);
-        if path_obj.is_file() {
-            let _ = std::fs::remove_file(path_obj);
-        }
+        // Keep the library row when the file could not be deleted, so the
+        // copy stays visible and the caller sees the failure.
+        remove_media_file(&PathBuf::from(&path))?;
     }
 
     db.conn
@@ -166,6 +165,14 @@ pub async fn remove_duplicate(state: State<'_, AppState>, item_id: i64) -> Resul
         .map_err(|e| e.to_string())?;
 
     Ok(true)
+}
+
+fn remove_media_file(path: &std::path::Path) -> Result<(), String> {
+    if path.is_file() {
+        std::fs::remove_file(path)
+            .map_err(|e| format!("Failed to delete {}: {}", path.display(), e))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -207,4 +214,19 @@ pub async fn quarantine(state: State<'_, AppState>, item_id: i64) -> Result<Stri
         .map_err(|e| e.to_string())?;
 
     Ok(dest.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod remove_media_file_tests {
+    use super::remove_media_file;
+
+    #[test]
+    fn deletes_existing_file_and_tolerates_missing_one() {
+        let path =
+            std::env::temp_dir().join(format!("cinavault-remove-dup-{}.mkv", std::process::id()));
+        std::fs::write(&path, b"x").unwrap();
+        assert!(remove_media_file(&path).is_ok());
+        assert!(!path.exists());
+        assert!(remove_media_file(&path).is_ok());
+    }
 }
