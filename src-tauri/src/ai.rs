@@ -1553,7 +1553,7 @@ async fn ai_library_manage(
             Ok(report) => {
                 results.insert("duplicates".to_string(), serde_json::json!({
                     "status": "ok",
-                    "groups_found": report.get("groups_found").cloned().unwrap_or(serde_json::json!(0)),
+                    "groups_found": report.groups.len(),
                 }));
             }
             Err(e) => {
