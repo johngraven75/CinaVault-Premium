@@ -184,13 +184,15 @@ fn current_statuses() -> Vec<ToolStatus> {
             .map(|tool| scope.spawn(move || executable_status(tool)))
             .collect::<Vec<_>>()
             .into_iter()
-            .map(|handle| handle.join().unwrap_or(ToolStatus {
-                id: "unknown".to_string(),
-                installed: false,
-                version: None,
-                auto_install: false,
-                package: String::new(),
-            }))
+            .map(|handle| {
+                handle.join().unwrap_or(ToolStatus {
+                    id: "unknown".to_string(),
+                    installed: false,
+                    version: None,
+                    auto_install: false,
+                    package: String::new(),
+                })
+            })
             .collect()
     })
 }
