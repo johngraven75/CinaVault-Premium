@@ -246,7 +246,8 @@ jobs:
           node -e "
           const fs = require('fs');
           const cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
-          if (!cargo.includes('cookies')) {
+          const reqwest = cargo.match(/^reqwest\s*=\s*\{[^}]*\}$/m);
+          if (!reqwest || !/\bcookies\b/.test(reqwest[0])) {
             console.error('ERROR: reqwest cookies feature missing from Cargo.toml!');
             process.exit(1);
           }
