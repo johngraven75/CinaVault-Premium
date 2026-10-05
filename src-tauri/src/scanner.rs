@@ -509,6 +509,18 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
             reports.push(source_report_json(source, "disabled", 0, 0, 0, &[]));
             continue;
         }
+        if crate::edition::source_type_blocked(&source.source_type) {
+            skipped += 1;
+            reports.push(source_report_json(
+                source,
+                "store_edition_excluded",
+                0,
+                0,
+                0,
+                &[],
+            ));
+            continue;
+        }
 
         match scan_directory(&state, source) {
             Ok(report) => {

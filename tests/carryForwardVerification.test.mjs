@@ -120,8 +120,8 @@ const FEATURE_REGISTRY = [
   {
     build: "140",
     feature: "Google Cast service",
-    token: "castToGoogleDevice",
-    file: "src/services/googleCast.ts",
+    token: "cast_chromecast_media",
+    file: "src-tauri/src/casting.rs",
   },
   {
     build: "140",
@@ -152,8 +152,8 @@ const FEATURE_REGISTRY = [
   {
     build: "141",
     feature: "Cast type safety",
-    token: "GoogleCastMedia",
-    file: "src/services/googleCast.ts",
+    token: "CastingDeviceType",
+    file: "src/services/castingService.ts",
   },
 
   // ── Build 142: Plugin Safety + Card Sizing Fix ───────────────────────────

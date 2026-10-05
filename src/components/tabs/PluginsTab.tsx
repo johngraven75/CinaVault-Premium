@@ -42,6 +42,7 @@ import {
   Puzzle,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import { IS_STORE_SAFE } from "../../config/edition";
 
 type SubView = "plugins" | "metadata" | "tasks";
 
@@ -112,7 +113,9 @@ const PHOENIX_ADULT_PLUGIN: PluginEntry = {
   tags: ["adult", "metadata", "scenes", "jellyfin", "emby", "artwork"],
 };
 
-const PLUGIN_CATALOG: PluginEntry[] = FULL_PLUGIN_REGISTRY.some(
+const PLUGIN_CATALOG: PluginEntry[] = IS_STORE_SAFE
+  ? FULL_PLUGIN_REGISTRY.filter((plugin) => !plugin.tags.includes("adult"))
+  : FULL_PLUGIN_REGISTRY.some(
   (plugin) => plugin.id === PHOENIX_ADULT_PLUGIN.id,
 )
   ? FULL_PLUGIN_REGISTRY

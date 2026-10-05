@@ -1588,6 +1588,7 @@ pub struct AdultMetadataReport {
 pub async fn gather_adult_metadata(
     state: State<'_, AppState>,
 ) -> Result<AdultMetadataReport, String> {
+    crate::edition::ensure_adult_allowed()?;
     let (items, provider_keys) = {
         let db = state.db.lock().map_err(|err| err.to_string())?;
         let mut stmt = db

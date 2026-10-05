@@ -96,7 +96,12 @@ pub async fn ai_library_manage(
             .await
         {
             Ok(report) => {
-                results.insert("duplicates".to_string(), report);
+                results.insert(
+                    "duplicates".to_string(),
+                    serde_json::to_value(&report).unwrap_or_else(
+                        |e| serde_json::json!({ "status": "error", "error": e.to_string() }),
+                    ),
+                );
             }
             Err(err) => {
                 errors.push(format!("duplicates: {err}"));
@@ -158,5 +163,23 @@ mod tests {
         ] {
             assert!(tasks.iter().any(|task| task == required));
         }
+    }
+
+    #[test]
+    fn duplicate_report_serializes_into_automation_results() {
+        let report = crate::duplicates::DuplicateScanResult {
+            groups: vec![crate::duplicates::DuplicateGroup {
+                key: "movie.mkv:42".to_string(),
+                count: 2,
+                total_size: 84,
+                files: Vec::new(),
+            }],
+            total_wasted_bytes: 42,
+            scanned_files: 3,
+        };
+        let value = serde_json::to_value(&report).expect("duplicate report serializes");
+        assert_eq!(value["groups"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["total_wasted_bytes"], 42);
+        assert_eq!(value["scanned_files"], 3);
     }
 }

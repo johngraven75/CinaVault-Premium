@@ -41,6 +41,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { IS_STORE_SAFE } from "../../config/edition";
 
 type Shelf = "recent" | "verified" | "unverified" | "favorites";
 
@@ -580,7 +581,7 @@ export default function HomeTab(): JSX.Element {
               <TerminalLine label="Favorite" value={selectedMedia.favorite ? "Vaulted" : "Not Set"} />
             </div>
             {selectedMedia.overview && <p className="mt-4 rounded border border-cyan-300/10 bg-black/30 p-3 text-xs leading-6 text-cv-subtext">{selectedMedia.overview}</p>}
-            {selectedMedia.media_type === "adult" && <AdultChapterArtwork filePath={selectedMedia.file_path} />}
+            {!IS_STORE_SAFE && selectedMedia.media_type === "adult" && <AdultChapterArtwork filePath={selectedMedia.file_path} />}
             <div className="mt-4 grid gap-2">
               <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button"><Play size={14} /> Quick Play</button>
               <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button"><CheckCircle size={14} /> Verify Signal</button>
