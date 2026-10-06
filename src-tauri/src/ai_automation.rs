@@ -98,9 +98,12 @@ pub async fn ai_library_manage(
             Ok(report) => {
                 results.insert(
                     "duplicates".to_string(),
-                    serde_json::to_value(&report).unwrap_or_else(
-                        |e| serde_json::json!({ "status": "error", "error": e.to_string() }),
-                    ),
+                    serde_json::json!({
+                        "status": "ok",
+                        "groups_found": report.groups.len(),
+                        "total_wasted_bytes": report.total_wasted_bytes,
+                        "scanned_files": report.scanned_files,
+                    }),
                 );
             }
             Err(err) => {
