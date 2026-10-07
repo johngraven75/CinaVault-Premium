@@ -26,8 +26,6 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
-import FeatureGate from "../paywall/FeatureGate";
-import { paywallAwareErrorMessage } from "../../services/entitlements";
 
 // ── OAuth endpoints ──
 const ONEDRIVE_AUTH_URL =
@@ -196,8 +194,8 @@ export default function CloudNASTab() {
       : id === "onedrive"
         ? "OneDrive"
         : "Dropbox";
-  // PAYWALL refusals open the CinaVault Plus panel instead of a raw error.
-  const errorText = (error: unknown): string => paywallAwareErrorMessage(error);
+  const errorText = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error);
 
   const authenticateCloud = useCallback(
     async (id: CloudId, authUrl: string) => {
@@ -343,8 +341,8 @@ export default function CloudNASTab() {
         `Synology: Connected to ${result.device_name} (${result.device_model}) — ${result.libraries.length} share(s) found`,
       );
     } catch (err: any) {
-      setSynoError(errorText(err) || "Connection failed");
-      addStatusMessage(`Synology: Connection failed — ${errorText(err)}`);
+      setSynoError(err?.toString() || "Connection failed");
+      addStatusMessage(`Synology: Connection failed — ${err}`);
     } finally {
       setSynoConnecting(false);
     }
@@ -372,7 +370,7 @@ export default function CloudNASTab() {
       });
       addStatusMessage(`Synology: Added "${lib.name}" as a media source`);
     } catch (err: any) {
-      addStatusMessage(`Synology: Failed to add "${lib.name}" — ${errorText(err)}`);
+      addStatusMessage(`Synology: Failed to add "${lib.name}" — ${err}`);
     }
   };
 
@@ -402,8 +400,8 @@ export default function CloudNASTab() {
         `WD My Cloud: Connected to ${result.device_name} — ${result.libraries.length} share(s) found`,
       );
     } catch (err: any) {
-      setWdError(errorText(err) || "Connection failed");
-      addStatusMessage(`WD My Cloud: Connection failed — ${errorText(err)}`);
+      setWdError(err?.toString() || "Connection failed");
+      addStatusMessage(`WD My Cloud: Connection failed — ${err}`);
     } finally {
       setWdConnecting(false);
     }
@@ -431,7 +429,7 @@ export default function CloudNASTab() {
       });
       addStatusMessage(`WD My Cloud: Added "${lib.name}" as a media source`);
     } catch (err: any) {
-      addStatusMessage(`WD My Cloud: Failed to add "${lib.name}" — ${errorText(err)}`);
+      addStatusMessage(`WD My Cloud: Failed to add "${lib.name}" — ${err}`);
     }
   };
 
@@ -505,8 +503,6 @@ export default function CloudNASTab() {
   return (
     <div className="space-y-5">
       <TabBanner icon={Cloud} eyebrow="Storage Fabric" title="Cloud Mesh" subtitle="Unify NAS devices, cloud providers, sync paths, and distributed media storage." accent="from-sky-300/30 to-blue-500/10" accentText="text-sky-100" />
-      <FeatureGate feature="external_libraries" title="NAS, cloud & network libraries">
-      <div className="space-y-5">
       {/* ── Cloud Storage ── */}
       <div className="cv-card p-4">
         <div className="flex items-center gap-2 mb-4">
@@ -1447,8 +1443,6 @@ export default function CloudNASTab() {
           </div>
         )}
       </div>
-      </div>
-      </FeatureGate>
     </div>
   );
 }

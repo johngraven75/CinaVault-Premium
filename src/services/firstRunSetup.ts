@@ -219,9 +219,3 @@ export function createSerialSaver(
   };
 }
 
-/** Extra sentence for enrichment results when Plus-only adult providers were left out. */
-export function adultProvidersSkippedNote(result: { adult_providers_skipped?: string | null } | null | undefined): string {
-  return result?.adult_providers_skipped
-    ? " Adult metadata providers were skipped because they need CinaVault Plus."
-    : "";
-}

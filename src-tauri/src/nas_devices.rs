@@ -628,10 +628,6 @@ pub fn synology_connect(
     use_https: bool,
     port: Option<u16>,
 ) -> Result<NasConnectionResult, String> {
-    crate::entitlements::ensure_feature_state(
-        state.inner(),
-        crate::entitlements::Feature::ExternalLibraries,
-    )?;
     let quickconnect_id = quickconnect_id.trim();
     if quickconnect_id.is_empty() || username.trim().is_empty() || password.is_empty() {
         return Err("QuickConnect ID, username, and password are required".to_string());
@@ -715,10 +711,6 @@ pub fn synology_add_library(
     share_path: String,
     media_type: String,
 ) -> Result<(), String> {
-    crate::entitlements::ensure_feature_state(
-        state.inner(),
-        crate::entitlements::Feature::ExternalLibraries,
-    )?;
     let connection = read_connection(&state, "synology")?;
     let host = connection["host"]
         .as_str()
@@ -750,10 +742,6 @@ pub fn wd_mycloud_connect(
     use_https: bool,
     port: Option<u16>,
 ) -> Result<NasConnectionResult, String> {
-    crate::entitlements::ensure_feature_state(
-        state.inner(),
-        crate::entitlements::Feature::ExternalLibraries,
-    )?;
     let host = host.trim().to_string();
     if host.is_empty() || username.trim().is_empty() || password.is_empty() {
         return Err("Host/IP, username, and password are required".to_string());
@@ -830,10 +818,6 @@ pub fn wd_mycloud_add_library(
     share_path: String,
     media_type: String,
 ) -> Result<(), String> {
-    crate::entitlements::ensure_feature_state(
-        state.inner(),
-        crate::entitlements::Feature::ExternalLibraries,
-    )?;
     let connection = read_connection(&state, "wd_mycloud")?;
     let host = connection["host"]
         .as_str()

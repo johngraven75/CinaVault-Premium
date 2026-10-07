@@ -807,10 +807,6 @@ async fn gather_adult_metadata_assets(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     crate::edition::ensure_adult_allowed()?;
-    crate::entitlements::ensure_feature_state(
-        state.inner(),
-        crate::entitlements::Feature::AdultMetadata,
-    )?;
     if ADULT_GATHER_RUNNING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()

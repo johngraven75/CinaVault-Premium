@@ -42,7 +42,7 @@
     "check:ai-models": "node scripts/fetch-ai-models.mjs --check",
     "test:local-vision": "node --loader ./tests/typescript-loader.mjs --test tests/localVision.test.mjs tests/aiPosterAutopilot.test.mjs",
     "test:holo-ui": "node --loader ./tests/typescript-loader.mjs --test tests/holoUi.test.mjs",
-    "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/entitlementsUi.test.mjs tests/firstRunSetup.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs && node --test tests/issueLicense.test.mjs"
+    "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/firstRunSetup.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "4.3.0",

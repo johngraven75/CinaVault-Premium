@@ -70,11 +70,6 @@ jobs:
         run: npm run build
 
       - name: Build Windows Installers
-        # Public (non-secret) licensing config, baked in via option_env! in
-        # src-tauri/src/entitlements.rs. Unset => licenses fail closed; the opt-in trial still works.
-        env:
-          CINAVAULT_LICENSE_PUBLIC_KEY: ${{ vars.CINAVAULT_LICENSE_PUBLIC_KEY }}
-          CINAVAULT_CHECKOUT_URL: ${{ vars.CINAVAULT_CHECKOUT_URL }}
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
       - name: Stage Installers and Generate Checksums

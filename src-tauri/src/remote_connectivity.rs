@@ -416,17 +416,12 @@ fn unavailable_status(port: u16, error: String) -> Result<RemoteConnectivityStat
 
 #[tauri::command]
 pub async fn start_remote_connectivity(
-    state: tauri::State<'_, crate::AppState>,
     port: Option<u16>,
     prefer_relay: Option<bool>,
     allow_relay: Option<bool>,
     enable_upnp: Option<bool>,
     enable_nat_pmp: Option<bool>,
 ) -> Result<RemoteConnectivityStatus, String> {
-    crate::entitlements::ensure_feature_state(
-        state.inner(),
-        crate::entitlements::Feature::RemoteAccess,
-    )?;
     let _operation = operation().lock().await;
     let port = port.unwrap_or(NATIVE_SERVER_PORT);
     let prefer_relay = prefer_relay.unwrap_or(true);

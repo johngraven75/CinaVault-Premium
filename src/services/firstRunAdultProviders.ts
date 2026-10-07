@@ -9,7 +9,7 @@ export const ADULT_SETUP_PROVIDERS: readonly SetupProvider[] = [
   {
     id: "tpdb",
     name: "ThePornDB",
-    description: "Scene, performer and studio matching with posters and backdrops. Used with CinaVault Plus.",
+    description: "Scene, performer and studio matching with posters and backdrops.",
     signupUrl: "https://theporndb.net/register",
     adult: true,
     minLength: 16,
@@ -18,7 +18,7 @@ export const ADULT_SETUP_PROVIDERS: readonly SetupProvider[] = [
   {
     id: "stashdb",
     name: "StashDB",
-    description: "Community scene fingerprints and performer data. Used with CinaVault Plus.",
+    description: "Community scene fingerprints and performer data.",
     signupUrl: "https://stashdb.org/register",
     adult: true,
     minLength: 16,

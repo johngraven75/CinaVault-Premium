@@ -78,3 +78,17 @@ test("unused front-end packages stay removed", () => {
     assert.equal(pkg.dependencies[name], undefined, `${name} should not be a dependency`);
   }
 });
+
+test("this app ships without the CinaVault Plus paywall", () => {
+  for (const path of [
+    "src-tauri/src/entitlements.rs",
+    "src-tauri/src/metadata_paywall.rs",
+    "src/services/entitlements.ts",
+    "src/components/paywall",
+    "src/components/tabs/AccountTab.tsx",
+  ]) {
+    assert.equal(fs.existsSync(path), false, `${path} should not exist`);
+  }
+  assert.doesNotMatch(read("src-tauri/src/lib.rs"), /entitlements::|metadata_paywall/);
+  assert.doesNotMatch(read("src-tauri/src/embedded_server.rs"), /PAYMENT_REQUIRED/);
+});

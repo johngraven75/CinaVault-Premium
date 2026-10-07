@@ -117,14 +117,11 @@ impl NativeServerLifecycle {
         };
 
         let task = tokio::spawn(async move {
-            let result = axum::serve(
-                listener,
-                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .await;
+            let result = axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await;
             if let Err(error) = result {
                 log::error!("Native media server stopped unexpectedly: {error}");
             }

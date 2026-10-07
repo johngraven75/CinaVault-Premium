@@ -29,9 +29,7 @@ import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
-import AccountTab from "./components/tabs/AccountTab";
 import FirstRunSetup from "./components/setup/FirstRunSetup";
-import PaywallHost from "./components/paywall/PaywallHost";
 import { StatusBeacon } from "./components/holo/CinematicLoaders";
 import { pluginEngine } from "./data/pluginAdapter";
 import {
@@ -63,7 +61,6 @@ const TAB_COMPONENTS: Record<TabId, FC> = {
   ai: AIDiagnosticsTab,
   "hf-models": HFModelsTab,
   settings: SettingsTab,
-  account: AccountTab,
 };
 
 const TAB_TITLES: Record<
@@ -166,13 +163,6 @@ const TAB_TITLES: Record<
     subtitle:
       "Shape appearance, behavior, automation policy, and persistent application preferences.",
     mode: "Config",
-  },
-  account: {
-    eyebrow: "Account & Plan",
-    title: "Your CinaVault",
-    subtitle:
-      "Plan status, CinaVault Plus license activation, and server administration.",
-    mode: "Account",
   },
 };
 
@@ -558,7 +548,6 @@ export default function App(): JSX.Element {
         </main>
       </motion.div>
 
-      <PaywallHost />
       <FirstRunSetup />
     </div>
     </MotionConfig>

@@ -29,7 +29,6 @@ import {
   FIRST_RUN_STEPS,
   buildKeylessProviders,
   buildSetupProviders,
-  adultProvidersSkippedNote,
   configuredProviderIds,
   createSerialSaver,
   initialKeyState,
@@ -48,7 +47,6 @@ import {
   ADULT_KEYLESS_PROVIDERS,
   ADULT_SETUP_PROVIDERS,
 } from "../../services/firstRunAdultProviders";
-import { paywallAwareErrorMessage } from "../../services/entitlements";
 
 export const OPEN_FIRST_RUN_SETUP_EVENT = "cinavault:open-first-run-setup";
 
@@ -172,7 +170,7 @@ export default function FirstRunSetup(): JSX.Element {
       } catch (error) {
         patchKey(provider.id, {
           status: "error",
-          message: `Couldn't save: ${paywallAwareErrorMessage(error)}`,
+          message: `Couldn't save: ${String(error)}`,
         });
         return false;
       }
@@ -220,7 +218,7 @@ export default function FirstRunSetup(): JSX.Element {
     } catch (error) {
       patchKey(provider.id, {
         status: "error",
-        message: `Test failed: ${paywallAwareErrorMessage(error)}`,
+        message: `Test failed: ${String(error)}`,
       });
     }
   };
@@ -251,14 +249,14 @@ export default function FirstRunSetup(): JSX.Element {
       .then((result) => {
         const enriched = result?.metadata_items_enriched ?? result?.metadata_updated ?? 0;
         addStatusMessage(
-          `Library enrichment complete: ${enriched} items enriched, ${result?.posters_downloaded ?? 0} posters downloaded.${adultProvidersSkippedNote(result)}`,
+          `Library enrichment complete: ${enriched} items enriched, ${result?.posters_downloaded ?? 0} posters downloaded.`,
         );
         window.dispatchEvent(
           new CustomEvent("cinavault:library-refresh", { detail: { reason: "first-run-enrichment" } }),
         );
       })
       .catch((error) => {
-        addStatusMessage(`Library enrichment could not run: ${paywallAwareErrorMessage(error)}`);
+        addStatusMessage(`Library enrichment could not run: ${String(error)}`);
       });
   };
 
@@ -488,7 +486,6 @@ function MetadataStep({
               className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-50"
             >
               <CheckCircle2 size={11} aria-hidden="true" /> {provider.name}
-              {provider.adult && <span className="opacity-70">· with Plus</span>}
             </span>
           ))}
         </div>

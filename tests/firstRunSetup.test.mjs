@@ -132,10 +132,3 @@ test("serial saver keeps going after a failed save", async () => {
   await assert.rejects(saver("tpdb", "a"), /keyring locked/);
   assert.deepEqual(await saver("tpdb", "b"), { saved: true, latest: true });
 });
-
-test("enrichment results mention skipped adult providers only when skipped", async () => {
-  const { adultProvidersSkippedNote } = await import("../src/services/firstRunSetup.ts");
-  assert.equal(adultProvidersSkippedNote({ adult_providers_skipped: "PAYWALL:adult_metadata" }).includes("CinaVault Plus"), true);
-  assert.equal(adultProvidersSkippedNote({ adult_providers_skipped: null }), "");
-  assert.equal(adultProvidersSkippedNote(undefined), "");
-});

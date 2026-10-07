@@ -43,7 +43,6 @@ import {
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
 import { IS_STORE_SAFE } from "../../config/edition";
-import FeatureGate from "../paywall/FeatureGate";
 
 type SubView = "plugins" | "metadata" | "tasks";
 
@@ -560,11 +559,6 @@ export default function PluginsTab() {
                   >
                     {category}
                   </h4>
-                  <FeatureGate
-                    feature="adult_metadata"
-                    variant="compact"
-                    when={category.trim().toLowerCase() === "adult"}
-                  >
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                     {providers.map((provider) => (
                       <button
@@ -617,7 +611,6 @@ export default function PluginsTab() {
                       </button>
                     ))}
                   </div>
-                  </FeatureGate>
                 </div>
               ))}
             </div>

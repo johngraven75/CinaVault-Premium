@@ -10,7 +10,6 @@ import {
 
 export type TabId =
   | "home"
-  | "account"
   | "sources"
   | "downloads"
   | "livetv"
@@ -27,7 +26,6 @@ export type TabId =
 
 const VALID_TAB_IDS: readonly TabId[] = [
   "home",
-  "account",
   "sources",
   "downloads",
   "livetv",
@@ -136,8 +134,6 @@ export interface LibraryEnrichmentResult {
   posters_downloaded?: number;
   sidecars_written?: number;
   provider_errors: string[];
-  /** Set (a "PAYWALL:adult_metadata" marker) when adult providers were left out for lack of Plus. */
-  adult_providers_skipped?: string | null;
 }
 
 // ── Cloud Service State ──
