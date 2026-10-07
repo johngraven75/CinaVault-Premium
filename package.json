@@ -40,6 +40,7 @@
     "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml --locked live_metadata_poster_acceptance_ -- --ignored --nocapture",
     "fetch:ai-models": "node scripts/fetch-ai-models.mjs",
     "check:ai-models": "node scripts/fetch-ai-models.mjs --check",
+    "test:vision-e2e": "node scripts/vision-smoke.mjs",
     "test:local-vision": "node --loader ./tests/typescript-loader.mjs --test tests/localVision.test.mjs tests/aiPosterAutopilot.test.mjs",
     "test:holo-ui": "node --loader ./tests/typescript-loader.mjs --test tests/holoUi.test.mjs tests/holoAgent.test.mjs",
     "test:code-signing": "node --test tests/codeSigning.test.mjs",

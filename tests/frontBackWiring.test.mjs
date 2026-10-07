@@ -92,3 +92,17 @@ test("this app ships without the CinaVault Plus paywall", () => {
   assert.doesNotMatch(read("src-tauri/src/lib.rs"), /entitlements::|metadata_paywall/);
   assert.doesNotMatch(read("src-tauri/src/embedded_server.rs"), /PAYMENT_REQUIRED/);
 });
+
+test("vision end-to-end check loads the same model the app ships", () => {
+  const smoke = read("scripts/vision-smoke.mjs");
+  const vision = read("src/services/localVision.ts");
+  const fetcher = read("scripts/fetch-ai-models.mjs");
+  const value = (source, name) => source.match(new RegExp(`${name}[^=]*= "([^"]+)"`))?.[1];
+  assert.equal(value(smoke, "MODEL_ID"), value(vision, "VISION_MODEL_ID"));
+  assert.equal(value(smoke, "REVISION"), value(vision, "VISION_MODEL_REVISION"));
+  assert.equal(value(smoke, "REVISION"), value(fetcher, "REVISION"));
+  assert.match(vision, /VISION_MODEL_DTYPE = "q8"/);
+  assert.match(smoke, /dtype: "q8"/);
+  assert.match(smoke, /env\.allowRemoteModels = false;/);
+  assert.match(read(".github/workflows/windows-installer.yml"), /run: npm run fetch:ai-models\n\n      - name: Offline vision model end to end\n        run: npm run test:vision-e2e/);
+});
