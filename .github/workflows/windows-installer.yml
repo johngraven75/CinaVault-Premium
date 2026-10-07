@@ -66,6 +66,9 @@ jobs:
         # works at first launch with no download or token (docs/LOCAL_AI.md).
         run: npm run fetch:ai-models
 
+      - name: Offline vision model end to end
+        run: npm run test:vision-e2e
+
       - name: Build frontend
         run: npm run build
 
