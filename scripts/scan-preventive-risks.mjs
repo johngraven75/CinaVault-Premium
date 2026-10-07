@@ -48,8 +48,9 @@ for (const required of [
 }
 assert.equal(build.schemaVersion, 1);
 assert.match(build.semanticVersion, /^\d+\.\d+\.\d+$/);
-assert.match(build.displayName, /^v\d+(?:\.\d+)? Build \d+(?:\.\d+)?$/);
-assert.match(build.releaseTag, /^v\d+-build-\d+(?:\.\d+)?$/);
+assert.match(build.displayName, /^v\d+(?:\.\d+)*(?: [A-Za-z-]+)? Build \d+(?:\.\d+)?$/);
+// Legacy v2-build-N.N tags, or semver tags such as v1.0.1-pre-beta.
+assert.match(build.releaseTag, /^v(?:\d+-build-\d+(?:\.\d+)?|\d+\.\d+\.\d+(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?)$/);
 
 requireMarker("src/buildInfo.ts", 'import manifest from "../build-version.json"', "UI build identity must derive from build-version.json");
 requireMarker("src/main.tsx", "BUILD_INFO.displayName", "Startup diagnostics must use the authoritative build identity");

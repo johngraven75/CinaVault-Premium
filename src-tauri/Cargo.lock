@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "cinavault-premium"
-version = "2.0.15"
+version = "1.0.1"
 dependencies = [
  "argon2",
  "axum",
