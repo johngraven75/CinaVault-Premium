@@ -1,5 +1,5 @@
 // CinaVault Premium — Settings Tab (Premium UI defaults + Persistent Settings)
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store/appStore";
@@ -24,8 +24,10 @@ import {
   Download,
   RefreshCw,
   HardDrive,
+  Wand2,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import { openFirstRunSetup } from "../setup/FirstRunSetup";
 
 export default function SettingsTab() {
   const {
@@ -41,6 +43,29 @@ export default function SettingsTab() {
 
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState("appearance");
+  const [players, setPlayers] = useState<PlayerInfo[]>([]);
+
+  // play_media launches the stored executable path, or the system handler for
+  // "system", so the picker must offer the real paths the back end detected.
+  useEffect(() => {
+    invoke<PlayerInfo[]>("get_available_players")
+      .then(setPlayers)
+      .catch((error) => addStatusMessage(`Unable to list media players: ${error}`));
+  }, [addStatusMessage]);
+
+  const chooseDefaultPlayer = useCallback(
+    async (player: string) => {
+      try {
+        await invoke("set_default_player", { player });
+        setSetting("default_player", player);
+        const name = players.find((p) => p.executable === player)?.name || "System Default";
+        addStatusMessage(`Default player: ${name}`);
+      } catch (error) {
+        addStatusMessage(`Could not set the default player: ${error}`);
+      }
+    },
+    [players, setSetting, addStatusMessage],
+  );
 
   // ── Manual save ──
   const handleSave = useCallback(async () => {
@@ -136,6 +161,14 @@ export default function SettingsTab() {
 
         {/* Save / Reset */}
         <div className="pt-3 space-y-2">
+          <button
+            type="button"
+            onClick={openFirstRunSetup}
+            className="w-full cv-btn cv-btn-secondary text-xs py-2.5 flex items-center justify-center gap-1.5"
+            title="Reopen the first-run setup wizard (metadata keys, AI vision)"
+          >
+            <Wand2 size={12} /> Run Setup Wizard
+          </button>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -309,17 +342,22 @@ export default function SettingsTab() {
               />
               <SettingRow
                 label="Player"
-                desc="System default or built-in Vidstack player"
+                desc="Players found on this PC; others are listed as not installed"
               >
                 <select
-                  value={settings.default_player || "system"}
-                  onChange={(e) => setSetting("default_player", e.target.value)}
+                  value={
+                    players.some((p) => p.available && p.executable === settings.default_player)
+                      ? settings.default_player
+                      : "system"
+                  }
+                  onChange={(e) => void chooseDefaultPlayer(e.target.value)}
                   className="cv-input text-xs min-w-[140px]"
                 >
-                  <option value="system">System Default</option>
-                  <option value="vidstack">Vidstack (Built-in)</option>
-                  <option value="mpv">MPV</option>
-                  <option value="vlc">VLC</option>
+                  {(players.length ? players : [{ name: "System Default", executable: "system", available: true }]).map((p) => (
+                    <option key={p.name} value={p.available ? p.executable : `missing:${p.name}`} disabled={!p.available}>
+                      {p.available ? p.name : `${p.name} (not installed)`}
+                    </option>
+                  ))}
                 </select>
               </SettingRow>
             </>
@@ -565,6 +603,8 @@ export default function SettingsTab() {
 }
 
 // ── Reusable Components ──
+
+type PlayerInfo = { name: string; executable: string; available: boolean };
 
 function SectionHeader({ title, desc }: { title: string; desc: string }) {
   return (

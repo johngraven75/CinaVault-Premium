@@ -220,9 +220,14 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 pub async fn crawl_media_links(
+    state: State<'_, AppState>,
     url: String,
     max_links: Option<usize>,
 ) -> Result<serde_json::Value, String> {
+    crate::entitlements::ensure_feature_state(
+        state.inner(),
+        crate::entitlements::Feature::Downloads,
+    )?;
     let response = reqwest::get(&url)
         .await
         .map_err(|e| format!("Failed to fetch page: {}", e))?;
@@ -334,6 +339,10 @@ pub async fn start_media_download(
     cookies_file: Option<String>,
     include_playlist: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    crate::entitlements::ensure_feature_state(
+        state.inner(),
+        crate::entitlements::Feature::Downloads,
+    )?;
     if DOWNLOADING.load(Ordering::Relaxed) {
         return Err("A download is already in progress".into());
     }

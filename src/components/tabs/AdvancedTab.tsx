@@ -13,6 +13,14 @@ import {
   ChevronRight,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import DuplicateFinder from "../library/DuplicateFinder";
+
+// Switches that change real behaviour today. Every other entry in the matrix
+// is a planned feature: it is shown, but its switch stays disabled so the tab
+// never claims to turn on something that does not exist yet.
+export const WIRED_FEATURES = new Set<string>(["particle_bg"]);
+const DEFAULT_ON_FEATURES = new Set<string>(["particle_bg"]);
+const REQUESTS_SETTING_KEY = "media_request_queue";
 
 interface FeatureCategory {
   name: string;
@@ -116,8 +124,30 @@ export default function AdvancedTab() {
     });
   };
 
+  const isEnabled = (key: string) =>
+    featureSettings[key]?.enabled ?? DEFAULT_ON_FEATURES.has(key);
+
+  // Requests used to live only in memory; keep them in the settings table so
+  // they survive a restart.
+  useEffect(() => {
+    invoke<string | null>("get_setting", { key: REQUESTS_SETTING_KEY })
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setRequestQueue(parsed);
+      })
+      .catch(() => {});
+  }, []);
+  const saveRequests = (next: any[]) => {
+    setRequestQueue(next);
+    invoke("set_setting", { key: REQUESTS_SETTING_KEY, value: JSON.stringify(next) }).catch((error) =>
+      addStatusMessage(`Could not save media requests: ${error}`),
+    );
+  };
+
   const handleToggle = async (key: string) => {
-    const enabled = !(featureSettings[key]?.enabled || false);
+    if (!WIRED_FEATURES.has(key)) return;
+    const enabled = !isEnabled(key);
     try {
       await invoke("set_feature_setting", { key, enabled, config: "{}" });
       toggleFeature(key);
@@ -129,14 +159,14 @@ export default function AdvancedTab() {
 
   const addRequest = () => {
     if (!newRequest.title) return;
-    setRequestQueue((prev) => [
+    saveRequests([
       {
         ...newRequest,
         id: Date.now(),
         status: "pending",
         created: new Date().toLocaleString(),
       },
-      ...prev,
+      ...requestQueue,
     ]);
     setNewRequest({ title: "", type: "movie", requester: "" });
     addStatusMessage(`Request added: ${newRequest.title}`);
@@ -145,10 +175,12 @@ export default function AdvancedTab() {
   return (
     <div className="space-y-5">
       <TabBanner icon={Sliders} eyebrow="Expert Systems" title="Control Lab" subtitle="Deep diagnostics, repair controls, platform tuning, and advanced operational tooling." accent="from-orange-300/28 to-fuchsia-500/10" accentText="text-orange-100" />
+      <DuplicateFinder />
+
       {/* Feature Matrix */}
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-          <Zap size={16} className="text-cv-accent" /> MS-B SDK Feature Matrix
+          <Zap size={16} className="text-cv-accent" /> Feature Matrix
         </h3>
         <div className="space-y-2">
           {FEATURE_MATRIX.map((cat) => (
@@ -167,7 +199,7 @@ export default function AdvancedTab() {
                   <span className="text-[10px] text-cv-subtext">
                     {
                       cat.features.filter(
-                        (f) => featureSettings[f.key]?.enabled,
+                        (f) => WIRED_FEATURES.has(f.key) && isEnabled(f.key),
                       ).length
                     }
                     /{cat.features.length}
@@ -191,16 +223,29 @@ export default function AdvancedTab() {
                       className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.02]"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm">{feature.label}</div>
+                        <div className="text-sm flex items-center gap-2">
+                          {feature.label}
+                          {!WIRED_FEATURES.has(feature.key) && (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-cv-subtext">
+                              Planned
+                            </span>
+                          )}
+                        </div>
                         {feature.description && (
                           <div className="text-[10px] text-cv-subtext">
                             {feature.description}
                           </div>
                         )}
                       </div>
-                      <div
-                        className={`cv-toggle ${featureSettings[feature.key]?.enabled ? "active" : ""}`}
-                        onClick={() => handleToggle(feature.key)}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={WIRED_FEATURES.has(feature.key) && isEnabled(feature.key)}
+                        aria-label={feature.label}
+                        disabled={!WIRED_FEATURES.has(feature.key)}
+                        title={WIRED_FEATURES.has(feature.key) ? undefined : "Not available yet"}
+                        className={`cv-toggle ${WIRED_FEATURES.has(feature.key) && isEnabled(feature.key) ? "active" : ""} disabled:opacity-40 disabled:cursor-not-allowed`}
+                        onClick={() => void handleToggle(feature.key)}
                       />
                     </div>
                   ))}
@@ -263,11 +308,20 @@ export default function AdvancedTab() {
             {requestQueue.length > 0 && (
               <div className="glass-panel-2 rounded-lg max-h-48 overflow-y-auto divide-y divide-white/5">
                 {requestQueue.map((req) => (
-                  <div key={req.id} className="px-3 py-2 text-xs">
-                    <div className="font-semibold">{req.title}</div>
-                    <div className="text-cv-subtext">
-                      {req.type} - {req.status} - {req.requester || "Anonymous"}
+                  <div key={req.id} className="px-3 py-2 text-xs flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold truncate">{req.title}</div>
+                      <div className="text-cv-subtext">
+                        {req.type} - {req.status} - {req.requester || "Anonymous"}
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => saveRequests(requestQueue.filter((r) => r.id !== req.id))}
+                      className="cv-btn cv-btn-secondary shrink-0 px-2 py-0.5 text-[10px]"
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
               </div>
@@ -287,7 +341,7 @@ export default function AdvancedTab() {
                 {
                   name: "MS-C Requests",
                   desc: "MS-C request management",
-                  url: "https://github.com/Fallenbagel/MS-C Requests",
+                  url: "https://github.com/Fallenbagel/jellyseerr",
                 },
               ].map((int) => (
                 <div

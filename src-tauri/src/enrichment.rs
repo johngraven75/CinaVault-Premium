@@ -103,6 +103,9 @@ pub struct LibraryEnrichmentReport {
     pub sidecars_written: usize,
     pub provider_errors: Vec<String>,
     pub samples: Vec<EnrichmentItemSummary>,
+    /// "PAYWALL:adult_metadata" when adult providers were left out of the run
+    /// because CinaVault Plus is not active; null otherwise.
+    pub adult_providers_skipped: Option<String>,
 }
 
 pub(crate) fn has_adult_hint(text: &str) -> bool {
@@ -334,7 +337,7 @@ pub async fn run_library_enrichment(
         EnrichmentMode::MetadataOnly
     };
 
-    let (items, provider_keys) = {
+    let (items, provider_keys, adult_providers_skipped) = {
         let db = state.db.lock().map_err(|err| err.to_string())?;
         let mut stmt = db
             .conn
@@ -381,8 +384,8 @@ pub async fn run_library_enrichment(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|err| err.to_string())?;
 
-        let provider_keys = load_provider_keys(&db)?;
-        (items, provider_keys)
+        let (provider_keys, adult_providers_skipped) = load_enrichment_provider_keys(&db)?;
+        (items, provider_keys, adult_providers_skipped)
     };
 
     let mut report = LibraryEnrichmentReport {
@@ -405,6 +408,7 @@ pub async fn run_library_enrichment(
         sidecars_written: 0,
         provider_errors: Vec::new(),
         samples: Vec::new(),
+        adult_providers_skipped,
     };
     let mut progress = task_progress::MetadataTaskGuard::start(
         "library_enrichment",
@@ -630,6 +634,17 @@ struct MetadataUpdate {
     imdb_id: Option<String>,
     media_type: Option<String>,
     changed_fields: usize,
+}
+
+/// Provider keys for the bulk enrichment run. Without CinaVault Plus the adult
+/// providers are removed (non-adult enrichment keeps running) and the skip
+/// marker is returned for the report.
+fn load_enrichment_provider_keys(
+    db: &crate::db::Database,
+) -> Result<(HashMap<String, String>, Option<String>), String> {
+    let mut keys = load_provider_keys(db)?;
+    let skipped = crate::entitlements::strip_adult_provider_keys(db, &mut keys);
+    Ok((keys, skipped))
 }
 
 fn load_provider_keys(db: &crate::db::Database) -> Result<HashMap<String, String>, String> {
@@ -1589,6 +1604,7 @@ pub async fn gather_adult_metadata(
     state: State<'_, AppState>,
 ) -> Result<AdultMetadataReport, String> {
     crate::edition::ensure_adult_allowed()?;
+    crate::entitlements::ensure_feature_state(state.inner(), crate::entitlements::Feature::AdultMetadata)?;
     let (items, provider_keys) = {
         let db = state.db.lock().map_err(|err| err.to_string())?;
         let mut stmt = db
@@ -1793,6 +1809,47 @@ mod tests {
             source_name: source_name.map(str::to_string),
             source_path: None,
         }
+    }
+
+    #[test]
+    fn bulk_enrichment_skips_adult_providers_without_plus() {
+        let path = std::env::temp_dir().join(format!(
+            "cinavault-enrich-paywall-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let db = crate::db::Database::new(path.to_str().unwrap()).unwrap();
+        for (provider, key) in [("tpdb", "tpdb-key"), ("stashdb", "stash-key"), ("tmdb", "tmdb-key")] {
+            db.conn
+                .execute(
+                    "INSERT INTO api_keys (provider, api_key) VALUES (?1, ?2)",
+                    rusqlite::params![provider, key],
+                )
+                .unwrap();
+        }
+
+        // Fresh install (free plan, trial not started): adult providers are skipped.
+        let (keys, skipped) = super::load_enrichment_provider_keys(&db).unwrap();
+        assert_eq!(skipped.as_deref(), Some("PAYWALL:adult_metadata"));
+        assert!(!keys.contains_key("tpdb") && !keys.contains_key("stashdb"));
+
+        // While an opted-in trial runs, adult providers stay.
+        db.set_setting_data("entitlements_trial_started_at", &chrono::Utc::now().to_rfc3339())
+            .unwrap();
+        let (keys, skipped) = super::load_enrichment_provider_keys(&db).unwrap();
+        assert_eq!(skipped, None);
+        assert!(keys.contains_key("tpdb") && keys.contains_key("stashdb"));
+
+        // Trial long over and no license: adult providers are dropped, the run
+        // still has its non-adult providers, and the skip is reported.
+        db.set_setting_data("entitlements_trial_started_at", "2000-01-01T00:00:00Z")
+            .unwrap();
+        let (keys, skipped) = super::load_enrichment_provider_keys(&db).unwrap();
+        assert_eq!(skipped.as_deref(), Some("PAYWALL:adult_metadata"));
+        assert!(!keys.contains_key("tpdb"));
+        assert!(!keys.contains_key("stashdb"));
+        assert_eq!(keys.get("tmdb").map(String::as_str), Some("tmdb-key"));
+        drop(db);
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

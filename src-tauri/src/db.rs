@@ -1912,6 +1912,9 @@ pub fn add_source(
         return Err(crate::edition::STORE_SAFE_REFUSAL.into());
     }
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    if crate::entitlements::is_external_source(&source_type, &path) {
+        crate::entitlements::ensure_feature(&db, crate::entitlements::Feature::ExternalLibraries)?;
+    }
     let source = MediaSource {
         id: None,
         path,

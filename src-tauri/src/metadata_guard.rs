@@ -284,7 +284,7 @@ pub async fn search_metadata(provider: String, query: String, media_type: Option
 #[tauri::command]
 pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> Result<serde_json::Value, String> {
     let started = Instant::now();
-    let (item, keys) = {
+    let (item, keys, adult_skipped) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let item = db.conn.query_row("SELECT id,title,file_path,media_type,overview,poster_path,year,rating,genre,tmdb_id,imdb_id FROM media_items WHERE id=?1", params![id], |row| Ok(ItemRecord { id: row.get(0)?, title: row.get(1)?, file_path: row.get(2)?, media_type: row.get(3)?, overview: row.get(4)?, poster_path: row.get(5)?, year: row.get(6)?, rating: row.get(7)?, genre: row.get(8)?, tmdb_id: row.get(9)?, imdb_id: row.get(10)? })).map_err(|e| e.to_string())?;
         let mut stmt = db.conn.prepare("SELECT provider,api_key FROM api_keys").map_err(|e| e.to_string())?;
@@ -296,7 +296,9 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
                 keys.insert(normalize_provider_key(&provider), key);
             }
         }
-        (item, keys)
+        // Without CinaVault Plus, adult providers are skipped (not an error).
+        let adult_skipped = crate::entitlements::strip_adult_provider_keys(&db, &mut keys);
+        (item, keys, adult_skipped)
     };
 
     let adult = is_adult(&item);
@@ -346,7 +348,7 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
     }
 
     let updated = UpdatedItem { id: item.id, title: update.title.clone().unwrap_or(item.title), file_path: item.file_path, media_type: update.media_type.clone().unwrap_or(item.media_type), overview: update.overview.clone().or(item.overview), poster_path: update.poster_path.clone().or(item.poster_path), year: update.year.or(item.year), rating: update.rating.or(item.rating), genre: update.genre.clone().or(item.genre), tmdb_id: update.tmdb_id.clone().or(item.tmdb_id), imdb_id: update.imdb_id.clone().or(item.imdb_id) };
-    Ok(serde_json::json!({ "type": "single_item_metadata_check", "status": if count > 0 { "success" } else if matches.is_empty() { "no_match" } else { "no_changes" }, "item_id": id, "metadata_updated": count > 0, "metadata_fields_updated": count, "providers_matched": providers, "provider_errors": errors, "elapsed_ms": started.elapsed().as_millis(), "message": if count > 0 { format!("Metadata and artwork updated from {} matching provider(s)", matches.len()) } else { "Metadata check completed without new fields".to_string() }, "updated_item": updated }))
+    Ok(serde_json::json!({ "type": "single_item_metadata_check", "status": if count > 0 { "success" } else if matches.is_empty() { "no_match" } else { "no_changes" }, "item_id": id, "metadata_updated": count > 0, "metadata_fields_updated": count, "providers_matched": providers, "provider_errors": errors, "elapsed_ms": started.elapsed().as_millis(), "adult_providers_skipped": if adult { adult_skipped } else { None }, "message": if count > 0 { format!("Metadata and artwork updated from {} matching provider(s)", matches.len()) } else { "Metadata check completed without new fields".to_string() }, "updated_item": updated }))
 }
 
 #[tauri::command]

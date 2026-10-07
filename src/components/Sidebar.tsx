@@ -21,6 +21,7 @@ import {
   Sliders,
   Sparkles,
   Tv,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -145,6 +146,14 @@ const NAV_ITEMS: NavItem[] = [
     zone: "Intelligence",
     detail: "Experience control",
     accent: "from-slate-200/24 to-cyan-500/10",
+  },
+  {
+    id: "account",
+    label: "Account & Plan",
+    icon: UserCog,
+    zone: "Intelligence",
+    detail: "Plan, license & admin",
+    accent: "from-amber-300/30 to-fuchsia-500/10",
   },
 ];
 

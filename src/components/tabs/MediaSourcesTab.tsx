@@ -6,6 +6,8 @@ import { useAppStore, type LibraryEnrichmentResult } from "../../store/appStore"
 import { ExternalLink, File, FolderOpen, HardDrive, Link, Plus, RefreshCw, Scan, Sparkles, Trash2 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
 import { IS_STORE_SAFE } from "../../config/edition";
+import { paywallAwareErrorMessage } from "../../services/entitlements";
+import { adultProvidersSkippedNote } from "../../services/firstRunSetup";
 
 type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; errors?: string[] };
 type SourceLike = { id?: number; path: string; source_type: string; name: string; enabled: boolean; last_scanned?: string; item_count: number };
@@ -30,7 +32,30 @@ function sourceIcon(sourceType: string) {
 }
 
 export default function MediaSourcesTab() {
-  const { sources, setSources, scanning, setScanning, scanProgress, addStatusMessage, settings, setSetting, scheduledTasks } = useAppStore();
+  const { sources, setSources, scanning, setScanning, scanProgress, setScanProgress, addStatusMessage, settings, setSetting, scheduledTasks } = useAppStore();
+  const [cancelling, setCancelling] = useState(false);
+
+  // The scanner publishes its file counters through get_scan_progress; poll
+  // them while a scan runs so the progress bar shows real numbers.
+  useEffect(() => {
+    if (!scanning) { setCancelling(false); return; }
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const progress = await invoke<{ scanning: boolean; total: number; current: number }>("get_scan_progress");
+        if (!stopped) setScanProgress({ total: safeNumber(progress.total), current: safeNumber(progress.current) });
+      } catch { /* progress is best-effort; the scan itself reports errors */ }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 500);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [scanning, setScanProgress]);
+
+  const cancelScan = async () => {
+    setCancelling(true);
+    try { await invoke("cancel_scan"); addStatusMessage("Cancelling scan after the current file..."); }
+    catch (error) { setCancelling(false); addStatusMessage(`Could not cancel the scan: ${error}`); }
+  };
   const [newSourcePath, setNewSourcePath] = useState("");
   const [newSourceName, setNewSourceName] = useState("");
   const [newSourceType, setNewSourceType] = useState("folder");
@@ -72,7 +97,7 @@ export default function MediaSourcesTab() {
     if (!shouldPullMetadataAfterScan(result)) { addStatusMessage("Metadata pull skipped: automatic metadata after scan is disabled or no media was found"); return; }
     addStatusMessage("AI is identifying media and retrieving posters...");
     const enrichment = await invoke<LibraryEnrichmentResult>("run_library_enrichment", { renameFiles: false });
-    addStatusMessage(`AI enrichment complete: ${formatMetadataSummary(enrichment)}`);
+    addStatusMessage(`AI enrichment complete: ${formatMetadataSummary(enrichment)}${adultProvidersSkippedNote(enrichment)}`);
   };
   const finishPipeline = async (result: ScanResult, reason: string) => {
     if (result.errors?.length) addStatusMessage(`Scan warnings: ${result.errors.slice(0, 3).join("; ")}`);
@@ -87,7 +112,7 @@ export default function MediaSourcesTab() {
       addStatusMessage(`Source scan complete: ${safeNumber(result.total_found)} found, ${safeNumber(result.total_added)} added, ${safeNumber(result.total_updated)} refreshed`);
       await finishPipeline(result, "single-source-scan");
       window.dispatchEvent(new Event("cinavault:source-added"));
-    } catch (error) { addStatusMessage(`Source pipeline failed: ${error}`); }
+    } catch (error) { addStatusMessage(`Source pipeline failed: ${paywallAwareErrorMessage(error)}`); }
     finally { setScanning(false); }
   };
   const addSource = async () => {
@@ -99,7 +124,7 @@ export default function MediaSourcesTab() {
       if (!health.readable) throw new Error(health.message);
       const sourceId = await invoke<number>("add_source", { path, sourceType: newSourceType, name });
       setNewSourcePath(""); setNewSourceName(""); addStatusMessage(`Source added: ${name}`); await loadSources(); await runSourcePipeline(sourceId, name);
-    } catch (error) { addStatusMessage(`Failed to add source: ${error}`); }
+    } catch (error) { addStatusMessage(`Failed to add source: ${paywallAwareErrorMessage(error)}`); }
     finally { setAddingSource(false); }
   };
   const removeSource = async (id: number) => {
@@ -155,6 +180,6 @@ export default function MediaSourcesTab() {
     <section className="glass-panel p-5"><h3 className="mb-4 flex items-center gap-2 text-sm font-bold"><Sparkles size={16} className="text-cv-accent" /> AI Library Policy</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-2">{[["library_auto_scan","Pull metadata and posters after scans","Automatically identify new media and refresh visible cards.",true],["prefer_embedded_titles","Prefer embedded titles","Apply container title tags as a separate post-scan pass.",false],["library_partial_scan_on_changes","Rescan changed paths","Use targeted refreshes when source contents change.",true],["library_empty_trash_after_scan","Remove missing records","Clean database entries for files no longer available.",false]].map(([key,label,description,defaultOn]) => <label key={String(key)} className="glass-panel-2 flex items-start justify-between gap-3 rounded-lg p-3"><span><span className="block text-xs font-semibold">{String(label)}</span><span className="mt-1 block text-[10px] text-cv-subtext">{String(description)}</span></span><input type="checkbox" checked={isEnabled(String(key),Boolean(defaultOn))} disabled={savingOption === key} onChange={(e) => void saveLibraryOption(String(key),e.target.checked)} /></label>)}</div></section>
     <section className="glass-panel p-5"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><Link size={16} className="text-cv-accent" /> Web or Playlist Link</h3><div className="flex gap-3"><input value={webLink} onChange={(e) => setWebLink(e.target.value)} placeholder="Paste a media or playlist URL" className="cv-input flex-1" /><button type="button" onClick={() => addStatusMessage(`Download link staged: ${webLink}`)} disabled={!webLink.trim()} className="cv-btn cv-btn-primary shrink-0 disabled:opacity-50"><ExternalLink size={14} /> Send to Downloads</button></div></section>
     <section className="glass-panel overflow-hidden rounded-xl"><div className="flex items-center justify-between border-b border-white/5 px-5 py-3"><h3 className="text-sm font-bold">Configured Sources ({sources.length})</h3><button onClick={() => void loadSources()} className="cv-btn cv-btn-secondary py-1 text-xs"><RefreshCw size={12} /> Refresh</button></div>{sources.length === 0 ? <div className="p-8 text-center"><FolderOpen size={40} className="mx-auto mb-3 text-cv-subtext/20" /><p className="text-sm text-cv-subtext">No real sources are configured. Add a folder or drive above.</p></div> : <div className="divide-y divide-white/5">{sources.map((source,index) => <motion.div key={source.id || `${source.path}-${index}`} initial={{opacity:0,x:-12}} animate={{opacity:1,x:0}} transition={{delay:Math.min(index * .035,.25)}} className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-white/[0.03]"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cv-accent/10">{sourceIcon(source.source_type)}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{source.name}</div><div className="truncate text-xs text-cv-subtext">{source.path}</div></div><div className="shrink-0 text-right text-xs text-cv-subtext"><div>{source.item_count} items</div><div>{source.last_scanned ? new Date(source.last_scanned).toLocaleString() : "Never scanned"}</div></div><span className={`status-dot ${source.enabled ? "online" : "offline"}`} /><button type="button" onClick={() => void exploreSource(source)} className="cv-btn cv-btn-secondary px-2 py-1 text-xs" title={`Explore ${source.name}`}><FolderOpen size={12} /> Explore Source</button><button type="button" onClick={() => source.id && void removeSource(source.id)} className="cv-btn cv-btn-danger px-2 py-1 text-xs" title={`Remove ${source.name}`}><Trash2 size={12} /></button></motion.div>)}</div>}</section>
-    {scanning && <motion.section initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="glass-panel p-4"><div className="mb-2 flex items-center justify-between"><span className="text-sm font-semibold">Scanning external sources and posting local artwork...</span><span className="text-xs text-cv-subtext">{scanProgress.current} / {scanProgress.total}</span></div><div className="h-2 w-full overflow-hidden rounded-full bg-white/10"><motion.div className="h-full rounded-full" style={{background:"linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))"}} animate={{width:scanProgress.total ? `${(scanProgress.current / scanProgress.total) * 100}%` : "15%"}} transition={{duration:.25}} /></div></motion.section>}
+    {scanning && <motion.section initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="glass-panel p-4"><div className="mb-2 flex items-center justify-between"><span className="text-sm font-semibold">Scanning external sources and posting local artwork...</span><div className="flex items-center gap-3"><span className="text-xs text-cv-subtext">{scanProgress.total ? `${scanProgress.current} / ${scanProgress.total} files` : "Counting files..."}</span><button type="button" onClick={() => void cancelScan()} disabled={cancelling} className="cv-btn cv-btn-danger px-2 py-1 text-xs disabled:opacity-50">{cancelling ? "Cancelling..." : "Cancel scan"}</button></div></div><div className="h-2 w-full overflow-hidden rounded-full bg-white/10"><motion.div className="h-full rounded-full" style={{background:"linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))"}} animate={{width:scanProgress.total ? `${(scanProgress.current / scanProgress.total) * 100}%` : "15%"}} transition={{duration:.25}} /></div></motion.section>}
   </div>;
 }

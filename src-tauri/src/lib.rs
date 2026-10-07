@@ -14,6 +14,7 @@ mod downloads;
 mod duplicates;
 mod edition;
 mod embedded_server;
+mod entitlements;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
@@ -21,6 +22,7 @@ mod iptv;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
+mod library_unify;
 mod media_tools;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -40,6 +42,7 @@ mod metadata_guard {
     ));
 }
 mod metadata_keyless;
+mod metadata_paywall;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod metadata_provider_config;
@@ -227,6 +230,11 @@ pub fn run() {
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
             duplicates::quarantine,
+            library_unify::get_unified_library,
+            entitlements::get_entitlements,
+            entitlements::activate_license,
+            entitlements::deactivate_license,
+            entitlements::start_trial,
             iptv::add_xtream_profile,
             iptv::get_xtream_profiles,
             iptv::remove_xtream_profile,
@@ -268,8 +276,8 @@ pub fn run() {
             casting::disconnect_casting_device,
             casting::start_casting,
             casting::update_casting_playback,
-            metadata_ext::fetch_metadata,
-            metadata_ext::search_metadata,
+            metadata_paywall::fetch_metadata,
+            metadata_paywall::search_metadata,
             metadata_enrichment_runtime::check_media_item_metadata,
             metadata_ext::get_provider_status,
             metadata_ext::get_adult_provider_settings,
@@ -407,6 +415,7 @@ async fn convert_entire_library_to_adult(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     edition::ensure_adult_allowed()?;
+    entitlements::ensure_feature_state(state.inner(), entitlements::Feature::AdultMetadata)?;
     let labeling = {
         let mut db = state.db.lock().map_err(|error| error.to_string())?;
         db.mark_current_library_adult()

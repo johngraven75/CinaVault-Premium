@@ -26,8 +26,8 @@
     "scan:preventive": "node scripts/scan-preventive-risks.mjs",
     "verify:preflight": "npm run verify:master-build && npm run verify:contracts && npm run scan:preventive",
     "generate:evidence": "node scripts/generate-master-ci-evidence.mjs",
-    "test": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user",
-    "test:all": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user",
+    "test": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user && npm run test:local-vision && npm run test:library-engine && npm run test:holo-ui",
+    "test:all": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user && npm run test:local-vision && npm run test:library-engine && npm run test:holo-ui",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
     "test:governance": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs",
     "test:build169": "node --test tests/carryForwardVerification.test.mjs",
@@ -37,9 +37,15 @@
     "test:platform-parity": "node --test tests/platformParityContract.test.mjs",
     "test:hls": "node --test tests/hlsStreamSupport.test.mjs",
     "test:remote-user": "node --loader ./tests/typescript-loader.mjs --test tests/remoteAccessAccountForm.test.mjs",
-    "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml --locked live_metadata_poster_acceptance_ -- --ignored --nocapture"
+    "test:metadata-live": "cargo test --manifest-path src-tauri/Cargo.toml --locked live_metadata_poster_acceptance_ -- --ignored --nocapture",
+    "fetch:ai-models": "node scripts/fetch-ai-models.mjs",
+    "check:ai-models": "node scripts/fetch-ai-models.mjs --check",
+    "test:local-vision": "node --loader ./tests/typescript-loader.mjs --test tests/localVision.test.mjs tests/aiPosterAutopilot.test.mjs",
+    "test:holo-ui": "node --loader ./tests/typescript-loader.mjs --test tests/holoUi.test.mjs",
+    "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/entitlementsUi.test.mjs tests/firstRunSetup.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs && node --test tests/issueLicense.test.mjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.0",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -47,14 +53,11 @@
     "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "clsx": "2.1.1",
     "esbuild": "0.25.12",
     "framer-motion": "12.43.0",
     "lucide-react": "0.400.0",
-    "mdns-js": "^0.2.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-virtuoso": "4.7.0",
     "zustand": "4.5.0"
   },
   "devDependencies": {

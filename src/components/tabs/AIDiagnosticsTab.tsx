@@ -37,6 +37,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { IS_STORE_SAFE } from "../../config/edition";
+import FeatureGate from "../paywall/FeatureGate";
+import { paywallAwareErrorMessage, paywallShownByGate, useFeatureUnlocked } from "../../services/entitlements";
 
 const DEFAULT_HF_MODEL = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_FREE_MODELS = [
@@ -313,12 +315,16 @@ export default function AIDiagnosticsTab() {
     if (showConfig) void loadAiConfig();
   }, [showConfig, loadAiConfig]);
 
+  const adultMetadataUnlocked = useFeatureUnlocked("adult_metadata");
+
   const loadAdultProviders = useCallback(async () => {
     try {
       const result = await invoke<{ providers: AdultProviderSetting[] }>("get_adult_provider_settings");
       setAdultProviders(result.providers);
     } catch (error) {
-      setAdultProviderNotice(`Could not load adult provider status: ${error}`);
+      // A Plus refusal the FeatureGate already shows needs no extra notice.
+      if (paywallShownByGate(error)) return;
+      setAdultProviderNotice(`Could not load adult provider status: ${paywallAwareErrorMessage(error)}`);
     }
   }, []);
 
@@ -341,7 +347,7 @@ export default function AIDiagnosticsTab() {
       setAdultProviderNotice("Adult provider settings saved. Credentials remain masked.");
       await loadAdultProviders();
     } catch (error) {
-      setAdultProviderNotice(`Could not save adult provider settings: ${error}`);
+      setAdultProviderNotice(`Could not save adult provider settings: ${paywallAwareErrorMessage(error)}`);
     } finally {
       setAdultProviderBusy(null);
     }
@@ -359,7 +365,7 @@ export default function AIDiagnosticsTab() {
       const result = await invoke<{ valid: boolean }>("test_api_key", { provider: provider.key, apiKey: value || "local" });
       setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key}: ${result.valid ? "connection accepted" : "connection was not accepted"}.`);
     } catch (error) {
-      setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key} test failed: ${error}`);
+      setAdultProviderNotice(`${ADULT_PROVIDER_LABELS[provider.key] || provider.key} test failed: ${paywallAwareErrorMessage(error)}`);
     } finally {
       setAdultProviderBusy(null);
     }
@@ -779,9 +785,10 @@ export default function AIDiagnosticsTab() {
       const result = await action.runNow();
       await handleTrackedResult(action.label, action.q, result);
     } catch (e) {
-      addStatusMessage(`${action.label} failed: ${e}`);
+      const failure = paywallAwareErrorMessage(e);
+      addStatusMessage(`${action.label} failed: ${failure}`);
       if (action.progressTask) {
-        showFinishedProgress(action.label, `${action.label} failed: ${e}`);
+        showFinishedProgress(action.label, `${action.label} failed: ${failure}`);
       }
     } finally {
       setAiProcessing(false);
@@ -1114,8 +1121,9 @@ export default function AIDiagnosticsTab() {
                 <h4 className="text-xs font-bold">Adult metadata providers</h4>
                 <p className="mt-1 text-[10px] text-cv-subtext">Only adult providers are used by Adult Metadata Gather. Saved credentials are never shown here.</p>
               </div>
-              <button type="button" onClick={() => void saveAdultProviders()} disabled={adultProviderBusy !== null} className="cv-btn cv-btn-primary text-xs disabled:opacity-50"><Key size={12} /> {adultProviderBusy === "save" ? "Saving…" : "Save adult providers"}</button>
+              <button type="button" onClick={() => void saveAdultProviders()} disabled={adultProviderBusy !== null || !adultMetadataUnlocked} title={adultMetadataUnlocked ? undefined : "Adult metadata providers are part of CinaVault Plus"} className="cv-btn cv-btn-primary text-xs disabled:opacity-50"><Key size={12} /> {adultProviderBusy === "save" ? "Saving…" : "Save adult providers"}</button>
             </div>
+            <FeatureGate feature="adult_metadata" variant="compact">
             <div className="mt-3 grid gap-3">
               {adultProviders.map((provider) => {
                 const label = ADULT_PROVIDER_LABELS[provider.key] || provider.key;
@@ -1131,6 +1139,7 @@ export default function AIDiagnosticsTab() {
                 </div>;
               })}
             </div>
+            </FeatureGate>
             {adultProviderNotice && <p role="status" className="mt-3 text-[10px] text-cv-subtext">{adultProviderNotice}</p>}
           </div>}
         </motion.div>

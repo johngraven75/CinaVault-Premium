@@ -6,14 +6,16 @@ use crate::shared_contracts::{
     MetadataProviderRegistryInterface,
 };
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path as FilePath, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -615,6 +617,89 @@ async fn stream_media(
     Ok(response)
 }
 
+/// True for addresses on this machine or the local network: loopback,
+/// RFC 1918 private ranges, link-local, and IPv6 unique-local. Everything
+/// else (including carrier-grade NAT 100.64/10) is "another network".
+pub(crate) fn is_private_peer(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_private_peer(IpAddr::V4(v4));
+            }
+            let first = v6.segments()[0];
+            v6.is_loopback()
+                || (first & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                || (first & 0xffc0) == 0xfe80 // fe80::/10 link local
+        }
+    }
+}
+
+/// The client address a request came from. A loopback peer that carries a
+/// relay header (the Cloudflare tunnel connects from localhost) is judged by
+/// the forwarded client address instead.
+fn effective_client_ip(peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+    if !peer.is_loopback() {
+        return peer;
+    }
+    let forwarded = headers
+        .get("cf-connecting-ip")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| {
+            headers
+                .get("x-forwarded-for")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(',').next())
+                .map(str::to_string)
+        });
+    forwarded
+        .and_then(|value| value.trim().parse::<IpAddr>().ok())
+        .unwrap_or(peer)
+}
+
+/// Requests from outside the local network need CinaVault Plus (remote_access).
+/// LAN and loopback clients are always served. `/health` stays open so clients
+/// can tell the server is up.
+async fn remote_access_gate(
+    State(state): State<Arc<HttpState>>,
+    request: Request,
+    next: Next,
+) -> Response<Body> {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip());
+    let is_remote = peer
+        .map(|peer| !is_private_peer(effective_client_ip(peer, request.headers())))
+        .unwrap_or(false);
+    if !is_remote || request.uri().path() == "/health" {
+        return next.run(request).await;
+    }
+    let database_path = state.database_path.clone();
+    let verdict = tokio::task::spawn_blocking(move || {
+        let database = Database::new(&database_path)
+            .map_err(|error| format!("Database unavailable: {error}"))?;
+        crate::entitlements::ensure_feature(&database, crate::entitlements::Feature::RemoteAccess)
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("Entitlement check failed: {error}")));
+    match verdict {
+        Ok(()) => next.run(request).await,
+        Err(message) => {
+            let status = if message.starts_with("PAYWALL:") {
+                StatusCode::PAYMENT_REQUIRED
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            };
+            let mut response =
+                (status, Json(serde_json::json!({ "error": message }))).into_response();
+            hardened_response_headers(&mut response);
+            response
+        }
+    }
+}
+
 pub(crate) fn router(database_path: String) -> Router {
     let state = Arc::new(HttpState {
         database_path,
@@ -632,6 +717,10 @@ pub(crate) fn router(database_path: String) -> Router {
         .route("/api/artwork/{media_key}", get(artwork_media))
         .route("/api/artwork/{media_key}/{kind}", get(artwork_media_kind))
         .route("/api/stream/{media_key}", get(stream_media))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&state),
+            remote_access_gate,
+        ))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -640,6 +729,62 @@ pub(crate) fn router(database_path: String) -> Router {
         )
         .with_state(state)
 }
+#[cfg(test)]
+mod peer_tests {
+    use super::*;
+
+    fn ip(value: &str) -> IpAddr {
+        value.parse().unwrap()
+    }
+
+    #[test]
+    fn private_peer_classifier() {
+        for private in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.1.20",
+            "169.254.10.10",
+            "::1",
+            "fd12:3456::1",
+            "fe80::1",
+            "::ffff:192.168.0.5",
+        ] {
+            assert!(is_private_peer(ip(private)), "{private} should be private");
+        }
+        for public in [
+            "8.8.8.8",
+            "172.32.0.1",
+            "100.64.0.1",
+            "203.0.113.9",
+            "2001:4860:4860::8888",
+            "::ffff:8.8.8.8",
+        ] {
+            assert!(!is_private_peer(ip(public)), "{public} should be remote");
+        }
+    }
+
+    #[test]
+    fn tunnel_header_marks_loopback_peer_as_remote() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(
+            effective_client_ip(ip("127.0.0.1"), &headers),
+            ip("127.0.0.1")
+        );
+        headers.insert("cf-connecting-ip", HeaderValue::from_static("8.8.4.4"));
+        assert_eq!(
+            effective_client_ip(ip("127.0.0.1"), &headers),
+            ip("8.8.4.4")
+        );
+        // A LAN peer cannot claim another address.
+        assert_eq!(
+            effective_client_ip(ip("192.168.1.2"), &headers),
+            ip("192.168.1.2")
+        );
+    }
+}
+
 #[cfg(test)]
 mod integration_tests {
     use super::*;

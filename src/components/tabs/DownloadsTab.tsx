@@ -15,6 +15,8 @@ import {
   XCircle,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import FeatureGate from "../paywall/FeatureGate";
+import { paywallAwareErrorMessage } from "../../services/entitlements";
 
 type ToolRecord = {
   id?: string;
@@ -114,7 +116,9 @@ export default function DownloadsTab() {
         ...prev,
       ]);
     } catch (error) {
-      addStatusMessage(`${isHls ? "HLS download" : "Download"} failed: ${error}`);
+      addStatusMessage(
+        `${isHls ? "HLS download" : "Download"} failed: ${paywallAwareErrorMessage(error)}`,
+      );
     } finally {
       setDownloading(false);
       setUrl("");
@@ -300,6 +304,8 @@ export default function DownloadsTab() {
         </div>
       </div>
 
+      <FeatureGate feature="downloads" title="Web, URL & HLS downloads">
+      <div className="space-y-5">
       <div className="glass-panel p-5">
         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
           <Download size={16} className="text-cv-accent" /> Web / URL Download
@@ -429,6 +435,8 @@ export default function DownloadsTab() {
           </div>
         )}
       </div>
+      </div>
+      </FeatureGate>
     </div>
   );
 }

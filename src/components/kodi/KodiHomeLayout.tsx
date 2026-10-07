@@ -29,6 +29,8 @@ import {
 import { useAppStore, type MediaItem } from "../../store/appStore";
 import "../../styles/kodi-skin.css";
 import { IS_STORE_SAFE } from "../../config/edition";
+import { loadUnifiedLibrary } from "../../services/unifiedLibrary";
+import { CopiesList, CopyCountBadge } from "../library/UnifiedCopies";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -253,6 +255,10 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
       <div className="kodi-poster-overlay" />
 
       {/* Badges */}
+      <CopyCountBadge
+        item={item}
+        className="absolute left-2 top-2 z-[3]"
+      />
       <div className="kodi-card-badges">
         {item.verified && (
           <span className="kodi-badge kodi-badge-verified">
@@ -438,6 +444,11 @@ function KodiDetailPanel({
 
       {item.overview && <p className="kodi-detail-overview">{item.overview}</p>}
 
+      <CopiesList
+        item={item}
+        onPlayCopy={(copy) => onPlay({ ...item, file_path: copy.file_path })}
+      />
+
       <div>
         {item.genre && (
           <div className="kodi-detail-row">
@@ -534,12 +545,15 @@ export default function KodiHomeLayout(): JSX.Element {
   // Load library
   useEffect(() => {
     setLoading(true);
-    invoke<MediaItem[]>("get_media_items", {
-      mediaType: "all",
-      limit: 500,
-      offset: 0,
-    })
-      .then((items) => setMediaItems(items))
+    // Unified library (one card per work); legacy page request as fallback.
+    loadUnifiedLibrary(undefined, () =>
+      invoke<MediaItem[]>("get_media_items", {
+        mediaType: "all",
+        limit: 500,
+        offset: 0,
+      }),
+    )
+      .then((result) => setMediaItems(result.items))
       .catch((err) => addStatusMessage(`Library load error: ${err}`))
       .finally(() => setLoading(false));
   }, [setMediaItems, addStatusMessage]);

@@ -1,6 +1,9 @@
 use std::{env, fs, path::PathBuf};
 
 fn main() {
+    // entitlements.rs reads these with option_env!; rebuild when they change.
+    println!("cargo:rerun-if-env-changed=CINAVAULT_LICENSE_PUBLIC_KEY");
+    println!("cargo:rerun-if-env-changed=CINAVAULT_CHECKOUT_URL");
     write_legacy_metadata_without_command_attrs();
     write_metadata_ext_without_repaired_command_attrs();
     write_metadata_guard_without_command_attrs();
@@ -84,7 +87,13 @@ fn write_metadata_ext_without_repaired_command_attrs() {
     let source = normalized_source(&source_path);
     let sanitized = strip_expected_commands(
         source,
-        &["check_media_item_metadata"],
+        // fetch_metadata / search_metadata are exposed through the paywall
+        // wrappers in metadata_paywall.rs.
+        &[
+            "check_media_item_metadata",
+            "fetch_metadata",
+            "search_metadata",
+        ],
         "metadata extension repaired wrapper",
     );
     fs::write(out_path, sanitized).expect("failed to write sanitized metadata extension module");

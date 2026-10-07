@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 import {
+  IS_STORE_SAFE,
   filterStoreSafeMedia,
   filterStoreSafeProviders,
   filterStoreSafeSources,
@@ -9,6 +10,7 @@ import {
 
 export type TabId =
   | "home"
+  | "account"
   | "sources"
   | "downloads"
   | "livetv"
@@ -25,6 +27,7 @@ export type TabId =
 
 const VALID_TAB_IDS: readonly TabId[] = [
   "home",
+  "account",
   "sources",
   "downloads",
   "livetv",
@@ -68,6 +71,21 @@ export interface MediaItem {
   imdb_id?: string;
   source_id?: number;
   nfo_path?: string;
+  /** Unified library: identity of the work this card represents. */
+  work_key?: string;
+  /** Unified library: number of files (copies) of this work across all sources. */
+  copy_count?: number;
+  /** Unified library: every file of this work, best copy first. */
+  copies?: MediaCopyInfo[];
+}
+
+/** One physical file of a work in the unified library (get_unified_library). */
+export interface MediaCopyInfo {
+  id: number;
+  file_path: string;
+  source_id: number | null;
+  file_size: number | null;
+  resolution: string | null;
 }
 
 export interface MediaSource {
@@ -118,6 +136,8 @@ export interface LibraryEnrichmentResult {
   posters_downloaded?: number;
   sidecars_written?: number;
   provider_errors: string[];
+  /** Set (a "PAYWALL:adult_metadata" marker) when adult providers were left out for lack of Plus. */
+  adult_providers_skipped?: string | null;
 }
 
 // ── Cloud Service State ──
@@ -264,23 +284,29 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
     category: "Artwork",
     enabled: true,
   },
-  // Adult
-  { id: "pgma", name: "PGMA Modernized", category: "Adult", enabled: true },
-  {
-    id: "porn_site_nuxt",
-    name: "Porn Site Nuxt",
-    category: "Adult",
-    enabled: true,
-  },
-  { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: true },
-  { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
-  {
-    id: "phoenixadult",
-    name: "PhoenixAdult",
-    category: "Adult",
-    enabled: true,
-  },
-  { id: "iafd", name: "IAFD", category: "Adult", enabled: true },
+  // Adult — compiled out of the store-safe (MS-v1) bundle entirely, so the
+  // provider names never ship in that edition (filterStoreSafeProviders
+  // still guards restored state at runtime).
+  ...(IS_STORE_SAFE
+    ? []
+    : [
+        { id: "pgma", name: "PGMA Modernized", category: "Adult", enabled: true },
+        {
+          id: "porn_site_nuxt",
+          name: "Porn Site Nuxt",
+          category: "Adult",
+          enabled: true,
+        },
+        { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: true },
+        { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
+        {
+          id: "phoenixadult",
+          name: "PhoenixAdult",
+          category: "Adult",
+          enabled: true,
+        },
+        { id: "iafd", name: "IAFD", category: "Adult", enabled: true },
+      ]),
   // Subtitles
   {
     id: "opensubtitles",
@@ -335,6 +361,7 @@ const DEFAULT_FEATURE_SETTINGS: Record<
   motion_effects: { enabled: true, config: {} },
   splash_screen: { enabled: true, config: {} },
   particle_effects: { enabled: true, config: {} },
+  particle_bg: { enabled: true, config: {} },
   ai_visualizer: { enabled: true, config: {} },
   glassmorphism: { enabled: true, config: {} },
   starfield_header: { enabled: true, config: {} },

@@ -108,6 +108,9 @@ export default function MeteorShower({
     let height = 1;
     let frame = 0;
     let animId = 0;
+    // Under prefers-reduced-motion draw one still frame instead of looping.
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     let stars = makeStars(180);
     let comets: Comet[] = [];
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
@@ -123,7 +126,11 @@ export default function MeteorShower({
       comets = makeComets(meteorCount, width, height);
     };
 
-    const observer = new ResizeObserver(resize);
+    // Resizing clears the canvas, so a still (reduced-motion) frame is redrawn.
+    const observer = new ResizeObserver(() => {
+      resize();
+      if (reduceMotion) draw();
+    });
     observer.observe(canvas);
     resize();
 
@@ -356,7 +363,7 @@ export default function MeteorShower({
       drawSky();
       for (const comet of comets) drawComet(comet);
       drawAtmosphere();
-      animId = requestAnimationFrame(draw);
+      if (!reduceMotion) animId = requestAnimationFrame(draw);
     };
 
     draw();

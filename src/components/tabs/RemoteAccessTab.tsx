@@ -37,6 +37,12 @@ import {
   Wifi,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import FeatureGate from "../paywall/FeatureGate";
+import {
+  parsePaywallError,
+  paywallShownByGate,
+  paywallAwareErrorMessage,
+} from "../../services/entitlements";
 
 type SecureMode = "required" | "preferred" | "disabled";
 
@@ -73,6 +79,7 @@ type RemotePrincipal = {
 };
 
 function remoteAccessErrorMessage(error: unknown) {
+  if (parsePaywallError(error)) return paywallAwareErrorMessage(error);
   if (typeof error === "string" && error.trim()) return error;
   if (error instanceof Error && error.message.trim()) return error.message;
   return "The remote-user request could not be completed.";
@@ -198,6 +205,8 @@ export default function RemoteAccessTab() {
       );
       setConnectivity(status);
     } catch (error) {
+      // Background poll: a Plus refusal the gate already shows isn't repeated every 5 s.
+      if (paywallShownByGate(error)) return;
       addStatusMessage(`Remote connectivity status unavailable: ${error}`);
     }
   };
@@ -242,7 +251,9 @@ export default function RemoteAccessTab() {
         );
       }
     } catch (error) {
-      addStatusMessage(`Remote access test failed: ${error}`);
+      addStatusMessage(
+        `Remote access test failed: ${paywallAwareErrorMessage(error)}`,
+      );
     } finally {
       setTesting(false);
     }
@@ -422,6 +433,7 @@ export default function RemoteAccessTab() {
   return (
     <div className="space-y-5">
       <TabBanner icon={Router} eyebrow="Anywhere Access" title="Remote Orbit" subtitle="Automatic NAT traversal, encrypted cloud relay, account sessions, and remote client reachability." accent="from-cyan-300/30 to-violet-500/10" accentText="text-cyan-100" />
+      <FeatureGate feature="remote_access" title="Remote access from outside your network">
       <div className="glass-panel p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
@@ -643,7 +655,10 @@ export default function RemoteAccessTab() {
           </div>
         </div>
       </div>
+      </FeatureGate>
 
+      {/* Accounts also sign in home-network clients, which stay free; the
+          embedded server refuses off-network requests (402) without Plus. */}
       <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-5">
         <div className="glass-panel p-5">
           <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
@@ -954,6 +969,7 @@ export default function RemoteAccessTab() {
         </div>
       </div>
 
+      <FeatureGate feature="remote_access" title="Remote streaming security & limits" variant="compact">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="glass-panel p-5">
           <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
@@ -1020,6 +1036,7 @@ export default function RemoteAccessTab() {
           </div>
         </div>
       </div>
+      </FeatureGate>
 
       <motion.div
         initial={{ opacity: 0, y: 10 }}

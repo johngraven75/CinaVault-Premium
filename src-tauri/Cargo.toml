@@ -37,12 +37,10 @@ tower-http = { version = "0.6", features = ["cors"] }
 reqwest = { version = "0.12", features = ["json", "stream", "blocking", "rustls-tls", "cookies"] }
 igd-next = "0.17.1"
 natpmp = { version = "0.5", features = ["tokio"] }
-zip = "8"
 walkdir = "2"
 sha2 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
-glob = "0.3"
 regex = "1"
 percent-encoding = "2"
 dirs = "6"
@@ -53,6 +51,8 @@ log = "0.4"
 base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 rust_cast = "0.21"
+# Offline license-token verification for CinaVault Plus (entitlements.rs).
+ed25519-dalek = "3"
 
 # Backport RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g without a breaking GTK-rs upgrade.
 [patch.crates-io]

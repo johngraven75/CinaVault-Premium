@@ -61,10 +61,20 @@ jobs:
       - name: Master release authorization gate
         run: npm run verify:master-release
 
+      - name: Bundle local AI vision model
+        # CLIP weights ship inside the installer so poster/film identification
+        # works at first launch with no download or token (docs/LOCAL_AI.md).
+        run: npm run fetch:ai-models
+
       - name: Build frontend
         run: npm run build
 
       - name: Build Windows Installers
+        # Public (non-secret) licensing config, baked in via option_env! in
+        # src-tauri/src/entitlements.rs. Unset => licenses fail closed; the opt-in trial still works.
+        env:
+          CINAVAULT_LICENSE_PUBLIC_KEY: ${{ vars.CINAVAULT_LICENSE_PUBLIC_KEY }}
+          CINAVAULT_CHECKOUT_URL: ${{ vars.CINAVAULT_CHECKOUT_URL }}
         run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
       - name: Stage Installers and Generate Checksums

@@ -241,3 +241,11 @@ CinaVault Premium*/
 New folder/
 *.spk
 *.rej
+
+# --- Local AI vision assets (fetched by `npm run fetch:ai-models`, bundled at build) ---
+public/models/
+*.onnx.part
+
+# Metadata sidecars CinaVault writes when a library scan reaches this checkout
+src/**/*.cinavault.json
+src/*.cinavault.json
