@@ -97,7 +97,8 @@ jobs:
           ( npm run test:remote-user \
             && npm run test:local-vision \
             && npm run test:library-engine \
-            && npm run test:holo-ui ) 2>&1 | tee feature-tests.log
+            && npm run test:holo-ui \
+            && npm run test:code-signing ) 2>&1 | tee feature-tests.log
 
       - name: Production frontend build
         id: frontend
