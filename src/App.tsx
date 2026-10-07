@@ -3,7 +3,7 @@ import "./styles/poster-card-standard.css";
 import "./styles/media-row-poster-final-fix.css";
 import "./styles/media-card-hard-fix.css";
 import "./styles/media-card-final-standard.css";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -30,6 +30,8 @@ import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import FirstRunSetup from "./components/setup/FirstRunSetup";
+// The agent (WebGL head + chat) loads only when it is switched on.
+const HoloAgent = lazy(() => import("./components/agent/HoloAgent"));
 import { StatusBeacon } from "./components/holo/CinematicLoaders";
 import { pluginEngine } from "./data/pluginAdapter";
 import {
@@ -549,6 +551,11 @@ export default function App(): JSX.Element {
       </motion.div>
 
       <FirstRunSetup />
+      {featureSettings.holo_agent?.enabled !== false && (
+        <Suspense fallback={null}>
+          <HoloAgent />
+        </Suspense>
+      )}
     </div>
     </MotionConfig>
   );

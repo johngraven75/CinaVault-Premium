@@ -18,8 +18,8 @@ import DuplicateFinder from "../library/DuplicateFinder";
 // Switches that change real behaviour today. Every other entry in the matrix
 // is a planned feature: it is shown, but its switch stays disabled so the tab
 // never claims to turn on something that does not exist yet.
-export const WIRED_FEATURES = new Set<string>(["particle_bg"]);
-const DEFAULT_ON_FEATURES = new Set<string>(["particle_bg"]);
+export const WIRED_FEATURES = new Set<string>(["particle_bg", "holo_agent"]);
+const DEFAULT_ON_FEATURES = new Set<string>(["particle_bg", "holo_agent"]);
 const REQUESTS_SETTING_KEY = "media_request_queue";
 
 interface FeatureCategory {
@@ -49,6 +49,7 @@ const FEATURE_MATRIX: FeatureCategory[] = [
     features: [
       { key: "glass_effects", label: "Glassmorphism Effects" },
       { key: "particle_bg", label: "Animated Particle Background" },
+      { key: "holo_agent", label: "Holographic AI Agent" },
       { key: "custom_css", label: "Custom CSS Injection" },
       { key: "compact_mode", label: "Compact View Mode" },
       { key: "poster_hover", label: "Poster Hover Preview" },

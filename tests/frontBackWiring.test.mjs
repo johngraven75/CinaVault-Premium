@@ -57,7 +57,7 @@ test("Advanced tab only enables switches that something reads", () => {
   const wired = advanced.match(/WIRED_FEATURES = new Set<string>\(\[([^\]]*)\]\)/);
   assert.ok(wired, "WIRED_FEATURES not found");
   const keys = [...wired[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(keys, ["particle_bg"]);
+  assert.deepEqual(keys, ["particle_bg", "holo_agent"]);
   assert.match(read("src/components/tabs/HomeTab.tsx"), /featureSettings\.particle_bg\?\.enabled !== false/);
   assert.match(advanced, /disabled=\{!WIRED_FEATURES\.has\(feature\.key\)\}/);
   assert.match(advanced, /invoke\("set_setting", \{ key: REQUESTS_SETTING_KEY/);

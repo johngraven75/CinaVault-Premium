@@ -358,6 +358,7 @@ const DEFAULT_FEATURE_SETTINGS: Record<
   splash_screen: { enabled: true, config: {} },
   particle_effects: { enabled: true, config: {} },
   particle_bg: { enabled: true, config: {} },
+  holo_agent: { enabled: true, config: {} },
   ai_visualizer: { enabled: true, config: {} },
   glassmorphism: { enabled: true, config: {} },
   starfield_header: { enabled: true, config: {} },

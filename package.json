@@ -41,7 +41,7 @@
     "fetch:ai-models": "node scripts/fetch-ai-models.mjs",
     "check:ai-models": "node scripts/fetch-ai-models.mjs --check",
     "test:local-vision": "node --loader ./tests/typescript-loader.mjs --test tests/localVision.test.mjs tests/aiPosterAutopilot.test.mjs",
-    "test:holo-ui": "node --loader ./tests/typescript-loader.mjs --test tests/holoUi.test.mjs",
+    "test:holo-ui": "node --loader ./tests/typescript-loader.mjs --test tests/holoUi.test.mjs tests/holoAgent.test.mjs",
     "test:code-signing": "node --test tests/codeSigning.test.mjs",
     "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/firstRunSetup.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs"
   },

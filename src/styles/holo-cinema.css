@@ -805,3 +805,168 @@
     transition: none;
   }
 }
+
+/* ---- Holographic AI agent (components/agent) ------------------------- */
+
+.holo-agent-orb {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  color: var(--holo-ink);
+  background: radial-gradient(circle at 35% 30%, #e9fdff, var(--holo-cyan) 45%, var(--holo-violet));
+  box-shadow: 0 0 24px rgba(92, 246, 255, 0.55), inset 0 0 12px rgba(255, 255, 255, 0.6);
+  animation: holo-agent-float 4.2s ease-in-out infinite;
+  transition: transform 180ms var(--holo-ease-out), opacity 180ms linear;
+}
+
+.holo-agent-orb:hover {
+  transform: scale(1.08);
+}
+
+.holo-agent-orb.is-thinking {
+  animation: holo-agent-pulse 0.9s ease-in-out infinite;
+}
+
+.holo-agent-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 88px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 120px));
+  padding: 14px;
+  gap: 10px;
+  border: 1px solid var(--holo-glass-edge);
+  background: var(--holo-glass);
+  backdrop-filter: blur(18px);
+}
+
+.holo-agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.holo-agent-stage {
+  position: relative;
+  height: 210px;
+  border-radius: 14px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 95%, rgba(92, 246, 255, 0.28), transparent 60%),
+    linear-gradient(180deg, rgba(4, 5, 12, 0.2), rgba(4, 5, 12, 0.75));
+}
+
+.holo-agent-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.holo-agent-ring {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  width: 150px;
+  height: 26px;
+  margin-left: -75px;
+  border-radius: 50%;
+  border: 1px solid rgba(92, 246, 255, 0.55);
+  box-shadow: 0 0 18px rgba(92, 246, 255, 0.45);
+  animation: holo-agent-ring 3.2s ease-in-out infinite;
+}
+
+.holo-agent-stage.is-error .holo-agent-ring {
+  border-color: rgba(255, 107, 122, 0.7);
+}
+
+.holo-agent-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 80px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.holo-agent-line {
+  max-width: 88%;
+  padding: 7px 10px;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.holo-agent-line.is-agent {
+  align-self: flex-start;
+  color: #dffbff;
+  background: rgba(92, 246, 255, 0.1);
+  border: 1px solid rgba(92, 246, 255, 0.2);
+}
+
+.holo-agent-line.is-user {
+  align-self: flex-end;
+  color: #fff;
+  background: rgba(177, 76, 255, 0.22);
+}
+
+.holo-agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.holo-agent-chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: #c9f6ff;
+  border: 1px solid rgba(92, 246, 255, 0.28);
+  background: rgba(92, 246, 255, 0.06);
+  transition: opacity 150ms linear, transform 150ms var(--holo-ease-out);
+}
+
+.holo-agent-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.holo-agent-chip:disabled {
+  opacity: 0.45;
+}
+
+.holo-agent-form {
+  display: flex;
+  gap: 6px;
+}
+
+@keyframes holo-agent-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes holo-agent-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+@keyframes holo-agent-ring {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.07); opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo-agent-orb,
+  .holo-agent-orb.is-thinking,
+  .holo-agent-ring {
+    animation: none !important;
+  }
+}
