@@ -43,7 +43,7 @@ Thumbs.db
 .idea/
 .cursorignore
 .cursorindexingignore
-.claude/worktrees/
+.claude/
 .clawness/
 
 # ── Python helpers ──
