@@ -127,10 +127,21 @@ fn build_update(item: &MediaItem, matched: KeylessMetadataMatch) -> MetadataUpda
     update
 }
 
+/// The provider search query. With "smart_match" on, release tags, years and
+/// episode markers are stripped by title_clean; off keeps the older reducer.
+fn search_query(item: &MediaItem, smart_match: bool) -> String {
+    if smart_match {
+        crate::title_clean::search_query(&item.title, &item.file_path)
+    } else {
+        metadata_keyless::metadata_query(&item.title, &item.file_path)
+    }
+}
+
 async fn resolve_keyless_update(
     client: &reqwest::Client,
     app_data_dir: &Path,
     item: &MediaItem,
+    smart_match: bool,
 ) -> Result<Option<MetadataUpdate>, String> {
     if !needs_keyless_work(item) {
         return Ok(None);
@@ -138,7 +149,7 @@ async fn resolve_keyless_update(
     let id = item
         .id
         .ok_or_else(|| "Media row has no database id".to_string())?;
-    let query = metadata_keyless::metadata_query(&item.title, &item.file_path);
+    let query = search_query(item, smart_match);
     if query.trim().is_empty() {
         return Ok(None);
     }
@@ -209,21 +220,23 @@ fn load_item(database: &Database, id: i64) -> Result<MediaItem, String> {
 }
 
 async fn run_keyless_prepass(state: &State<'_, AppState>) -> Result<KeylessPrepassReport, String> {
-    let items = {
+    let (items, smart_match) = {
         let database = state.db.lock().map_err(|error| error.to_string())?;
-        database
+        let smart_match = crate::feature_flags::is_enabled(&database, "smart_match");
+        let items = database
             .get_media_items_data(None, None, None)
             .map_err(|error| error.to_string())?
             .into_iter()
             .filter(|item| needs_keyless_work(item) && Path::new(&item.file_path).is_file())
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        (items, smart_match)
     };
 
     let client = metadata_keyless::http_client()?;
     let mut report = KeylessPrepassReport::default();
 
     for item in items {
-        match resolve_keyless_update(&client, &state.app_data_dir, &item).await {
+        match resolve_keyless_update(&client, &state.app_data_dir, &item, smart_match).await {
             Ok(Some(update)) => {
                 let changed = {
                     let database = state.db.lock().map_err(|error| error.to_string())?;
@@ -269,14 +282,17 @@ pub async fn check_media_item_metadata(
     state: State<'_, AppState>,
     id: i64,
 ) -> Result<serde_json::Value, String> {
-    let item = {
+    let (item, smart_match) = {
         let database = state.db.lock().map_err(|error| error.to_string())?;
-        load_item(&database, id)?
+        (
+            load_item(&database, id)?,
+            crate::feature_flags::is_enabled(&database, "smart_match"),
+        )
     };
 
     if is_standard_video(&item) {
         let client = metadata_keyless::http_client()?;
-        match resolve_keyless_update(&client, &state.app_data_dir, &item).await {
+        match resolve_keyless_update(&client, &state.app_data_dir, &item, smart_match).await {
             Ok(Some(update)) => {
                 let changed = {
                     let database = state.db.lock().map_err(|error| error.to_string())?;
@@ -408,7 +424,7 @@ mod tests {
 
         let client =
             metadata_keyless::http_client().expect("live metadata client should initialize");
-        let update = resolve_keyless_update(&client, &app_dir, &inserted)
+        let update = resolve_keyless_update(&client, &app_dir, &inserted, true)
             .await
             .expect("live keyless lookup should complete")
             .expect("Breaking Bad should resolve through live TVMaze metadata");
@@ -457,7 +473,7 @@ mod tests {
 
         let client =
             metadata_keyless::http_client().expect("live metadata client should initialize");
-        let update = resolve_keyless_update(&client, &app_dir, &inserted)
+        let update = resolve_keyless_update(&client, &app_dir, &inserted, true)
             .await
             .expect("live movie lookup should complete")
             .expect("Inception should resolve through live Cinemeta metadata");

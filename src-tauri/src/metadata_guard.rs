@@ -284,7 +284,7 @@ pub async fn search_metadata(provider: String, query: String, media_type: Option
 #[tauri::command]
 pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> Result<serde_json::Value, String> {
     let started = Instant::now();
-    let (item, keys) = {
+    let (item, keys, smart_match) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let item = db.conn.query_row("SELECT id,title,file_path,media_type,overview,poster_path,year,rating,genre,tmdb_id,imdb_id FROM media_items WHERE id=?1", params![id], |row| Ok(ItemRecord { id: row.get(0)?, title: row.get(1)?, file_path: row.get(2)?, media_type: row.get(3)?, overview: row.get(4)?, poster_path: row.get(5)?, year: row.get(6)?, rating: row.get(7)?, genre: row.get(8)?, tmdb_id: row.get(9)?, imdb_id: row.get(10)? })).map_err(|e| e.to_string())?;
         let mut stmt = db.conn.prepare("SELECT provider,api_key FROM api_keys").map_err(|e| e.to_string())?;
@@ -296,11 +296,13 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
                 keys.insert(normalize_provider_key(&provider), key);
             }
         }
-        (item, keys)
+        (item, keys, crate::feature_flags::is_enabled(&db, "smart_match"))
     };
 
     let adult = is_adult(&item);
-    let query = item.title.clone();
+    // smart_match: search by the cleaned title (no release tags or episode
+    // marker). Adult scene names keep their dates and studio tokens.
+    let query = if smart_match && !adult { crate::title_clean::search_query(&item.title, &item.file_path) } else { item.title.clone() };
     let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(2)).timeout(Duration::from_secs(7)).build().map_err(|e| e.to_string())?;
     let mut errors = Vec::new();
     let mut matches = Vec::new();

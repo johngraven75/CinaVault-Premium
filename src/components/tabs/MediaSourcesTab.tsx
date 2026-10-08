@@ -6,10 +6,11 @@ import { useAppStore, type LibraryEnrichmentResult } from "../../store/appStore"
 import { ExternalLink, File, FolderOpen, HardDrive, Link, Plus, RefreshCw, Scan, Sparkles, Trash2 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
 import { IS_STORE_SAFE } from "../../config/edition";
+import { useFeature } from "../../features/featureFlags";
+import { followPostScan } from "../../services/postScan";
 
-type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; errors?: string[] };
+type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; nfo_applied?: number; post_scan?: { new_items: number; follow_up: string }; errors?: string[] };
 type SourceLike = { id?: number; path: string; source_type: string; name: string; enabled: boolean; last_scanned?: string; item_count: number };
-const DEFAULT_METADATA_AFTER_SCAN = true;
 
 function safeNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -32,6 +33,9 @@ function sourceIcon(sourceType: string) {
 export default function MediaSourcesTab() {
   const { sources, setSources, scanning, setScanning, scanProgress, setScanProgress, addStatusMessage, settings, setSetting, scheduledTasks } = useAppStore();
   const [cancelling, setCancelling] = useState(false);
+  // "Pull metadata and posters after scans" is the auto_metadata switch: the
+  // back end looks up the titles a scan adds (src-tauri/src/post_scan.rs).
+  const autoMetadata = useFeature("auto_metadata");
 
   // The scanner publishes its file counters through get_scan_progress; poll
   // them while a scan runs so the progress bar shows real numbers.
@@ -90,18 +94,32 @@ export default function MediaSourcesTab() {
   };
   useEffect(() => { void loadSources(); }, []);
   const isEnabled = (key: string, defaultOn = false) => (settings[key] ?? (defaultOn ? "true" : "false")) === "true";
-  const shouldPullMetadataAfterScan = (result: ScanResult) => safeNumber(result.total_found) > 0 && (isEnabled("library_auto_scan", DEFAULT_METADATA_AFTER_SCAN) || scheduledTasks.metadata_check === "on_scan");
+  // A full-library metadata pass after scans only when the scheduled task asks for it.
+  const shouldPullMetadataAfterScan = (result: ScanResult) => safeNumber(result.total_found) > 0 && scheduledTasks.metadata_check === "on_scan";
   const pullMetadataAfterScan = async (result: ScanResult) => {
-    if (!shouldPullMetadataAfterScan(result)) { addStatusMessage("Metadata pull skipped: automatic metadata after scan is disabled or no media was found"); return; }
+    if (!shouldPullMetadataAfterScan(result)) {
+      const added = result.post_scan?.new_items ?? 0;
+      if (autoMetadata.enabled && added > 0) addStatusMessage(`Looking up metadata for ${added} new title(s) in the background`);
+      else if (!autoMetadata.enabled) addStatusMessage("Metadata lookup skipped: Auto Metadata Fetch is off");
+      return;
+    }
     addStatusMessage("AI is identifying media and retrieving posters...");
     const enrichment = await invoke<LibraryEnrichmentResult>("run_library_enrichment", { renameFiles: false });
     addStatusMessage(`AI enrichment complete: ${formatMetadataSummary(enrichment)}`);
   };
   const finishPipeline = async (result: ScanResult, reason: string) => {
     if (result.errors?.length) addStatusMessage(`Scan warnings: ${result.errors.slice(0, 3).join("; ")}`);
+    if (result.nfo_applied) addStatusMessage(`NFO files applied to ${result.nfo_applied} title(s)`);
     await pullMetadataAfterScan(result);
     await loadSources();
     refreshLibrary(reason);
+    if (result.post_scan?.follow_up === "scheduled") {
+      void followPostScan().then((status) => {
+        if (!status) return;
+        refreshLibrary("post-scan");
+        if (status.lastRun?.items) addStatusMessage(`Finished work on ${status.lastRun.items} new title(s)`);
+      });
+    }
   };
   const runSourcePipeline = async (sourceId: number, sourceName: string) => {
     setScanning(true); addStatusMessage(`Scanning source: ${sourceName}`);
@@ -175,7 +193,7 @@ export default function MediaSourcesTab() {
       {!IS_STORE_SAFE && <div className="mt-2 text-[10px] text-cv-subtext">Choose <b>Adult Media</b> for an adult library. Every video in that source is labeled adult and routed only to adult metadata/poster providers.</div>}
       <div className="mt-4 flex flex-wrap gap-2"><button onClick={addSource} disabled={addingSource || scanning || !newSourcePath.trim()} className="cv-btn cv-btn-primary disabled:opacity-50"><FolderOpen size={14} />{addingSource ? "Adding and scanning..." : "Add Source"}</button><button onClick={aiDiscover} disabled={discovering || scanning} className="cv-btn cv-btn-gold disabled:opacity-50"><Sparkles size={14} className={discovering ? "animate-spin" : ""} />{discovering ? "Discovering..." : "Discover Drives"}</button><button onClick={scanAll} disabled={scanning} className="cv-btn cv-btn-secondary disabled:opacity-50"><Scan size={14} className={scanning ? "animate-spin" : ""} />{scanning ? "Scanning and enriching..." : "Scan Everything"}</button></div>
     </section>
-    <section className="glass-panel p-5"><h3 className="mb-4 flex items-center gap-2 text-sm font-bold"><Sparkles size={16} className="text-cv-accent" /> AI Library Policy</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-2">{[["library_auto_scan","Pull metadata and posters after scans","Automatically identify new media and refresh visible cards.",true],["prefer_embedded_titles","Prefer embedded titles","Apply container title tags as a separate post-scan pass.",false],["library_partial_scan_on_changes","Rescan changed paths","Use targeted refreshes when source contents change.",true],["library_empty_trash_after_scan","Remove missing records","Clean database entries for files no longer available.",false]].map(([key,label,description,defaultOn]) => <label key={String(key)} className="glass-panel-2 flex items-start justify-between gap-3 rounded-lg p-3"><span><span className="block text-xs font-semibold">{String(label)}</span><span className="mt-1 block text-[10px] text-cv-subtext">{String(description)}</span></span><input type="checkbox" checked={isEnabled(String(key),Boolean(defaultOn))} disabled={savingOption === key} onChange={(e) => void saveLibraryOption(String(key),e.target.checked)} /></label>)}</div></section>
+    <section className="glass-panel p-5"><h3 className="mb-4 flex items-center gap-2 text-sm font-bold"><Sparkles size={16} className="text-cv-accent" /> AI Library Policy</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-2">{[["library_auto_scan","Pull metadata and posters after scans","Automatically identify new media and refresh visible cards.",true],["prefer_embedded_titles","Prefer embedded titles","Apply container title tags as a separate post-scan pass.",false],["library_partial_scan_on_changes","Rescan changed paths","Use targeted refreshes when source contents change.",true],["library_empty_trash_after_scan","Remove missing records","Clean database entries for files no longer available.",false]].map(([key,label,description,defaultOn]) => <label key={String(key)} className="glass-panel-2 flex items-start justify-between gap-3 rounded-lg p-3"><span><span className="block text-xs font-semibold">{String(label)}</span><span className="mt-1 block text-[10px] text-cv-subtext">{String(description)}</span></span><input type="checkbox" checked={key === "library_auto_scan" ? autoMetadata.enabled : isEnabled(String(key),Boolean(defaultOn))} disabled={savingOption === key} onChange={(e) => void (key === "library_auto_scan" ? autoMetadata.setEnabled(e.target.checked) : saveLibraryOption(String(key),e.target.checked))} /></label>)}</div></section>
     <section className="glass-panel p-5"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><Link size={16} className="text-cv-accent" /> Web or Playlist Link</h3><div className="flex gap-3"><input value={webLink} onChange={(e) => setWebLink(e.target.value)} placeholder="Paste a media or playlist URL" className="cv-input flex-1" /><button type="button" onClick={() => addStatusMessage(`Download link staged: ${webLink}`)} disabled={!webLink.trim()} className="cv-btn cv-btn-primary shrink-0 disabled:opacity-50"><ExternalLink size={14} /> Send to Downloads</button></div></section>
     <section className="glass-panel overflow-hidden rounded-xl"><div className="flex items-center justify-between border-b border-white/5 px-5 py-3"><h3 className="text-sm font-bold">Configured Sources ({sources.length})</h3><button onClick={() => void loadSources()} className="cv-btn cv-btn-secondary py-1 text-xs"><RefreshCw size={12} /> Refresh</button></div>{sources.length === 0 ? <div className="p-8 text-center"><FolderOpen size={40} className="mx-auto mb-3 text-cv-subtext/20" /><p className="text-sm text-cv-subtext">No real sources are configured. Add a folder or drive above.</p></div> : <div className="divide-y divide-white/5">{sources.map((source,index) => <motion.div key={source.id || `${source.path}-${index}`} initial={{opacity:0,x:-12}} animate={{opacity:1,x:0}} transition={{delay:Math.min(index * .035,.25)}} className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-white/[0.03]"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cv-accent/10">{sourceIcon(source.source_type)}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{source.name}</div><div className="truncate text-xs text-cv-subtext">{source.path}</div></div><div className="shrink-0 text-right text-xs text-cv-subtext"><div>{source.item_count} items</div><div>{source.last_scanned ? new Date(source.last_scanned).toLocaleString() : "Never scanned"}</div></div><span className={`status-dot ${source.enabled ? "online" : "offline"}`} /><button type="button" onClick={() => void exploreSource(source)} className="cv-btn cv-btn-secondary px-2 py-1 text-xs" title={`Explore ${source.name}`}><FolderOpen size={12} /> Explore Source</button><button type="button" onClick={() => source.id && void removeSource(source.id)} className="cv-btn cv-btn-danger px-2 py-1 text-xs" title={`Remove ${source.name}`}><Trash2 size={12} /></button></motion.div>)}</div>}</section>
     {scanning && <motion.section initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} className="glass-panel p-4"><div className="mb-2 flex items-center justify-between"><span className="text-sm font-semibold">Scanning external sources and posting local artwork...</span><div className="flex items-center gap-3"><span className="text-xs text-cv-subtext">{scanProgress.total ? `${scanProgress.current} / ${scanProgress.total} files` : "Counting files..."}</span><button type="button" onClick={() => void cancelScan()} disabled={cancelling} className="cv-btn cv-btn-danger px-2 py-1 text-xs disabled:opacity-50">{cancelling ? "Cancelling..." : "Cancel scan"}</button></div></div><div className="h-2 w-full overflow-hidden rounded-full bg-white/10"><motion.div className="h-full rounded-full" style={{background:"linear-gradient(90deg, var(--cv-accent), var(--cv-neon-1))"}} animate={{width:scanProgress.total ? `${(scanProgress.current / scanProgress.total) * 100}%` : "15%"}} transition={{duration:.25}} /></div></motion.section>}

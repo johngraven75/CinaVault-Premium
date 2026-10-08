@@ -352,16 +352,16 @@ impl Database {
         )?;
 
         // ── Premium feature defaults: ALL enabled ──
+        // poster_sync and chapter_thumbs are Feature Matrix switches whose
+        // defaults live in src/features/featureDefaults.json; not seeded here.
         let features = vec![
             "smart_collections",
-            "poster_sync",
             "unified_library",
             "watchlist",
             "skip_intro",
             "skip_outro",
             "auto_next",
             "auto_subtitles",
-            "chapter_thumbs",
             "hw_transcoding",
             "motion_effects",
             "splash_screen",

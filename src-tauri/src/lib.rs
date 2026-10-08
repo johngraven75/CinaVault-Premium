@@ -58,6 +58,14 @@ mod shared_contracts;
 mod source_health;
 mod task_progress;
 mod user_data;
+// library switches
+mod collections;
+mod media_extras;
+mod nfo;
+mod post_scan;
+mod poster_sync;
+mod subtitles;
+mod title_clean;
 mod vpn;
 mod vpn_profile_store;
 
@@ -179,11 +187,15 @@ pub fn run() {
             if let Err(error) = user_data::ensure_tables(&database) {
                 log::warn!("Profile and playback tables could not be prepared: {error}");
             }
+            if let Err(error) = collections::ensure_tables(&database) {
+                log::warn!("Collection tables could not be prepared: {error}");
+            }
 
             app.manage(AppState {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
             });
+            post_scan::configure(app.handle().clone());
             let startup_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let result = vpn::startup_auto_connect(startup_handle).await;
@@ -285,6 +297,16 @@ pub fn run() {
             user_data::activity_log_clear,
             user_data::activity_record,
             user_data::webhook_test,
+            // library switches
+            post_scan::post_scan_status,
+            subtitles::subtitles_status,
+            subtitles::subtitles_find,
+            poster_sync::poster_sync_status,
+            poster_sync::poster_sync_now,
+            collections::collections_list,
+            collections::collection_items,
+            collections::collections_rebuild,
+            media_extras::media_item_extras_get,
             player::get_available_players,
             player::set_default_player,
             casting::discover_casting_devices,
