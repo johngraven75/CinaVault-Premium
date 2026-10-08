@@ -17,6 +17,12 @@ fn defaults() -> &'static serde_json::Map<String, Value> {
     })
 }
 
+/// True when `key` is a Feature Matrix switch, whose default comes from
+/// featureDefaults.json rather than any database seed.
+pub fn is_matrix_key(key: &str) -> bool {
+    defaults().contains_key(key)
+}
+
 /// Default for `key`; unknown keys are off.
 pub fn default_enabled(key: &str) -> bool {
     defaults()
@@ -69,6 +75,16 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("cinavault-flags-{}.db", uuid::Uuid::new_v4()));
         (Database::new(path.to_str().unwrap()).unwrap(), path)
+    }
+
+    #[test]
+    fn a_new_database_seeds_no_matrix_switch() {
+        let (db, path) = temp_db();
+        for key in defaults().keys() {
+            assert!(saved(&db, key).is_none(), "{key} is seeded in db.rs");
+            assert_eq!(is_enabled(&db, key), default_enabled(key), "{key}");
+        }
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

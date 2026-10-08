@@ -333,13 +333,13 @@ export default function SettingsTab() {
               />
               <ToggleRow
                 label="Auto-Download Subtitles"
-                desc="Fetch subtitles automatically for all media"
+                desc="Download subtitles for new titles from OpenSubtitles (needs an API key)"
                 checked={isFeature("subtitle_fetch")}
                 onChange={() => void toggleFeatureSwitch("subtitle_fetch")}
               />
               <ToggleRow
                 label="Chapter Thumbnails"
-                desc="Generate preview thumbnails for video chapters"
+                desc="Generate chapter preview frames for new videos after each scan"
                 checked={isFeature("chapter_thumbs")}
                 onChange={() => void toggleFeatureSwitch("chapter_thumbs")}
               />
@@ -380,13 +380,13 @@ export default function SettingsTab() {
               />
               <ToggleRow
                 label="Smart Collections"
-                desc="Auto-generate collections based on genres, years, and actors"
+                desc="Group the library into series, franchise and genre collections after each scan"
                 checked={isFeature("collection_auto")}
                 onChange={() => void toggleFeatureSwitch("collection_auto")}
               />
               <ToggleRow
                 label="Poster Sync"
-                desc="Keep poster artwork synced across all connected servers"
+                desc="Share artwork through a folder such as OneDrive (choose it in Advanced > Feature Matrix)"
                 checked={isFeature("poster_sync")}
                 onChange={() => void toggleFeatureSwitch("poster_sync")}
               />

@@ -43,6 +43,8 @@ sha2 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
+# Kodi .nfo parsing (nfo_import); already in the lockfile through tauri.
+quick-xml = "0.41"
 percent-encoding = "2"
 dirs = "6"
 keyring = "3"

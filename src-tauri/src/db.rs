@@ -353,17 +353,17 @@ impl Database {
             ],
         )?;
 
-        // ── Premium feature defaults: ALL enabled ──
+        // ── Legacy feature rows, seeded on ──
+        // Feature Matrix switches (watchlist, skip_intro, ...) are skipped: their
+        // defaults live in src/features/featureDefaults.json.
         let features = vec![
             "smart_collections",
-            "poster_sync",
             "unified_library",
             "watchlist",
             "skip_intro",
             "skip_outro",
             "auto_next",
             "auto_subtitles",
-            "chapter_thumbs",
             "hw_transcoding",
             "motion_effects",
             "splash_screen",
@@ -379,7 +379,10 @@ impl Database {
             "iptv_support",
             "plugin_system",
         ];
-        for feature in features {
+        for feature in features
+            .into_iter()
+            .filter(|key| !crate::feature_flags::is_matrix_key(key))
+        {
             self.conn.execute(
                 "INSERT OR IGNORE INTO feature_settings (feature_key, enabled, config_json) VALUES (?1, 1, '{}')",
                 params![feature],

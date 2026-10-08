@@ -490,7 +490,10 @@ fn strip_html(value: &str) -> String {
         .join(" ")
 }
 
-fn detect_image_type(content_type: &str, bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+pub(crate) fn detect_image_type(
+    content_type: &str,
+    bytes: &[u8],
+) -> Option<(&'static str, &'static str)> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return Some(("jpg", "image/jpeg"));
     }
