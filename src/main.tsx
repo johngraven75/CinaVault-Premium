@@ -13,6 +13,7 @@ import "./styles/command-palette-stability.css";
 import "./styles/library-card-size-fix.css";
 import "./styles/holo-cinema.css";
 import "./styles/feature-switches.css";
+import "./styles/discovery.css";
 
 // Carry-forward compatibility marker retained for the original stability release:
 // build: "v2 Build 1.02"

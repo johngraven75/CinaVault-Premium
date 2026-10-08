@@ -41,6 +41,7 @@ mod metadata_guard {
         "/metadata_guard_without_commands.rs"
     ));
 }
+mod discovery;
 mod metadata_keyless;
 #[cfg(test)]
 mod metadata_posting_tests;
@@ -179,6 +180,9 @@ pub fn run() {
             if let Err(error) = user_data::ensure_tables(&database) {
                 log::warn!("Profile and playback tables could not be prepared: {error}");
             }
+            if let Err(error) = discovery::ensure_tables(&database) {
+                log::warn!("Discovery cache table could not be prepared: {error}");
+            }
 
             app.manage(AppState {
                 db: Mutex::new(database),
@@ -285,6 +289,13 @@ pub fn run() {
             user_data::activity_log_clear,
             user_data::activity_record,
             user_data::webhook_test,
+            // discovery switches
+            discovery::discovery_recommendations,
+            discovery::discovery_similar,
+            discovery::discovery_trending,
+            discovery::discovery_new_releases,
+            discovery::discovery_genres,
+            discovery::discovery_genre_queue,
             player::get_available_players,
             player::set_default_player,
             casting::discover_casting_devices,
