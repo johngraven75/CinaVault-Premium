@@ -30,6 +30,7 @@ import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
 import FirstRunSetup from "./components/setup/FirstRunSetup";
+import LibraryPlayer from "./components/player/LibraryPlayer";
 // The agent (WebGL head + chat) loads only when it is switched on.
 const HoloAgent = lazy(() => import("./components/agent/HoloAgent"));
 import { StatusBeacon } from "./components/holo/CinematicLoaders";
@@ -559,6 +560,7 @@ export default function App(): JSX.Element {
       </motion.div>
 
       <FirstRunSetup />
+      <LibraryPlayer />
       {isFeatureOn(featureSettings, "holo_agent") && (
         <Suspense fallback={null}>
           <HoloAgent />

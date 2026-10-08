@@ -49,6 +49,7 @@ mod metadata_provider_config;
 mod nas_devices;
 mod pgma_bridge;
 mod player;
+mod player_stream;
 mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
@@ -58,6 +59,7 @@ pub mod server_lifecycle;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
+mod transcode;
 mod user_data;
 mod vpn;
 mod vpn_profile_store;
@@ -296,6 +298,9 @@ pub fn run() {
             discovery::discovery_new_releases,
             discovery::discovery_genres,
             discovery::discovery_genre_queue,
+            // player switches
+            player_stream::player_prepare,
+            player_stream::player_transcode_status,
             player::get_available_players,
             player::set_default_player,
             casting::discover_casting_devices,

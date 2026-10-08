@@ -122,7 +122,7 @@ fn executable_candidates(executable: &str) -> Vec<PathBuf> {
     candidates
 }
 
-fn resolve_executable(executable: &str) -> PathBuf {
+pub(crate) fn resolve_executable(executable: &str) -> PathBuf {
     let requested = Path::new(executable);
     if requested.is_absolute() && requested.is_file() {
         return requested.to_path_buf();

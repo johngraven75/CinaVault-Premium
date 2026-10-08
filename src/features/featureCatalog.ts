@@ -69,7 +69,7 @@ export const FEATURE_MATRIX: FeatureCategory[] = [
       { key: "stream_buffer", label: "Stream Buffering Control", description: "Sets how far ahead the player and server buffer." },
       { key: "bandwidth_limit", label: "Bandwidth Limiter", description: "Caps the speed of each stream the server sends." },
       { key: "cdn_cache", label: "CDN / Cache Layer", description: "Caches artwork and lets browsers and proxies cache server responses." },
-      { key: "direct_play", label: "Force Direct Play", description: "Always sends the original file and never transcodes." },
+      { key: "direct_play", label: "Force Direct Play", description: "Never transcodes: titles the app can't decode open in your external player." },
       { key: "gpu_accel", label: "GPU Acceleration", description: "Hardware-accelerated rendering and video decoding in the app window." },
     ],
   },

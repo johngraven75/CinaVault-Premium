@@ -46,7 +46,8 @@
     "test:code-signing": "node --test tests/codeSigning.test.mjs",
     "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/firstRunSetup.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs",
     "test:features": "node --loader ./tests/typescript-loader.mjs --test tests/featureMatrix.test.mjs tests/shellPreferences.test.mjs",
-    "test:discovery": "node --loader ./tests/typescript-loader.mjs --test tests/discovery.test.mjs"
+    "test:discovery": "node --loader ./tests/typescript-loader.mjs --test tests/discovery.test.mjs",
+    "test:player": "node --loader ./tests/typescript-loader.mjs --test tests/playerLogic.test.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "4.3.0",

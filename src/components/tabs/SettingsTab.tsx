@@ -460,7 +460,7 @@ export default function SettingsTab() {
               />
               <SettingRow
                 label="Quality Control"
-                desc="Automatic bitrate selection or manual override"
+                desc="Transcode bitrate: Auto follows the source resolution; Max 20 Mbps, Balanced 8 Mbps at 1080p, Low 2.5 Mbps at 720p"
               >
                 <select
                   value={settings.quality_control || "auto"}
