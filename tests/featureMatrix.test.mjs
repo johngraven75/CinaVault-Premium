@@ -4,9 +4,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const read = (path) => readFileSync(join(ROOT, path), "utf8");
 const defaults = JSON.parse(read("src/features/featureDefaults.json"));
 const catalog = read("src/features/featureCatalog.ts");
@@ -28,7 +29,7 @@ const PLUMBING = new Set([
   "src-tauri/src/feature_flags.rs",
 ]);
 const sources = [...walk(join(ROOT, "src")), ...walk(join(ROOT, "src-tauri/src"))]
-  .map((path) => [relative(ROOT, path), readFileSync(path, "utf8")])
+  .map((path) => [relative(ROOT, path).split(sep).join("/"), readFileSync(path, "utf8")])
   .filter(([path]) => !PLUMBING.has(path) && !path.startsWith("src/features/panels/"));
 
 test("catalog and defaults list the same switches once each", () => {
