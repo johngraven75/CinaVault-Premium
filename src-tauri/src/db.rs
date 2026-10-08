@@ -275,6 +275,8 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_remote_access_sessions_user ON remote_access_sessions(user_id);
         ")?;
         self.ensure_column("remote_access_sessions", "token_lookup", "TEXT")?;
+        // Certification for parental controls (see parental.rs / content_rating.rs).
+        self.ensure_column("media_items", "content_rating", "TEXT")?;
         // Existing sessions cannot be indexed safely because only their salted hashes are stored.
         // Revoking them forces one reauthentication and avoids a linear token scan on every request.
         self.conn.execute(
@@ -867,33 +869,46 @@ impl Database {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> SqlResult<Vec<MediaItem>> {
+        self.get_media_items_visible(media_type, limit, offset, None)
+    }
+
+    /// Library rows newest first, limited to rows matching `visible` (a SQL
+    /// predicate over media_items, e.g. the parental filter) when given.
+    pub fn get_media_items_visible(
+        &self,
+        media_type: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+        visible: Option<&str>,
+    ) -> SqlResult<Vec<MediaItem>> {
+        let visible = visible.unwrap_or("1 = 1");
         let off = offset.unwrap_or(0);
         match (media_type, limit) {
             (Some(mt), Some(lim)) => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC LIMIT ?2 OFFSET ?3"
-                )?;
+                let mut stmt = self.conn.prepare(&format!(
+                    "SELECT * FROM media_items WHERE media_type = ?1 AND {visible} ORDER BY date_added DESC LIMIT ?2 OFFSET ?3"
+                ))?;
                 let rows = stmt.query_map(params![mt, lim, off], Self::row_to_media)?;
                 rows.collect()
             }
             (Some(mt), None) => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items WHERE media_type = ?1 ORDER BY date_added DESC",
-                )?;
+                let mut stmt = self.conn.prepare(&format!(
+                    "SELECT * FROM media_items WHERE media_type = ?1 AND {visible} ORDER BY date_added DESC"
+                ))?;
                 let rows = stmt.query_map(params![mt], Self::row_to_media)?;
                 rows.collect()
             }
             (None, Some(lim)) => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1 OFFSET ?2",
-                )?;
+                let mut stmt = self.conn.prepare(&format!(
+                    "SELECT * FROM media_items WHERE {visible} ORDER BY date_added DESC LIMIT ?1 OFFSET ?2"
+                ))?;
                 let rows = stmt.query_map(params![lim, off], Self::row_to_media)?;
                 rows.collect()
             }
             (None, None) => {
-                let mut stmt = self
-                    .conn
-                    .prepare("SELECT * FROM media_items ORDER BY date_added DESC")?;
+                let mut stmt = self.conn.prepare(&format!(
+                    "SELECT * FROM media_items WHERE {visible} ORDER BY date_added DESC"
+                ))?;
                 let rows = stmt.query_map([], Self::row_to_media)?;
                 rows.collect()
             }
@@ -1014,18 +1029,36 @@ impl Database {
     }
 
     pub fn search_media_data(&self, query: &str) -> SqlResult<Vec<MediaItem>> {
+        self.search_media_visible(query, None)
+    }
+
+    pub fn search_media_visible(
+        &self,
+        query: &str,
+        visible: Option<&str>,
+    ) -> SqlResult<Vec<MediaItem>> {
         let pattern = format!("%{}%", query);
-        let mut stmt = self.conn.prepare(
-            "SELECT * FROM media_items WHERE title LIKE ?1 OR genre LIKE ?1 OR overview LIKE ?1 ORDER BY title"
-        )?;
+        let visible = visible.unwrap_or("1 = 1");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT * FROM media_items WHERE (title LIKE ?1 OR genre LIKE ?1 OR overview LIKE ?1) AND {visible} ORDER BY title"
+        ))?;
         let rows = stmt.query_map(params![pattern], |row| Self::row_to_media(row))?;
         rows.collect()
     }
 
     pub fn get_recent_media_data(&self, limit: i64) -> SqlResult<Vec<MediaItem>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT * FROM media_items ORDER BY date_added DESC LIMIT ?1")?;
+        self.get_recent_media_visible(limit, None)
+    }
+
+    pub fn get_recent_media_visible(
+        &self,
+        limit: i64,
+        visible: Option<&str>,
+    ) -> SqlResult<Vec<MediaItem>> {
+        let visible = visible.unwrap_or("1 = 1");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT * FROM media_items WHERE {visible} ORDER BY date_added DESC LIMIT ?1"
+        ))?;
         let rows = stmt.query_map(params![limit], |row| Self::row_to_media(row))?;
         rows.collect()
     }
@@ -1657,14 +1690,23 @@ pub fn get_feature_settings(state: State<AppState>) -> Result<Vec<serde_json::Va
 
 #[tauri::command]
 pub fn set_feature_setting(
+    app: tauri::AppHandle,
     state: State<AppState>,
     key: String,
     enabled: bool,
     config: String,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_feature_setting_data(&key, enabled, &config)
-        .map_err(|e| e.to_string())
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        // Loosening parental controls needs the PIN.
+        crate::parental::guard_switch_change(&db, &key, enabled, &config)?;
+        db.set_feature_setting_data(&key, enabled, &config)
+            .map_err(|e| e.to_string())?;
+    }
+    if key == "remote_access" && !enabled {
+        crate::remote_connectivity::stop_after_switch_off(app);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1763,17 +1805,23 @@ pub fn get_media_items(
     offset: Option<i64>,
 ) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_media_items_data(media_type.as_deref(), limit, offset)
+    let visible = crate::parental::active_filter(&db);
+    db.get_media_items_visible(media_type.as_deref(), limit, offset, visible.as_deref())
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_media_item(state: State<AppState>, id: i64) -> Result<Option<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let items = db
-        .get_media_items_data(None, Some(1), None)
-        .map_err(|e| e.to_string())?;
-    Ok(items.into_iter().find(|i| i.id == Some(id)))
+    let visible = crate::parental::active_filter(&db).unwrap_or_else(|| "1 = 1".into());
+    db.conn
+        .query_row(
+            &format!("SELECT * FROM media_items WHERE id = ?1 AND {visible}"),
+            params![id],
+            Database::row_to_media,
+        )
+        .optional()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1864,7 +1912,9 @@ pub fn purge_photo_items(state: State<AppState>) -> Result<serde_json::Value, St
 #[tauri::command]
 pub fn search_media(state: State<AppState>, query: String) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.search_media_data(&query).map_err(|e| e.to_string())
+    let visible = crate::parental::active_filter(&db);
+    db.search_media_visible(&query, visible.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1873,7 +1923,8 @@ pub fn get_recent_media(
     limit: Option<i64>,
 ) -> Result<Vec<MediaItem>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.get_recent_media_data(limit.unwrap_or(20))
+    let visible = crate::parental::active_filter(&db);
+    db.get_recent_media_visible(limit.unwrap_or(20), visible.as_deref())
         .map_err(|e| e.to_string())
 }
 

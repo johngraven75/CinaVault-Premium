@@ -168,11 +168,7 @@ pub fn create_profile(
     if name.is_empty() || name.chars().count() > 40 {
         return Err("A profile name needs 1 to 40 characters".into());
     }
-    let color = if color.trim().is_empty() {
-        "#38bdf8"
-    } else {
-        color.trim()
-    };
+    let color = normalize_color(color)?;
     db.conn
         .execute(
             "INSERT INTO profiles (name, color, restricted, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -183,6 +179,20 @@ pub fn create_profile(
     get_profile(db, id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Profile vanished".into())
+}
+
+/// "#rgb" or "#rrggbb"; empty means the default sky blue.
+fn normalize_color(color: &str) -> Result<String, String> {
+    let color = color.trim();
+    if color.is_empty() {
+        return Ok("#38bdf8".into());
+    }
+    let hex = color.strip_prefix('#').unwrap_or("");
+    if matches!(hex.len(), 3 | 6) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(color.to_ascii_lowercase())
+    } else {
+        Err("Profile colours are hex values like #38bdf8".into())
+    }
 }
 
 pub fn update_profile(
@@ -196,6 +206,10 @@ pub fn update_profile(
     if name.is_empty() || name.chars().count() > 40 {
         return Err("A profile name needs 1 to 40 characters".into());
     }
+    if id == DEFAULT_PROFILE_ID && restricted {
+        return Err("The Owner profile cannot be restricted".into());
+    }
+    let color = normalize_color(color)?;
     let changed = db
         .conn
         .execute(
@@ -320,10 +334,12 @@ pub fn continue_watching(
     profile_id: i64,
     limit: i64,
 ) -> SqlResult<Vec<ProgressItem>> {
+    let visible =
+        crate::parental::filter_for_profile(db, profile_id).unwrap_or_else(|| "1 = 1".into());
     let sql = format!(
         "SELECT {MEDIA_COLUMNS}, p.media_id, p.position, p.duration, p.finished, p.updated_at
          FROM playback_progress p JOIN media_items m ON m.id = p.media_id
-         WHERE p.profile_id = ?1 AND p.finished = 0 AND p.position >= 15
+         WHERE p.profile_id = ?1 AND p.finished = 0 AND p.position >= 15 AND {visible}
          ORDER BY p.updated_at DESC LIMIT ?2"
     );
     let mut stmt = db.conn.prepare(&sql)?;
@@ -363,9 +379,11 @@ pub fn toggle_watchlist(db: &Database, profile_id: i64, media_id: i64) -> SqlRes
 }
 
 pub fn watchlist(db: &Database, profile_id: i64) -> SqlResult<Vec<MediaItem>> {
+    let visible =
+        crate::parental::filter_for_profile(db, profile_id).unwrap_or_else(|| "1 = 1".into());
     let sql = format!(
         "SELECT {MEDIA_COLUMNS} FROM watchlist w JOIN media_items m ON m.id = w.media_id
-         WHERE w.profile_id = ?1 ORDER BY w.added_at DESC"
+         WHERE w.profile_id = ?1 AND {visible} ORDER BY w.added_at DESC"
     );
     let mut stmt = db.conn.prepare(&sql)?;
     let rows = stmt.query_map(params![profile_id], Database::row_to_media)?;
@@ -543,18 +561,42 @@ pub fn profile_update(
     restricted: bool,
 ) -> Result<Profile, String> {
     with_db(&state, |db| {
-        update_profile(db, id, &name, &color, restricted)
+        crate::parental::guard_profile_change(db, id, Some(restricted))?;
+        let profile = update_profile(db, id, &name, &color, restricted)?;
+        emit(
+            db,
+            "profile.updated",
+            &profile.name,
+            json!({ "profileId": profile.id, "restricted": profile.restricted }),
+        );
+        Ok(profile)
     })
 }
 
 #[tauri::command]
 pub fn profile_delete(state: State<AppState>, id: i64) -> Result<(), String> {
-    with_db(&state, |db| delete_profile(db, id))
+    with_db(&state, |db| {
+        crate::parental::guard_profile_change(db, id, None)?;
+        let name = get_profile(db, id)
+            .ok()
+            .flatten()
+            .map(|profile| profile.name)
+            .unwrap_or_default();
+        delete_profile(db, id)?;
+        emit(db, "profile.deleted", &name, json!({ "profileId": id }));
+        Ok(())
+    })
 }
 
 #[tauri::command]
-pub fn profile_switch(state: State<AppState>, id: i64) -> Result<Profile, String> {
+pub fn profile_switch(
+    state: State<AppState>,
+    id: i64,
+    pin: Option<String>,
+) -> Result<Profile, String> {
     with_db(&state, |db| {
+        // Leaving a restricted profile for an unrestricted one needs the PIN.
+        crate::parental::guard_profile_switch(db, id, pin.as_deref())?;
         let profile = set_active_profile(db, id)?;
         emit(
             db,
@@ -788,6 +830,44 @@ mod tests {
             .unwrap();
         emit(&db, "scan.finished", "Library", json!({}));
         assert_eq!(activity(&db, 10).unwrap().len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn restricted_profiles_get_filtered_shelves_and_owner_stays_unrestricted() {
+        let (db, path) = temp_db();
+        let cartoon = add_item(&db, "Cartoon");
+        let gritty = add_item(&db, "Gritty");
+        db.conn
+            .execute_batch(
+                "UPDATE media_items SET content_rating = 'G' WHERE title = 'Cartoon';
+                 UPDATE media_items SET content_rating = 'R' WHERE title = 'Gritty';",
+            )
+            .unwrap();
+        let kid = create_profile(&db, "Kid", "#F00", true).unwrap();
+        assert_eq!(kid.color, "#f00");
+        for id in [cartoon, gritty] {
+            toggle_watchlist(&db, kid.id, id).unwrap();
+            save_progress(&db, kid.id, id, 600.0, 6000.0).unwrap();
+        }
+        assert_eq!(
+            watchlist(&db, kid.id).unwrap().len(),
+            2,
+            "switch off: no filter"
+        );
+        db.set_feature_setting_data("parental_ctrl", true, r#"{"maxRating":"PG"}"#)
+            .unwrap();
+        let titles: Vec<String> = watchlist(&db, kid.id)
+            .unwrap()
+            .into_iter()
+            .map(|item| item.title)
+            .collect();
+        assert_eq!(titles, vec!["Cartoon"]);
+        let shelf = continue_watching(&db, kid.id, 10).unwrap();
+        assert_eq!(shelf.len(), 1);
+        assert_eq!(shelf[0].item.title, "Cartoon");
+        assert!(update_profile(&db, DEFAULT_PROFILE_ID, "Owner", "#38bdf8", true).is_err());
+        assert!(create_profile(&db, "Bad", "red", false).is_err());
         std::fs::remove_file(path).ok();
     }
 

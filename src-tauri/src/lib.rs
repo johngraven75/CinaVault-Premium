@@ -41,11 +41,15 @@ mod metadata_guard {
         "/metadata_guard_without_commands.rs"
     ));
 }
+mod api_keys_server;
+mod content_rating;
+mod gpu_startup;
 mod metadata_keyless;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod metadata_provider_config;
 mod nas_devices;
+mod parental;
 mod pgma_bridge;
 mod player;
 mod plugin_configs;
@@ -53,10 +57,13 @@ mod plugins;
 mod remote_connectivity;
 mod scanner;
 mod secure_credentials;
+mod server_access;
+mod server_cache;
 pub mod server_lifecycle;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
+mod throttle;
 mod user_data;
 mod vpn;
 mod vpn_profile_store;
@@ -75,6 +82,8 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
+    // GPU acceleration switch: the webview reads its arguments when created.
+    gpu_startup::apply();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -179,11 +188,18 @@ pub fn run() {
             if let Err(error) = user_data::ensure_tables(&database) {
                 log::warn!("Profile and playback tables could not be prepared: {error}");
             }
+            if let Err(error) = parental::ensure_tables(&database)
+                .and_then(|_| api_keys_server::ensure_tables(&database))
+                .and_then(|_| server_access::migrate_legacy_settings(&database))
+            {
+                log::warn!("Server and parental-control tables could not be prepared: {error}");
+            }
 
             app.manage(AppState {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
             });
+            content_rating::spawn_startup_refresh(app.handle().clone());
             let startup_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let result = vpn::startup_auto_connect(startup_handle).await;
@@ -285,6 +301,15 @@ pub fn run() {
             user_data::activity_log_clear,
             user_data::activity_record,
             user_data::webhook_test,
+            // media server, profiles and parental controls switches
+            api_keys_server::api_keys_list,
+            api_keys_server::api_key_issue,
+            api_keys_server::api_key_revoke,
+            parental::parental_status,
+            parental::parental_set_pin,
+            parental::parental_unlock,
+            parental::parental_lock,
+            content_rating::parental_refresh_ratings,
             player::get_available_players,
             player::set_default_player,
             casting::discover_casting_devices,

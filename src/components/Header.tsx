@@ -29,6 +29,7 @@ import {
 import { BUILD_INFO } from "../buildInfo";
 import { useAppStore, type TabId } from "../store/appStore";
 import { getUnreadStatusMessages } from "../utils/pluginUiSafety";
+import ProfileSwitcher from "./profiles/ProfileSwitcher";
 
 interface AppInfo {
   name: string;
@@ -366,6 +367,8 @@ export default function Header(): JSX.Element {
             </div>
             <div>{clock.toLocaleDateString([], { month: "short", day: "2-digit" })}</div>
           </div>
+
+          <ProfileSwitcher />
 
           <button
             type="button"
