@@ -615,6 +615,38 @@ async fn stream_media(
     Ok(response)
 }
 
+/// Transcoded H.264/AAC fragmented MP4 for clients that cannot play the
+/// original; `?start=seconds` seeks. Refused while Force Direct Play is on.
+async fn transcode_media(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Path(media_key): Path<String>,
+    Query(query): Query<crate::player_stream::StartQuery>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "stream:play").await?;
+    let (path, settings) = {
+        let database = open_database(&state.database_path)?;
+        if crate::feature_flags::is_enabled(&database, "direct_play") {
+            return Err((
+                StatusCode::CONFLICT,
+                "Force Direct Play is on; use /api/stream for the original file".into(),
+            ));
+        }
+        let item = find_item_by_key(&database, &media_key)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+            .ok_or((StatusCode::NOT_FOUND, "Media item not found".into()))?;
+        (
+            PathBuf::from(item.file_path),
+            crate::transcode::TranscodeSettings::load(&database),
+        )
+    };
+    let mut response =
+        crate::player_stream::transcode_response(path, query.start.unwrap_or(0.0), settings)
+            .await?;
+    hardened_response_headers(&mut response);
+    Ok(response)
+}
+
 pub(crate) fn router(database_path: String) -> Router {
     let state = Arc::new(HttpState {
         database_path,
@@ -632,6 +664,7 @@ pub(crate) fn router(database_path: String) -> Router {
         .route("/api/artwork/{media_key}", get(artwork_media))
         .route("/api/artwork/{media_key}/{kind}", get(artwork_media_kind))
         .route("/api/stream/{media_key}", get(stream_media))
+        .route("/api/transcode/{media_key}", get(transcode_media))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
