@@ -360,7 +360,6 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   prefer_embedded_titles: "true",
   unified_library: "true",
   quality_control: "auto",
-  remote_access_enabled: "true",
   remote_manually_specify_port: "false",
   remote_public_port: "32400",
   remote_secure_connections: "preferred",

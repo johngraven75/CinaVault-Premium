@@ -414,16 +414,51 @@ fn unavailable_status(port: u16, error: String) -> Result<RemoteConnectivityStat
     Ok(status)
 }
 
+/// Message shown when something tries to open a public route with the
+/// "remote_access" switch off.
+pub const REMOTE_ACCESS_OFF: &str =
+    "Remote Access is off. Turn it on to open a route from outside your network; LAN clients still work.";
+
+/// Activity log / webhook event, when the app state is available.
+fn record(app: &tauri::AppHandle, kind: &str, title: &str, detail: serde_json::Value) {
+    use tauri::Manager;
+    if let Some(state) = app.try_state::<crate::AppState>() {
+        if let Ok(db) = state.db.lock() {
+            crate::user_data::emit(&db, kind, title, detail);
+        }
+    }
+}
+
+/// Tears down router mappings and the relay after the switch is turned off.
+pub fn stop_after_switch_off(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        match stop_remote_connectivity(app).await {
+            Ok(_) => log::info!("Remote routes closed because Remote Access was turned off"),
+            Err(error) => log::warn!("Remote routes could not be closed cleanly: {error}"),
+        }
+    });
+}
+
 #[tauri::command]
 pub async fn start_remote_connectivity(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
     port: Option<u16>,
     prefer_relay: Option<bool>,
     allow_relay: Option<bool>,
     enable_upnp: Option<bool>,
     enable_nat_pmp: Option<bool>,
 ) -> Result<RemoteConnectivityStatus, String> {
+    let remote_allowed = crate::feature_flags::is_enabled_state(&state, "remote_access");
     let _operation = operation().lock().await;
     let port = port.unwrap_or(NATIVE_SERVER_PORT);
+    if !remote_allowed {
+        // Never map router ports or start the relay while the switch is off.
+        if let Err(error) = stop_runtime().await {
+            log::warn!("Remote connectivity cleanup failed: {error}");
+        }
+        return unavailable_status(port, REMOTE_ACCESS_OFF.into());
+    }
     let prefer_relay = prefer_relay.unwrap_or(true);
     let allow_relay = allow_relay.unwrap_or(true);
     let enable_upnp = enable_upnp.unwrap_or(true);
@@ -562,12 +597,34 @@ pub async fn start_remote_connectivity(
     }
 
     runtime().lock().map_err(|error| error.to_string())?.status = status.clone();
+    if let Some(url) = status.preferred_url.as_deref() {
+        record(
+            &app,
+            "remote.started",
+            url,
+            serde_json::json!({ "relayMode": status.relay_mode, "port": port }),
+        );
+    }
     Ok(status)
 }
 
 #[tauri::command]
-pub async fn stop_remote_connectivity() -> Result<RemoteConnectivityStatus, String> {
+pub async fn stop_remote_connectivity(
+    app: tauri::AppHandle,
+) -> Result<RemoteConnectivityStatus, String> {
     let _operation = operation().lock().await;
+    let was_running = runtime()
+        .lock()
+        .map(|guard| guard.status.running || guard.tunnel.is_some())
+        .unwrap_or(false);
+    if was_running {
+        record(
+            &app,
+            "remote.stopped",
+            "Remote routes closed",
+            serde_json::json!({}),
+        );
+    }
     let cleanup = stop_runtime().await;
     let status = RemoteConnectivityStatus::default();
     runtime().lock().map_err(|error| error.to_string())?.status = status.clone();

@@ -888,8 +888,13 @@ pub fn get_unified_library(
 ) -> Result<Vec<UnifiedEntry>, String> {
     let items = {
         let db = state.db.lock().map_err(|error| error.to_string())?;
-        db.get_media_items_data(None, None, None)
-            .map_err(|error| error.to_string())?
+        db.get_media_items_visible(
+            None,
+            None,
+            None,
+            crate::parental::active_filter(&db).as_deref(),
+        )
+        .map_err(|error| error.to_string())?
     };
     let wanted = media_type
         .as_deref()

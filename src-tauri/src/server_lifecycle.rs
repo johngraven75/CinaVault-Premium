@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::embedded_server;
+use crate::user_data;
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -106,7 +107,7 @@ impl NativeServerLifecycle {
         let bound_address = listener
             .local_addr()
             .map_err(|error| format!("Unable to inspect native server listener: {error}"))?;
-        let router = embedded_server::router(database_path);
+        let service = embedded_server::service(database_path);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
         let (runtime_id, state) = {
@@ -117,7 +118,7 @@ impl NativeServerLifecycle {
         };
 
         let task = tokio::spawn(async move {
-            let result = axum::serve(listener, router)
+            let result = axum::serve(listener, service)
                 .with_graceful_shutdown(async {
                     let _ = shutdown_rx.await;
                 })
@@ -141,6 +142,10 @@ impl NativeServerLifecycle {
         for _ in 0..40 {
             let health = self.health().await;
             if health.healthy {
+                self.record(
+                    "server.started",
+                    serde_json::json!({ "port": bound_address.port() }),
+                );
                 return Ok(self.status_from_health(health));
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -164,13 +169,30 @@ impl NativeServerLifecycle {
     async fn stop_runtime(&self) -> Result<NativeServerStatus, String> {
         let runtime = self.state.lock().await.runtime.take();
         if let Some(runtime) = runtime {
+            let port = runtime.bound_address.port();
             let _ = runtime.shutdown.send(());
             runtime
                 .task
                 .await
                 .map_err(|error| format!("Native server shutdown task failed: {error}"))?;
+            self.record("server.stopped", serde_json::json!({ "port": port }));
         }
         Ok(self.stopped_status())
+    }
+
+    /// Activity log / webhook event for the server's own lifecycle.
+    fn record(&self, kind: &str, detail: serde_json::Value) {
+        let Ok(path) = self.database_path_string() else {
+            return;
+        };
+        match Database::new(&path) {
+            Ok(database) => {
+                if user_data::ensure_tables(&database).is_ok() {
+                    user_data::emit(&database, kind, "Media server", detail);
+                }
+            }
+            Err(error) => log::warn!("Could not record {kind}: {error}"),
+        }
     }
 
     pub async fn status(&self) -> NativeServerStatus {

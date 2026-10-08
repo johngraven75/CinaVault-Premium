@@ -37,6 +37,8 @@ import {
   Wifi,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import { useFeature } from "../../features/featureFlags";
+import { effectiveMbps, parseMbps } from "../../features/serverAdminLogic.ts";
 
 type SecureMode = "required" | "preferred" | "disabled";
 
@@ -161,7 +163,11 @@ export default function RemoteAccessTab() {
   );
   const [busy, setBusy] = useState<string | null>(null);
 
-  const remoteEnabled = settings.remote_access_enabled !== "false";
+  // The tab's on/off is the Feature Matrix "remote_access" switch, and the
+  // upload limit is the "bandwidth_limit" switch's cap.
+  const remoteAccess = useFeature("remote_access");
+  const bandwidth = useFeature<{ mbps?: number }>("bandwidth_limit");
+  const remoteEnabled = remoteAccess.enabled;
   const manualPort = settings.remote_manually_specify_port === "true";
   const secureMode = (settings.remote_secure_connections ||
     "preferred") as SecureMode;
@@ -170,7 +176,35 @@ export default function RemoteAccessTab() {
   const upnp = settings.remote_enable_upnp !== "false";
   const natPmp = settings.remote_enable_natpmp !== "false";
   const publicPort = settings.remote_public_port || "32400";
-  const uploadLimit = settings.remote_upload_limit_mbps || "20";
+  const uploadLimit = effectiveMbps(bandwidth.config, settings.remote_upload_limit_mbps);
+  const [uploadText, setUploadText] = useState(String(uploadLimit));
+  useEffect(() => setUploadText(String(uploadLimit)), [uploadLimit]);
+
+  const setRemoteEnabled = async (next: boolean) => {
+    try {
+      await remoteAccess.setEnabled(next);
+      if (!next) {
+        // The back end also closes routes; this refreshes the status shown here.
+        setConnectivity(await invoke<RemoteConnectivityStatus>("stop_remote_connectivity"));
+      }
+      addStatusMessage(`Remote Access ${next ? "on" : "off"}`);
+    } catch (error) {
+      addStatusMessage(`Remote Access could not be changed: ${error}`);
+    }
+  };
+
+  const saveUploadLimit = () => {
+    const value = parseMbps(uploadText);
+    if (value === null) {
+      setUploadText(String(uploadLimit));
+      addStatusMessage("Upload limit must be a number from 0.5 to 10000 Mbps");
+      return;
+    }
+    setUploadText(String(value));
+    if (value !== bandwidth.config.mbps) {
+      bandwidth.setConfig({ mbps: value }).catch((error) => addStatusMessage(`Upload limit not saved: ${error}`));
+    }
+  };
   const allowedNetworks = settings.remote_allowed_networks || "";
 
   const configured = useMemo(
@@ -535,12 +569,7 @@ export default function RemoteAccessTab() {
               <input
                 type="checkbox"
                 checked={remoteEnabled}
-                onChange={(event) =>
-                  setSetting(
-                    "remote_access_enabled",
-                    String(event.target.checked),
-                  )
-                }
+                onChange={(event) => void setRemoteEnabled(event.target.checked)}
               />
             </label>
             <label className="flex items-center justify-between text-xs py-1">
@@ -990,18 +1019,34 @@ export default function RemoteAccessTab() {
             <SlidersHorizontal size={16} className="text-cv-accent" /> Streaming
             Constraints
           </h3>
-          <label className="section-label">Internet Upload Limit (Mbps)</label>
+          <label className="section-label flex items-center justify-between">
+            <span>Per-stream Upload Limit (Mbps)</span>
+            <span className="flex items-center gap-1 text-[11px] normal-case">
+              <input
+                type="checkbox"
+                checked={bandwidth.enabled}
+                onChange={(event) =>
+                  bandwidth
+                    .setEnabled(event.target.checked)
+                    .catch((error) => addStatusMessage(`Bandwidth limiter not changed: ${error}`))
+                }
+              />
+              Apply limit
+            </span>
+          </label>
           <input
-            className="cv-input mb-3"
-            value={uploadLimit}
-            onChange={(event) =>
-              setSetting(
-                "remote_upload_limit_mbps",
-                event.target.value.replace(/[^\d]/g, ""),
-              )
-            }
+            className="cv-input mb-1"
+            inputMode="decimal"
+            value={uploadText}
+            onChange={(event) => setUploadText(event.target.value)}
+            onBlur={saveUploadLimit}
             placeholder="20"
           />
+          <div className="text-[10px] text-cv-subtext mb-3">
+            {bandwidth.enabled
+              ? `Each stream to another device is capped at ${uploadLimit} Mbps.`
+              : "Not applied. Turn on to cap each stream (same as Bandwidth Limiter in Feature Matrix)."}
+          </div>
           <label className="section-label">
             Allowed Networks (CIDR, comma-separated)
           </label>

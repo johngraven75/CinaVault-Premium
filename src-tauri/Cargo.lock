@@ -569,6 +569,7 @@ dependencies = [
  "chrono",
  "dirs",
  "env_logger",
+ "futures-core",
  "igd-next",
  "image",
  "keyring",
