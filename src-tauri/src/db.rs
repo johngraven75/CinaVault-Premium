@@ -1468,7 +1468,7 @@ impl Database {
         }))
     }
 
-    fn row_to_media(row: &rusqlite::Row) -> rusqlite::Result<MediaItem> {
+    pub(crate) fn row_to_media(row: &rusqlite::Row) -> rusqlite::Result<MediaItem> {
         Ok(MediaItem {
             id: Some(row.get(0)?),
             title: row.get(1)?,

@@ -12,5 +12,10 @@ export async function load(url, context, nextLoad) {
     });
     return { format: "module", source: result.code, shortCircuit: true };
   }
+  // esbuild drops import attributes, so JSON imported from TS arrives
+  // without `with { type: "json" }`; load it as JSON here.
+  if (url.startsWith("file:") && url.endsWith(".json")) {
+    return { format: "json", source: await readFile(new URL(url), "utf8"), shortCircuit: true };
+  }
   return nextLoad(url, context);
 }

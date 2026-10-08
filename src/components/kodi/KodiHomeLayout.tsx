@@ -30,6 +30,7 @@ import { useAppStore, type MediaItem } from "../../store/appStore";
 import "../../styles/kodi-skin.css";
 import { IS_STORE_SAFE } from "../../config/edition";
 import { loadUnifiedLibrary } from "../../services/unifiedLibrary";
+import { playMedia } from "../../services/playback";
 import { CopiesList, CopyCountBadge } from "../library/UnifiedCopies";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
@@ -560,7 +561,7 @@ export default function KodiHomeLayout(): JSX.Element {
 
   const handlePlay = useCallback(
     (item: MediaItem) => {
-      invoke("play_media", { filePath: item.file_path }).catch((err) =>
+      playMedia([item], 0, { source: "library" }).catch((err) =>
         addStatusMessage(`Playback error: ${err}`),
       );
     },

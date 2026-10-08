@@ -12,6 +12,7 @@ import "./styles/ui-stability.css";
 import "./styles/command-palette-stability.css";
 import "./styles/library-card-size-fix.css";
 import "./styles/holo-cinema.css";
+import "./styles/feature-switches.css";
 
 // Carry-forward compatibility marker retained for the original stability release:
 // build: "v2 Build 1.02"
@@ -21,6 +22,14 @@ if (!rootElement) {
 }
 
 document.title = WINDOW_TITLE;
+// Settings > Appearance > Show Splash Screen. The CSP blocks inline scripts,
+// so this is the earliest point the saved choice can be honoured.
+try {
+  const saved = JSON.parse(localStorage.getItem("cinavault_state") || "{}");
+  if (saved?.splash_enabled === "false") document.getElementById("splash")?.remove();
+} catch {
+  // No saved settings yet: keep the splash.
+}
 document.documentElement.dataset.cinavaultBuild = BUILD_DATASET_VALUE;
 document.documentElement.dataset.cinavaultVersion = BUILD_INFO.version;
 

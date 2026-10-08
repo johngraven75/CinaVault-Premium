@@ -14,6 +14,7 @@ mod downloads;
 mod duplicates;
 mod edition;
 mod embedded_server;
+mod feature_flags;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
@@ -56,6 +57,7 @@ pub mod server_lifecycle;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
+mod user_data;
 mod vpn;
 mod vpn_profile_store;
 
@@ -174,6 +176,10 @@ pub fn run() {
                 Err(error) => log::warn!("Permanent media tools startup repair failed: {error}"),
             }
 
+            if let Err(error) = user_data::ensure_tables(&database) {
+                log::warn!("Profile and playback tables could not be prepared: {error}");
+            }
+
             app.manage(AppState {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
@@ -263,6 +269,22 @@ pub fn run() {
             pgma_bridge::find_local_candidates,
             pgma_bridge::refresh_pgma_library,
             player::play_media,
+            user_data::profiles_list,
+            user_data::profile_active,
+            user_data::profile_create,
+            user_data::profile_update,
+            user_data::profile_delete,
+            user_data::profile_switch,
+            user_data::playback_progress_save,
+            user_data::playback_progress_get,
+            user_data::playback_progress_clear,
+            user_data::continue_watching_list,
+            user_data::watchlist_toggle,
+            user_data::watchlist_list,
+            user_data::activity_log_list,
+            user_data::activity_log_clear,
+            user_data::activity_record,
+            user_data::webhook_test,
             player::get_available_players,
             player::set_default_player,
             casting::discover_casting_devices,

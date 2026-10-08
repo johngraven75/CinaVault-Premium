@@ -302,7 +302,8 @@ export default function Header(): JSX.Element {
   return (
     <>
       <header className="relative z-30 shrink-0 px-4 pb-3 pt-3">
-        <div className="flex min-h-[64px] items-center gap-3 rounded-[22px] border border-white/[0.10] bg-[linear-gradient(110deg,rgba(255,255,255,0.075),rgba(255,255,255,0.018)),rgba(3,6,18,0.72)] px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_14px_36px_rgba(0,0,0,0.26)]">
+        <div className="relative isolate flex min-h-[64px] items-center gap-3 overflow-hidden rounded-[22px] border border-white/[0.10] bg-[linear-gradient(110deg,rgba(255,255,255,0.075),rgba(255,255,255,0.018)),rgba(3,6,18,0.72)] px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_14px_36px_rgba(0,0,0,0.26)]">
+          {settings.starfield_header !== "false" && !reduceMotion && <div className="cv-header-starfield" aria-hidden="true" />}
           <motion.button
             type="button"
             onClick={() => setPaletteOpen(true)}

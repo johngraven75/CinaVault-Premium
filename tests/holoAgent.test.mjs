@@ -99,7 +99,7 @@ test("quick prompts are read-only checks the back end routes away from library c
 test("agent is mounted behind its Advanced switch and lazy-loaded", () => {
   const app = read("src/App.tsx");
   assert.match(app, /const HoloAgent = lazy\(\(\) => import\("\.\/components\/agent\/HoloAgent"\)\)/);
-  assert.match(app, /featureSettings\.holo_agent\?\.enabled !== false && \(/);
+  assert.match(app, /isFeatureOn\(featureSettings, "holo_agent"\) && \(/);
   assert.match(read("src/components/agent/HoloAgent.tsx"), /invoke<unknown>\("ai_query", \{ prompt: clean \}\)/);
   assert.match(read("src-tauri/src/lib.rs"), /ai::ai_query/);
   const head = read("src/components/agent/HoloHead.tsx");

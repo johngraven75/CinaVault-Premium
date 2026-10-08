@@ -1,0 +1,83 @@
+/* Look switches from Advanced > Feature Matrix and Settings, applied as
+   classes on <html> by src/features/shellPreferences.ts. */
+
+html.cv-no-glass *,
+html.cv-no-glass *::before,
+html.cv-no-glass *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.cv-no-glass .glass-panel,
+html.cv-no-glass .glass-panel-2,
+html.cv-no-glass .cv-card,
+html.cv-no-glass .cv-telemetry-card {
+  background-color: rgb(12 16 28 / 0.96) !important;
+}
+
+html.cv-compact {
+  --cv-compact-scale: 0.82;
+}
+html.cv-compact .cv-context-stage > div {
+  min-height: 0 !important;
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+}
+html.cv-compact .cv-stage-subtitle,
+html.cv-compact .cv-stage-telemetry {
+  display: none !important;
+}
+html.cv-compact .cv-workspace-panel .space-y-5 > * + * {
+  margin-top: 0.75rem !important;
+}
+html.cv-compact [class*="poster-grid"] {
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)) !important;
+  gap: 0.6rem !important;
+}
+html.cv-compact .glass-panel,
+html.cv-compact .cv-card {
+  padding: 0.7rem !important;
+}
+
+html.cv-no-poster-hover [class*="poster-card"],
+html.cv-no-poster-hover [class*="poster-card"]:hover,
+html.cv-no-poster-hover .holo-card,
+html.cv-no-poster-hover .holo-card:hover,
+html.cv-no-poster-hover .kodi-card:hover {
+  transform: none !important;
+}
+html.cv-no-poster-hover [data-poster-preview] {
+  display: none !important;
+}
+
+html.cv-reduce-motion *,
+html.cv-reduce-motion *::before,
+html.cv-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+.cv-experience-backdrop-layer {
+  opacity: var(--cv-backdrop-opacity, 1);
+}
+
+.cv-header-starfield {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    radial-gradient(1px 1px at 12% 30%, rgb(255 255 255 / 0.7), transparent 60%),
+    radial-gradient(1px 1px at 38% 70%, rgb(186 230 253 / 0.6), transparent 60%),
+    radial-gradient(1.5px 1.5px at 64% 22%, rgb(255 255 255 / 0.55), transparent 60%),
+    radial-gradient(1px 1px at 82% 60%, rgb(216 180 254 / 0.6), transparent 60%),
+    radial-gradient(1px 1px at 92% 18%, rgb(255 255 255 / 0.5), transparent 60%);
+  background-size: 340px 120px;
+  animation: cv-starfield-drift 48s linear infinite;
+  opacity: 0.55;
+}
+@keyframes cv-starfield-drift {
+  from { background-position: 0 0; }
+  to { background-position: -340px 0; }
+}

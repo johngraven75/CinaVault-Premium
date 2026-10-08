@@ -1,4 +1,4 @@
-// CinaVault Premium — Advanced Tab (MS-B SDK Feature Matrix + Media Requests)
+// CinaVault Premium — Advanced Tab (Feature Matrix + Media Requests)
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
@@ -6,106 +6,34 @@ import { useAppStore } from "../../store/appStore";
 import {
   Sliders,
   Zap,
-  Users,
   MessageSquare,
   ExternalLink,
   ChevronDown,
   ChevronRight,
+  Settings2,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
 import DuplicateFinder from "../library/DuplicateFinder";
+import { FEATURE_MATRIX } from "../../features/featureCatalog";
+import {
+  featureConfig,
+  isFeatureOn,
+  saveFeature,
+  type FeatureKey,
+} from "../../features/featureFlags";
+import type { FeaturePanel } from "../../features/panels/types";
 
-// Switches that change real behaviour today. Every other entry in the matrix
-// is a planned feature: it is shown, but its switch stays disabled so the tab
-// never claims to turn on something that does not exist yet.
-export const WIRED_FEATURES = new Set<string>(["particle_bg", "holo_agent"]);
-const DEFAULT_ON_FEATURES = new Set<string>(["particle_bg", "holo_agent"]);
 const REQUESTS_SETTING_KEY = "media_request_queue";
 
-interface FeatureCategory {
-  name: string;
-  features: { key: string; label: string; description?: string }[];
-}
-
-const FEATURE_MATRIX: FeatureCategory[] = [
-  {
-    name: "Playback & Experience",
-    features: [
-      {
-        key: "cinema_mode",
-        label: "Cinema Mode",
-        description: "Dim UI during playback",
-      },
-      { key: "skip_intro", label: "Skip Intro Detection" },
-      { key: "skip_credits", label: "Skip Credits Detection" },
-      { key: "next_up", label: "Next Up Notification" },
-      { key: "auto_resume", label: "Auto Resume Playback" },
-      { key: "crossfade", label: "Audio Crossfade" },
-      { key: "gapless", label: "Gapless Playback" },
-    ],
-  },
-  {
-    name: "UI & Customization",
-    features: [
-      { key: "glass_effects", label: "Glassmorphism Effects" },
-      { key: "particle_bg", label: "Animated Particle Background" },
-      { key: "holo_agent", label: "Holographic AI Agent" },
-      { key: "custom_css", label: "Custom CSS Injection" },
-      { key: "compact_mode", label: "Compact View Mode" },
-      { key: "poster_hover", label: "Poster Hover Preview" },
-      { key: "shelf_carousel", label: "Shelf Carousel Mode" },
-    ],
-  },
-  {
-    name: "Library & Metadata",
-    features: [
-      { key: "auto_metadata", label: "Auto Metadata Fetch" },
-      { key: "smart_match", label: "Smart Title Matching" },
-      { key: "nfo_import", label: "NFO File Import" },
-      { key: "subtitle_fetch", label: "Auto Subtitle Download" },
-      { key: "poster_sync", label: "Cloud Poster Sync" },
-      { key: "chapter_thumbs", label: "Chapter Thumbnails" },
-      { key: "collection_auto", label: "Auto Collections" },
-    ],
-  },
-  {
-    name: "User & Server Management",
-    features: [
-      { key: "user_profiles", label: "Multiple User Profiles" },
-      { key: "parental_ctrl", label: "Parental Controls" },
-      { key: "activity_log", label: "Activity Logging" },
-      { key: "remote_access", label: "Remote Access" },
-      { key: "api_keys", label: "API Key Management" },
-      { key: "webhook", label: "Webhook Notifications" },
-    ],
-  },
-  {
-    name: "Performance & Connectivity",
-    features: [
-      { key: "hw_transcode", label: "Hardware Transcoding" },
-      { key: "stream_buffer", label: "Stream Buffering Control" },
-      { key: "bandwidth_limit", label: "Bandwidth Limiter" },
-      { key: "cdn_cache", label: "CDN / Cache Layer" },
-      { key: "direct_play", label: "Force Direct Play" },
-      { key: "gpu_accel", label: "GPU Acceleration" },
-    ],
-  },
-  {
-    name: "Library & Discovery",
-    features: [
-      { key: "trending", label: "Trending Content" },
-      { key: "recommendations", label: "AI Recommendations" },
-      { key: "similar_titles", label: "Similar Titles" },
-      { key: "genre_radio", label: "Genre Radio Stations" },
-      { key: "watchlist", label: "Watchlist Management" },
-      { key: "continue_watching", label: "Continue Watching" },
-      { key: "new_releases", label: "New Releases Alerts" },
-    ],
-  },
-];
+// Settings panels live in src/features/panels/<switch key>.tsx.
+const PANEL_MODULES = import.meta.glob<{ default: FeaturePanel }>("../../features/panels/*.tsx", { eager: true });
+const FEATURE_PANELS: Partial<Record<string, FeaturePanel>> = Object.fromEntries(
+  Object.entries(PANEL_MODULES).map(([path, module]) => [path.replace(/^.*\/|\.tsx$/g, ""), module.default]),
+);
 
 export default function AdvancedTab() {
-  const { featureSettings, toggleFeature, addStatusMessage } = useAppStore();
+  const { featureSettings, addStatusMessage } = useAppStore();
+  const [openPanels, setOpenPanels] = useState<Set<string>>(new Set());
   const [expandedCats, setExpandedCats] = useState<Set<string>>(
     new Set(FEATURE_MATRIX.map((c) => c.name)),
   );
@@ -125,8 +53,14 @@ export default function AdvancedTab() {
     });
   };
 
-  const isEnabled = (key: string) =>
-    featureSettings[key]?.enabled ?? DEFAULT_ON_FEATURES.has(key);
+  const isEnabled = (key: FeatureKey) => isFeatureOn(featureSettings, key);
+  const togglePanel = (key: string) =>
+    setOpenPanels((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   // Requests used to live only in memory; keep them in the settings table so
   // they survive a restart.
@@ -146,15 +80,23 @@ export default function AdvancedTab() {
     );
   };
 
-  const handleToggle = async (key: string) => {
-    if (!WIRED_FEATURES.has(key)) return;
+  const handleToggle = async (key: FeatureKey, label: string) => {
     const enabled = !isEnabled(key);
     try {
-      await invoke("set_feature_setting", { key, enabled, config: "{}" });
-      toggleFeature(key);
-      addStatusMessage(`Feature ${key}: ${enabled ? "enabled" : "disabled"}`);
+      // Keep the switch's saved settings when turning it on or off.
+      await saveFeature(key, enabled, featureSettings[key]?.config ?? {});
+      addStatusMessage(`${label} ${enabled ? "on" : "off"}`);
     } catch (error) {
-      addStatusMessage(`Feature ${key}: update failed — ${String(error)}`);
+      addStatusMessage(`${label}: update failed (${String(error)})`);
+    }
+  };
+
+  const saveConfig = async (key: FeatureKey, label: string, next: object) => {
+    try {
+      await saveFeature(key, isEnabled(key), { ...featureConfig(featureSettings, key, {}), ...next });
+    } catch (error) {
+      addStatusMessage(`${label}: settings not saved (${String(error)})`);
+      throw error;
     }
   };
 
@@ -199,9 +141,7 @@ export default function AdvancedTab() {
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-cv-subtext">
                     {
-                      cat.features.filter(
-                        (f) => WIRED_FEATURES.has(f.key) && isEnabled(f.key),
-                      ).length
+                      cat.features.filter((f) => isEnabled(f.key)).length
                     }
                     /{cat.features.length}
                   </span>
@@ -218,38 +158,50 @@ export default function AdvancedTab() {
                   animate={{ opacity: 1, height: "auto" }}
                   className="px-4 pb-3 space-y-1"
                 >
-                  {cat.features.map((feature) => (
-                    <div
-                      key={feature.key}
-                      className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.02]"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm flex items-center gap-2">
-                          {feature.label}
-                          {!WIRED_FEATURES.has(feature.key) && (
-                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-cv-subtext">
-                              Planned
-                            </span>
+                  {cat.features.map((feature) => {
+                    const Panel = FEATURE_PANELS[feature.key];
+                    const panelOpen = openPanels.has(feature.key);
+                    return (
+                      <div key={feature.key} className="rounded hover:bg-white/[0.02]">
+                        <div className="flex items-center justify-between gap-2 py-1.5 px-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm">{feature.label}</div>
+                            <div className="text-[10px] text-cv-subtext">{feature.description}</div>
+                          </div>
+                          {Panel && (
+                            <button
+                              type="button"
+                              onClick={() => togglePanel(feature.key)}
+                              aria-expanded={panelOpen}
+                              aria-label={`${feature.label} settings`}
+                              title="Settings"
+                              className={`cv-btn cv-btn-secondary px-1.5 py-1 ${panelOpen ? "text-cv-accent" : ""}`}
+                            >
+                              <Settings2 size={12} />
+                            </button>
                           )}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={isEnabled(feature.key)}
+                            aria-label={feature.label}
+                            data-feature={feature.key}
+                            className={`cv-toggle ${isEnabled(feature.key) ? "active" : ""}`}
+                            onClick={() => void handleToggle(feature.key, feature.label)}
+                          />
                         </div>
-                        {feature.description && (
-                          <div className="text-[10px] text-cv-subtext">
-                            {feature.description}
+                        {Panel && panelOpen && (
+                          <div className="mx-2 mb-2 rounded-lg border border-white/10 bg-black/20 p-3 text-xs" data-feature-panel={feature.key}>
+                            <Panel
+                              enabled={isEnabled(feature.key)}
+                              config={featureConfig(featureSettings, feature.key, {})}
+                              setConfig={(next) => saveConfig(feature.key, feature.label, next)}
+                            />
                           </div>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={WIRED_FEATURES.has(feature.key) && isEnabled(feature.key)}
-                        aria-label={feature.label}
-                        disabled={!WIRED_FEATURES.has(feature.key)}
-                        title={WIRED_FEATURES.has(feature.key) ? undefined : "Not available yet"}
-                        className={`cv-toggle ${WIRED_FEATURES.has(feature.key) && isEnabled(feature.key) ? "active" : ""} disabled:opacity-40 disabled:cursor-not-allowed`}
-                        onClick={() => void handleToggle(feature.key)}
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </motion.div>
               )}
             </div>
@@ -365,31 +317,6 @@ export default function AdvancedTab() {
               ))}
             </div>
 
-            <label className="section-label mt-4">User Groups & Sharing</label>
-            <div className="glass-panel-2 p-4 rounded-lg">
-              <div className="flex items-center gap-3 mb-3">
-                <Users size={20} className="text-cv-accent" />
-                <div>
-                  <div className="text-sm font-semibold">User Groups</div>
-                  <div className="text-[10px] text-cv-subtext">
-                    Manage permissions per group
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                {["Admin", "Family", "Friends", "Kids"].map((group) => (
-                  <div
-                    key={group}
-                    className="flex items-center justify-between py-1.5 px-2 rounded bg-white/[0.02]"
-                  >
-                    <span className="text-xs">{group}</span>
-                    <span className="text-[10px] text-cv-subtext">
-                      Full Access
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
       </div>

@@ -266,6 +266,7 @@ export default function AIDiagnosticsTab() {
     setAiResult,
     addStatusMessage,
     setMediaItems,
+    settings,
   } = useAppStore();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -908,7 +909,7 @@ export default function AIDiagnosticsTab() {
         style={{ minHeight: 280 }}
       >
         <div className="absolute inset-0 z-0">
-          <AIVisualizer active={aiProcessing} />
+          {settings.ai_visualizer !== "false" && <AIVisualizer active={aiProcessing} />}
         </div>
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-4">

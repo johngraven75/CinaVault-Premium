@@ -28,6 +28,14 @@ import {
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
 import { openFirstRunSetup } from "../setup/FirstRunSetup";
+import { BUILD_INFO } from "../../buildInfo";
+import {
+  FEATURE_DEFAULTS,
+  FEATURE_KEYS,
+  isFeatureOn,
+  saveFeature,
+  type FeatureKey,
+} from "../../features/featureFlags";
 
 export default function SettingsTab() {
   const {
@@ -36,7 +44,6 @@ export default function SettingsTab() {
     currentTheme,
     setTheme,
     featureSettings,
-    toggleFeature,
     addStatusMessage,
     getPersistedState,
   } = useAppStore();
@@ -97,36 +104,37 @@ export default function SettingsTab() {
       splash_enabled: "true",
       sidebar_collapsed: "false",
       motion_enabled: "true",
-      skip_intro: "true",
-      skip_outro: "true",
-      auto_next: "true",
-      auto_subtitles: "true",
-      chapter_thumbs_enabled: "true",
-      smart_collections: "true",
-      poster_sync: "true",
       unified_library: "true",
-      watchlist_enabled: "true",
-      hw_transcoding: "true",
       quality_control: "auto",
       default_player: "system",
-      particle_effects: "true",
       ai_visualizer: "true",
-      glassmorphism: "true",
       starfield_header: "true",
       window_opacity: "100",
     };
     for (const [k, v] of Object.entries(premiumDefaults)) {
       setSetting(k, v);
     }
+    for (const key of FEATURE_KEYS) {
+      void saveFeature(key, FEATURE_DEFAULTS[key], featureSettings[key]?.config ?? {}).catch(() => {});
+    }
     setTheme("vidhub_flagship");
     applyTheme("vidhub_flagship");
     addStatusMessage(
-      "Settings reset to Premium defaults — all features enabled",
+      "Settings and feature switches reset to their defaults",
     );
-  }, [setSetting, setTheme, addStatusMessage]);
+  }, [setSetting, setTheme, addStatusMessage, featureSettings]);
 
-  // Toggle helper
+  // Toggle helpers. Switches that also appear in Advanced > Feature Matrix
+  // are the same switch here, saved through saveFeature.
   const isOn = (key: string) => settings[key] === "true";
+  const isFeature = (key: FeatureKey) => isFeatureOn(featureSettings, key);
+  const toggleFeatureSwitch = async (key: FeatureKey) => {
+    try {
+      await saveFeature(key, !isFeature(key), featureSettings[key]?.config ?? {});
+    } catch (error) {
+      addStatusMessage(`Could not change ${key}: ${String(error)}`);
+    }
+  };
   const toggle = (key: string) => setSetting(key, isOn(key) ? "false" : "true");
 
   const SECTIONS = [
@@ -308,32 +316,32 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Skip Intro Detection"
                 desc="Automatically detect and skip intros"
-                checked={isOn("skip_intro")}
-                onChange={() => toggle("skip_intro")}
+                checked={isFeature("skip_intro")}
+                onChange={() => void toggleFeatureSwitch("skip_intro")}
               />
               <ToggleRow
                 label="Skip Outro / Credits"
                 desc="Auto-skip end credits and outros"
-                checked={isOn("skip_outro")}
-                onChange={() => toggle("skip_outro")}
+                checked={isFeature("skip_credits")}
+                onChange={() => void toggleFeatureSwitch("skip_credits")}
               />
               <ToggleRow
                 label="Auto-Play Next Episode"
                 desc="Seamlessly play the next episode in a series"
-                checked={isOn("auto_next")}
-                onChange={() => toggle("auto_next")}
+                checked={isFeature("next_up")}
+                onChange={() => void toggleFeatureSwitch("next_up")}
               />
               <ToggleRow
                 label="Auto-Download Subtitles"
                 desc="Fetch subtitles automatically for all media"
-                checked={isOn("auto_subtitles")}
-                onChange={() => toggle("auto_subtitles")}
+                checked={isFeature("subtitle_fetch")}
+                onChange={() => void toggleFeatureSwitch("subtitle_fetch")}
               />
               <ToggleRow
                 label="Chapter Thumbnails"
                 desc="Generate preview thumbnails for video chapters"
-                checked={isOn("chapter_thumbs_enabled")}
-                onChange={() => toggle("chapter_thumbs_enabled")}
+                checked={isFeature("chapter_thumbs")}
+                onChange={() => void toggleFeatureSwitch("chapter_thumbs")}
               />
 
               <SectionHeader
@@ -373,14 +381,14 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Smart Collections"
                 desc="Auto-generate collections based on genres, years, and actors"
-                checked={isOn("smart_collections")}
-                onChange={() => toggle("smart_collections")}
+                checked={isFeature("collection_auto")}
+                onChange={() => void toggleFeatureSwitch("collection_auto")}
               />
               <ToggleRow
                 label="Poster Sync"
                 desc="Keep poster artwork synced across all connected servers"
-                checked={isOn("poster_sync")}
-                onChange={() => toggle("poster_sync")}
+                checked={isFeature("poster_sync")}
+                onChange={() => void toggleFeatureSwitch("poster_sync")}
               />
               <ToggleRow
                 label="Unified Library"
@@ -391,8 +399,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Watchlist"
                 desc="Track what you want to watch next"
-                checked={isOn("watchlist_enabled")}
-                onChange={() => toggle("watchlist_enabled")}
+                checked={isFeature("watchlist")}
+                onChange={() => void toggleFeatureSwitch("watchlist")}
               />
             </>
           )}
@@ -413,8 +421,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Particle Effects"
                 desc="Ambient floating particle system in backgrounds"
-                checked={isOn("particle_effects")}
-                onChange={() => toggle("particle_effects")}
+                checked={isFeature("particle_bg")}
+                onChange={() => void toggleFeatureSwitch("particle_bg")}
               />
               <ToggleRow
                 label="AI Visualizer"
@@ -425,8 +433,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Glassmorphism"
                 desc="Frosted glass UI panels with blur effects"
-                checked={isOn("glassmorphism")}
-                onChange={() => toggle("glassmorphism")}
+                checked={isFeature("glass_effects")}
+                onChange={() => void toggleFeatureSwitch("glass_effects")}
               />
               <ToggleRow
                 label="Starfield Header"
@@ -447,8 +455,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Hardware Transcoding"
                 desc="Use GPU acceleration for video transcoding"
-                checked={isOn("hw_transcoding")}
-                onChange={() => toggle("hw_transcoding")}
+                checked={isFeature("hw_transcode")}
+                onChange={() => void toggleFeatureSwitch("hw_transcode")}
               />
               <SettingRow
                 label="Quality Control"
@@ -519,7 +527,7 @@ export default function SettingsTab() {
                   Fusion Edition
                 </p>
                 <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>
-                  v1.6.6 · Build 166 · Tauri v2 + React 18
+                  {BUILD_INFO.displayName} · Tauri v2 + React 19
                 </p>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-white/3">

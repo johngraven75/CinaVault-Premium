@@ -22,6 +22,8 @@ import {
   isLibraryDisplayableMediaItem,
 } from "../../utils/mediaPlaybackSafety";
 import MeteorShower from "../effects/MeteorShower";
+import { isFeatureOn } from "../../features/featureFlags";
+import { playMedia } from "../../services/playback";
 import HoloCard from "../holo/HoloCard";
 import {
   HoloProgressBar,
@@ -181,6 +183,7 @@ export default function HomeTab(): JSX.Element {
     featureSettings,
   } = useAppStore();
 
+  const unifiedLibraryOn = useAppStore((state) => state.settings.unified_library !== "false");
   const [activeShelf, setActiveShelf] = useState<Shelf>("recent");
   const [typeFilter, setTypeFilter] = useState("all");
   const [loading, setLoading] = useState(false);
@@ -255,7 +258,10 @@ export default function HomeTab(): JSX.Element {
       // copies); falls back to the paged get_media_items bridge.
       // The count is informational: if it fails, still show the library.
       const [libraryLoad, exactCount] = await Promise.all([
-        loadUnifiedLibrary(typeFilter, () => requestMediaPage(0)),
+        // Settings > Library > Unified Library off shows every file on its own.
+        unifiedLibraryOn
+          ? loadUnifiedLibrary(typeFilter, () => requestMediaPage(0))
+          : requestMediaPage(0).then((items) => ({ items, unified: false })),
         requestAuthoritativeCount().catch(() => null),
       ]);
       if (generation !== libraryLoadGenerationRef.current) return;
@@ -298,6 +304,7 @@ export default function HomeTab(): JSX.Element {
     setMediaItems,
     setSelectedMedia,
     typeFilter,
+    unifiedLibraryOn,
   ]);
 
   const loadMoreMedia = useCallback(
@@ -406,7 +413,9 @@ export default function HomeTab(): JSX.Element {
       return;
     }
     try {
-      await invoke("play_media", { filePath: item.file_path });
+      const queue = filteredItems.filter(canPlayMediaItem);
+      const index = queue.findIndex((entry) => entry.file_path === item.file_path);
+      await playMedia(index >= 0 ? queue : [item], Math.max(0, index), { source: "library" });
       addStatusMessage(`Quick Play engaged: ${item.title}`);
     } catch (error) {
       addStatusMessage(`Quick Play failed: ${String(error)}`);
@@ -451,7 +460,7 @@ export default function HomeTab(): JSX.Element {
   return (
     <div className="cyber-home space-y-5">
       <section className="cyber-hero">
-        {featureSettings.particle_bg?.enabled !== false && <MeteorShower meteorCount={34} />}
+        {isFeatureOn(featureSettings, "particle_bg") && <MeteorShower meteorCount={34} />}
         {heroImageSrc && (
           <div
             key={heroImageSrc}

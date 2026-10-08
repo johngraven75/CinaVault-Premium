@@ -1,6 +1,7 @@
 // CinaVault Premium — Global State Store (Zustand) with Persistence
 import { create } from "zustand";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
+import featureDefaults from "../features/featureDefaults.json";
 import {
   IS_STORE_SAFE,
   filterStoreSafeMedia,
@@ -339,37 +340,16 @@ const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
   match_unmatch: "on_import",
 };
 
-// ── Premium feature defaults (all enabled) ──
+// ── Feature switch defaults ──
+// Every switch in Advanced > Feature Matrix, from featureDefaults.json (the
+// Rust side reads the same file), so an untouched switch means the same thing
+// to the UI and the back end.
 const DEFAULT_FEATURE_SETTINGS: Record<
   string,
   { enabled: boolean; config: any }
-> = {
-  smart_collections: { enabled: true, config: {} },
-  poster_sync: { enabled: true, config: {} },
-  unified_library: { enabled: true, config: {} },
-  watchlist: { enabled: true, config: {} },
-  skip_intro: { enabled: true, config: {} },
-  skip_outro: { enabled: true, config: {} },
-  auto_next: { enabled: true, config: {} },
-  auto_subtitles: { enabled: true, config: {} },
-  chapter_thumbs: { enabled: true, config: {} },
-  hw_transcoding: { enabled: true, config: {} },
-  motion_effects: { enabled: true, config: {} },
-  splash_screen: { enabled: true, config: {} },
-  particle_effects: { enabled: true, config: {} },
-  particle_bg: { enabled: true, config: {} },
-  holo_agent: { enabled: true, config: {} },
-  ai_visualizer: { enabled: true, config: {} },
-  glassmorphism: { enabled: true, config: {} },
-  starfield_header: { enabled: true, config: {} },
-  animated_sidebar: { enabled: true, config: {} },
-  emby_sdk: { enabled: true, config: {} },
-  vpn_integration: { enabled: true, config: {} },
-  ai_diagnostics: { enabled: true, config: {} },
-  duplicate_finder: { enabled: true, config: {} },
-  iptv_support: { enabled: true, config: {} },
-  plugin_system: { enabled: true, config: {} },
-};
+> = Object.fromEntries(
+  Object.entries(featureDefaults).map(([key, enabled]) => [key, { enabled, config: {} }]),
+);
 
 // ── Premium settings defaults ──
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -377,17 +357,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   splash_enabled: "true",
   sidebar_collapsed: "false",
   motion_enabled: "true",
-  skip_intro: "true",
-  skip_outro: "true",
-  auto_next: "true",
-  auto_subtitles: "true",
-  chapter_thumbs_enabled: "true",
   prefer_embedded_titles: "true",
-  smart_collections: "true",
-  poster_sync: "true",
   unified_library: "true",
-  watchlist_enabled: "true",
-  hw_transcoding: "true",
   quality_control: "auto",
   remote_access_enabled: "true",
   remote_manually_specify_port: "false",
@@ -400,9 +371,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   remote_enable_upnp: "true",
   remote_enable_natpmp: "true",
   default_player: "system",
-  particle_effects: "true",
   ai_visualizer: "true",
-  glassmorphism: "true",
   starfield_header: "true",
   window_opacity: "100",
 };

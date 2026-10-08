@@ -106,7 +106,8 @@ test("holographic styles animate only compositor-friendly properties and honour 
 
 test("app shell respects the OS motion preference and tab transitions avoid blur", () => {
   const app = read("src/App.tsx");
-  assert.match(app, /<MotionConfig reducedMotion="user">/);
+  // The OS preference applies unless Settings > Visual Effects turns motion off entirely.
+  assert.match(app, /<MotionConfig reducedMotion=\{shell.reduceMotion ? "always" : "user"\}>/);
   const tabMotion = app.slice(app.indexOf("const TAB_MOTION"), app.indexOf("function findScrollableAncestor"));
   assert.doesNotMatch(tabMotion, /filter/);
   for (const effect of ["MeteorShower", "ParticleField", "AIVisualizer"]) {

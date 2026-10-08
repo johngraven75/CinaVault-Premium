@@ -43,6 +43,8 @@ import { startAiMediaAutopilot } from "./services/aiMediaAutopilot";
 import { startPosterAutopilot } from "./services/aiPosterAutopilot";
 import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
+import { isFeatureOn, syncFeatureSettingsFromBackend } from "./features/featureFlags";
+import { useShellPreferences } from "./features/shellPreferences";
 import {
   ensurePermanentMediaPluginsAtStartup,
   initializePermanentMediaPluginsAtStartup,
@@ -315,6 +317,11 @@ export default function App(): JSX.Element {
         }
 
         restorePersistedState(persistedState);
+        try {
+          await syncFeatureSettingsFromBackend();
+        } catch (error) {
+          console.warn("Saved feature switches unavailable; using defaults:", error);
+        }
         hasRestoredSettings.current = true;
         if (cancelled) return;
 
@@ -427,10 +434,11 @@ export default function App(): JSX.Element {
     }
   }, []);
 
+  const shell = useShellPreferences(settings, featureSettings);
   const CurrentTabComponent = TAB_COMPONENTS[activeTab];
 
   return (
-    <MotionConfig reducedMotion="user">
+    <MotionConfig reducedMotion={shell.reduceMotion ? "always" : "user"}>
     <div className="app-shell cv-app min-h-screen overflow-hidden bg-[#02040a] text-cv-text">
       <ExperienceBackdrop />
 
@@ -551,7 +559,7 @@ export default function App(): JSX.Element {
       </motion.div>
 
       <FirstRunSetup />
-      {featureSettings.holo_agent?.enabled !== false && (
+      {isFeatureOn(featureSettings, "holo_agent") && (
         <Suspense fallback={null}>
           <HoloAgent />
         </Suspense>
