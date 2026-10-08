@@ -1,0 +1,417 @@
+/* Home screen discovery shelves, carousel rows, watchlist toggles and the
+   poster hover preview (src/components/discovery). Colours come from the
+   active theme's --cv-* variables so both skins and every theme apply. */
+
+.cv-discovery {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+.cv-discovery.is-kodi {
+  padding: 0 24px;
+}
+
+/* ── New releases banner ─────────────────────────────────────────────── */
+.cv-new-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--cv-accent, #38bdf8) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cv-accent, #38bdf8) 12%, rgba(0, 0, 0, 0.35));
+  color: var(--cv-text, #e5e7eb);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.cv-new-banner > span {
+  flex: 1;
+}
+.cv-new-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.3);
+  color: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+/* ── Genre radio ─────────────────────────────────────────────────────── */
+.cv-genre-radio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.78rem;
+  color: var(--cv-subtext, #9ca3af);
+}
+.cv-genre-radio__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cv-text, #e5e7eb);
+}
+.cv-genre-radio select,
+.cv-genre-radio__play {
+  height: 2rem;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--cv-text, #e5e7eb);
+  font-size: 0.76rem;
+}
+.cv-genre-radio__play {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--cv-accent, #38bdf8) 55%, transparent);
+}
+.cv-genre-radio__play:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* ── Shelves ─────────────────────────────────────────────────────────── */
+.cv-disc-shelf__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.6rem;
+}
+.cv-disc-shelf__head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cv-text, #e5e7eb);
+}
+.cv-disc-shelf__count {
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.68rem;
+  letter-spacing: 0;
+}
+.cv-disc-shelf__note,
+.cv-disc-shelf__empty,
+.cv-more-like__empty {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--cv-subtext, #9ca3af);
+}
+
+/* Carousel: one row, buttons at the ends, drag and wheel scroll. */
+.cv-shelf-carousel {
+  position: relative;
+}
+.cv-shelf-track {
+  display: flex;
+  gap: 0.9rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0.15rem 0.6rem;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+  cursor: grab;
+}
+.cv-shelf-track:active {
+  cursor: grabbing;
+}
+.cv-shelf-track > * {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+.cv-shelf-scroll {
+  position: absolute;
+  top: 40%;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--cv-text, #fff);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: opacity 160ms ease;
+}
+.cv-shelf-scroll.is-prev {
+  left: -0.4rem;
+}
+.cv-shelf-scroll.is-next {
+  right: -0.4rem;
+}
+.cv-shelf-scroll:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+/* Grid: shelves wrap when carousel mode is off. */
+.cv-shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.9rem;
+}
+.cv-shelf-grid > .cv-disc-card,
+.cv-shelf-grid > .kodi-card {
+  width: auto;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────── */
+.cv-disc-card {
+  position: relative;
+  width: 150px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--cv-panel, rgba(15, 23, 42, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+.cv-disc-card.is-holo {
+  border-color: rgba(0, 245, 255, 0.18);
+  background: rgba(5, 8, 16, 0.78);
+}
+.cv-disc-card:hover,
+.cv-disc-card:focus-visible {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+  border-color: color-mix(in srgb, var(--cv-accent, #38bdf8) 60%, transparent);
+}
+.cv-disc-card:focus-visible {
+  outline: 2px solid var(--cv-accent, #38bdf8);
+  outline-offset: 2px;
+}
+html.cv-no-poster-hover .cv-disc-card:hover {
+  transform: none;
+}
+.cv-disc-card.is-compact {
+  width: auto;
+}
+.cv-disc-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.cv-disc-poster-img,
+.cv-disc-poster-fallback {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cv-disc-poster-fallback {
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.25);
+}
+.cv-disc-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.cv-disc-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--cv-accent, #38bdf8);
+}
+.cv-disc-actions {
+  position: absolute;
+  left: 0.4rem;
+  right: 0.4rem;
+  bottom: 0.55rem;
+  z-index: 4;
+  display: flex;
+  gap: 0.35rem;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.cv-disc-card:hover .cv-disc-actions,
+.cv-disc-card:focus-within .cv-disc-actions {
+  opacity: 1;
+  transform: none;
+}
+.cv-disc-play {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  height: 1.8rem;
+  border: 0;
+  border-radius: 7px;
+  background: var(--cv-accent, #38bdf8);
+  color: #04121a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.cv-disc-info {
+  padding: 0.5rem 0.6rem 0.6rem;
+}
+.cv-disc-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--cv-text, #e5e7eb);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-disc-meta,
+.cv-disc-reason {
+  margin: 0.15rem 0 0;
+  overflow: hidden;
+  font-size: 0.66rem;
+  color: var(--cv-subtext, #9ca3af);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+}
+.cv-disc-reason {
+  text-transform: none;
+  color: color-mix(in srgb, var(--cv-accent, #38bdf8) 75%, var(--cv-text, #fff));
+}
+
+/* ── Watchlist toggle ───────────────────────────────────────────────── */
+.cv-watchlist-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+.cv-watchlist-btn.is-saved {
+  color: var(--cv-gold, #fbbf24);
+}
+.cv-disc-icon-btn {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+}
+.cv-disc-icon-btn.is-saved {
+  color: var(--cv-gold, #fbbf24);
+}
+.kodi-detail-btn.cv-watchlist-btn {
+  width: 100%;
+}
+
+/* ── Poster hover preview ───────────────────────────────────────────── */
+.cv-poster-preview {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 5;
+  max-height: 72%;
+  overflow: hidden;
+  padding: 0.6rem 0.65rem 1.1rem;
+  background: linear-gradient(180deg, rgba(3, 6, 12, 0.94) 0%, rgba(3, 6, 12, 0.82) 70%, transparent);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.66rem;
+  line-height: 1.45;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
+}
+.cv-poster-preview p {
+  margin: 0.2rem 0 0;
+}
+.cv-poster-preview__meta {
+  display: block;
+  font-weight: 800;
+  color: var(--cv-gold, #fbbf24);
+}
+:is(.cv-disc-card, .holo-card, .kodi-card):is(:hover, :focus-within) .cv-poster-preview {
+  opacity: 1;
+  transform: none;
+}
+/* Holo cards: the preview rides on the info block, above the title. */
+.holo-card__info .cv-poster-preview {
+  top: auto;
+  bottom: 100%;
+  max-height: none;
+  background: linear-gradient(0deg, rgba(3, 6, 12, 0.92) 0%, rgba(3, 6, 12, 0.8) 75%, transparent);
+  padding: 1rem 0.65rem 0.4rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-poster-preview,
+  .cv-disc-card,
+  .cv-disc-actions {
+    transition: none;
+  }
+}
+
+/* ── More like this (detail panels) ─────────────────────────────────── */
+.cv-more-like {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.cv-more-like h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cv-text, #e5e7eb);
+}
+.cv-more-like__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 0.55rem;
+}
+.cv-more-like .cv-disc-info {
+  padding: 0.35rem 0.4rem 0.45rem;
+}
+.cv-more-like .cv-disc-reason {
+  display: none;
+}
+
+/* Kodi shelves follow Shelf Carousel Mode too. */
+.cv-shelf-track.kodi-shelf {
+  padding-bottom: 12px;
+}
+.cv-shelf-grid.kodi-shelf-grid {
+  grid-template-columns: repeat(auto-fill, minmax(var(--kodi-card-w, 160px), 1fr));
+  gap: var(--kodi-shelf-gap, 16px);
+}

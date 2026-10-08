@@ -54,6 +54,10 @@ import { IS_STORE_SAFE } from "../../config/edition";
 import { loadUnifiedLibrary } from "../../services/unifiedLibrary";
 import { CopiesList, CopyCountBadge } from "../library/UnifiedCopies";
 import type { MediaCopyInfo } from "../../store/appStore";
+import DiscoveryShelves from "../discovery/DiscoveryShelves";
+import MoreLikeThis from "../discovery/MoreLikeThis";
+import PosterPreview from "../discovery/PosterPreview";
+import WatchlistButton from "../discovery/WatchlistButton";
 
 type Shelf = "recent" | "verified" | "unverified" | "favorites";
 
@@ -81,7 +85,7 @@ interface ChapterThumb {
 }
 
 const SHELF_OPTIONS: ShelfOption[] = [
-  { id: "recent", label: "Trending Now", icon: Clock },
+  { id: "recent", label: "Recently Added", icon: Clock },
   { id: "verified", label: "Verified Signal", icon: CheckCircle },
   { id: "unverified", label: "Needs Metadata", icon: Sparkles },
   { id: "favorites", label: "My Vault", icon: Heart },
@@ -472,7 +476,7 @@ export default function HomeTab(): JSX.Element {
         <div className="relative z-10 grid min-h-[310px] gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex min-w-0 flex-col justify-end">
             <div className="cyber-eyebrow mb-2 flex items-center gap-2">
-              <Zap size={14} /> {heroItem ? "Trending Now / Holographic Carousel" : libraryLoadError ? "Library Bridge Offline" : "Vault Empty / Awaiting Scan"}
+              <Zap size={14} /> {heroItem ? "Recently Added / Holographic Carousel" : libraryLoadError ? "Library Bridge Offline" : "Vault Empty / Awaiting Scan"}
             </div>
             {heroItem ? (
               <>
@@ -520,6 +524,8 @@ export default function HomeTab(): JSX.Element {
         <StatCard icon={Database} label="Vault Inventory" value={inventoryLabel} detail={authoritativeCount === null ? "Authoritative database count unavailable" : "Exact uncapped indexed-media count"} />
         <StatCard icon={Activity} label="System Status" value={libraryLoadError ? "Offline" : autoLoadingLibrary ? "Compiling" : "Nominal"} detail={`${verifiedCount} visible verified / ${movieCount} visible movies`} />
       </section>
+
+      <DiscoveryShelves skin="holo" onSelect={setSelectedMedia} />
 
       <section className="cyber-control-core">
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
@@ -619,7 +625,9 @@ export default function HomeTab(): JSX.Element {
               <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button"><Play size={14} /> Quick Play</button>
               <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button"><CheckCircle size={14} /> Verify Signal</button>
               <button type="button" onClick={() => void handleCheckMetadata(selectedMedia)} disabled={metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60">{metadataCheckId === selectedMedia.id ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />} Check Metadata</button>
+              <WatchlistButton item={selectedMedia} className="cyber-button" />
             </div>
+            <MoreLikeThis item={selectedMedia} skin="holo" onSelect={setSelectedMedia} />
           </motion.aside>
         )}
         </AnimatePresence>
@@ -696,6 +704,7 @@ function MediaCard({ item, index, selected, checking, onSelect, onPlay, onCheckM
       }
       info={
         <>
+          <PosterPreview item={item} />
           <h4 className="holo-card__title">{item.title}</h4>
           <div className="holo-card__meta">
             {item.year && <span>{item.year}</span>}
@@ -708,6 +717,7 @@ function MediaCard({ item, index, selected, checking, onSelect, onPlay, onCheckM
         <>
           <button type="button" onClick={(event) => { event.stopPropagation(); onPlay(); }} className="holo-action is-primary" title={`Play ${item.title}`}><Play size={12} /> Play</button>
           <button type="button" onClick={(event) => { event.stopPropagation(); onCheckMetadata(); }} disabled={checking} className="holo-action" title={`Check metadata for ${item.title}`}>{checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}<span className="metadata-action-label">{checking ? "Checking" : "Metadata"}</span></button>
+          <WatchlistButton item={item} compact className="holo-action" />
         </>
       }
     />
