@@ -1068,7 +1068,11 @@ mod integration_tests {
         let database_path_text = database_path.to_string_lossy().into_owned();
         let database = Database::new(&database_path_text).expect("create temporary database");
         let provision = database
-            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", Some("Viewer"))
+            .create_remote_access_user(
+                "viewer@example.com",
+                &format!("Pw-{}!", uuid::Uuid::new_v4().simple()),
+                Some("Viewer"),
+            )
             .expect("provision remote user");
         database
             .add_media_item_data(&media(
@@ -1162,7 +1166,11 @@ mod integration_tests {
         let database = Database::new(path.to_str().unwrap()).unwrap();
         user_data::ensure_tables(&database).unwrap();
         let access_key = database
-            .create_remote_access_user("family@example.com", "CorrectHorse42!", None)
+            .create_remote_access_user(
+                "family@example.com",
+                &format!("Pw-{}!", uuid::Uuid::new_v4().simple()),
+                None,
+            )
             .unwrap()
             .access_key;
         let api_key = api_keys_server::issue(

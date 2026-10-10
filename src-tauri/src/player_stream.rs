@@ -570,7 +570,11 @@ mod tests {
     async fn embedded_server_transcodes_for_signed_in_clients_only() {
         let (db, db_path) = temp_db();
         let provision = db
-            .create_remote_access_user("viewer@example.com", "CorrectHorse42!", Some("Viewer"))
+            .create_remote_access_user(
+                "viewer@example.com",
+                &format!("Pw-{}!", uuid::Uuid::new_v4().simple()),
+                Some("Viewer"),
+            )
             .unwrap();
         let sample = sample_video();
         let file = sample
