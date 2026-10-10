@@ -34,7 +34,8 @@ function runConfigure(extraEnv) {
 test("release build signs through signCommand only after signing is configured", () => {
   assert.match(workflow, /run: \.\/scripts\/configure-windows-signing\.ps1/);
   assert.match(workflow, /if: steps\.signing\.outputs\.enabled == 'true'\s+run: cargo install artifact-signing-cli --version 0\.11\.0 --locked/);
-  assert.match(workflow, /npm run tauri build -- --target x86_64-pc-windows-msvc @signing/);
+  assert.match(workflow, /npx --no-install tauri build --target x86_64-pc-windows-msvc @signing/);
+  assert.doesNotMatch(workflow, /npm run tauri build -- /);
   assert.match(workflow, /\$signing = @\('--config', \$env:CINAVAULT_SIGNING_CONFIG\)/);
   assert.match(workflow, /run: \.\/scripts\/verify-windows-signatures\.ps1/);
 });
