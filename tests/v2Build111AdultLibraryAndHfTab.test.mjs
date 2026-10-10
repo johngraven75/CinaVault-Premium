@@ -50,6 +50,6 @@ test("all Windows version sources are synchronized at v1.0.2 Pre-Beta Build 102"
   assert.equal(manifest.semanticVersion, "1.0.2");
   assert.equal(manifest.displayBuild, "102");
   assert.equal(JSON.parse(read("package.json")).version, "1.0.2");
-  assert.match(read("src-tauri/Cargo.toml"), /version = "1\.0\.1"/);
+  assert.match(read("src-tauri/Cargo.toml"), /version = "1\.0\.2"/);
   assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, "1.0.2");
 });
