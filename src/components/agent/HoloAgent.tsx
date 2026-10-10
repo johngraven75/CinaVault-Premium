@@ -90,6 +90,8 @@ export default function HoloAgent() {
   const mouthRef = useRef(0);
   const nextId = useRef(1);
   const timer = useRef<number | null>(null);
+  /** The answer currently typing out, so an interruption can still show all of it. */
+  const typing = useRef<{ id: number; text: string; actions?: AgentAction[] } | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -99,6 +101,13 @@ export default function HoloAgent() {
   const stopSpeaking = useCallback(() => {
     if (timer.current !== null) window.clearInterval(timer.current);
     timer.current = null;
+    const pending = typing.current;
+    typing.current = null;
+    if (pending) {
+      setLines((prev) =>
+        prev.map((line) => (line.id === pending.id ? { ...line, text: pending.text, actions: pending.actions } : line)),
+      );
+    }
     mouthRef.current = 0;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
@@ -148,6 +157,7 @@ export default function HoloAgent() {
   const speak = (text: string, actions?: AgentAction[]) => {
     stopSpeaking();
     const id = nextId.current++;
+    typing.current = { id, text, actions };
     setLines((prev) => [...prev, { id, role: "agent", text: "" }]);
     const envelope = mouthEnvelope(text, STEP_MS);
     const charsPerStep = Math.max(1, Math.ceil(text.length / Math.max(1, envelope.length - 1)));
@@ -166,6 +176,7 @@ export default function HoloAgent() {
       if (finished) {
         if (timer.current !== null) window.clearInterval(timer.current);
         timer.current = null;
+        typing.current = null;
         mouthRef.current = 0;
         dispatch({ type: "done" });
       }
@@ -174,8 +185,11 @@ export default function HoloAgent() {
 
   const ask = async (prompt: string) => {
     const clean = prompt.trim();
-    const image = claude ? attachment : null;
-    if ((!clean && !image) || busy) return;
+    if (busy) return;
+    // The status check may still be in flight right after the panel opens.
+    const useClaude = status ? status.configured : (await getAgentStatus().catch(() => null))?.configured === true;
+    const image = useClaude ? attachment : null;
+    if (!clean && !image) return;
     const shownPrompt = clean || "What is in this image?";
     stopSpeaking();
     dispatch({ type: "submit", prompt: shownPrompt });
@@ -184,7 +198,7 @@ export default function HoloAgent() {
     setAttachment(null);
     setAttachError(null);
     try {
-      if (claude) {
+      if (useClaude) {
         const reply = await sendAgentMessage(clean, image?.input ?? null, (phase, tool) =>
           setActivity(phase === "idle" ? null : activityLabel(phase, tool)),
         );

@@ -162,7 +162,7 @@ test("the Claude brain is wired front to back and keeps the key in Rust", () => 
   assert.doesNotMatch(brain + panel, /@anthropic-ai\/sdk/);
   assert.match(panel, /type="password"/);
   // Without a key the panel keeps working offline through ai_query.
-  assert.match(panel, /claude \? attachment : null/);
+  assert.match(panel, /useClaude \? attachment : null/);
   assert.match(panel, /sendAgentMessage\(clean, image\?\.input \?\? null/);
   // Anything that changes the library is a button the user presses.
   assert.match(panel, /runAgentAction\(action\.id\)/);

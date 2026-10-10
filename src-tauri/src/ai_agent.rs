@@ -39,7 +39,7 @@ const MAX_TOOL_ROUNDS: usize = 8;
 /// Past this size the conversation starts over from the newest exchange.
 const MAX_HISTORY_MESSAGES: usize = 60;
 const MAX_MESSAGE_CHARS: usize = 8_000;
-/// The Messages API rejects images over 5 MB; uploads are checked before sending.
+/// The Messages API rejects images whose base64 data exceeds 5 MB; uploads are checked before sending.
 const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 const POSTER_MAX_SIDE: u32 = 1024;
 const MAX_SEARCH_RESULTS: usize = 25;
@@ -131,6 +131,8 @@ struct Conversation {
     pending: HashMap<String, ProposedAction>,
     /// Outcomes of approved actions, told to the model with the next message.
     notes: Vec<String>,
+    /// Bumped by a reset, so a request that started before it doesn't restore old history.
+    generation: u64,
 }
 
 fn conversation() -> &'static Mutex<Conversation> {
@@ -373,9 +375,9 @@ pub fn validate_image(image: &AgentImage) -> Result<(), String> {
     if !TYPES.contains(&image.media_type.as_str()) {
         return Err("Images must be JPEG, PNG, GIF or WebP".into());
     }
-    let decoded_len = image.data.len() / 4 * 3;
-    if image.data.is_empty() || decoded_len > MAX_IMAGE_BYTES {
-        return Err("Images must be under 5 MB".into());
+    // The API measures the encoded payload, matching imageAttachmentError in holoAgent.ts.
+    if image.data.is_empty() || image.data.len() > MAX_IMAGE_BYTES {
+        return Err("Images must be under about 3.7 MB".into());
     }
     if image
         .data
@@ -669,7 +671,7 @@ pub fn propose_library_action(name: &str, input: &Value) -> Result<ProposedActio
 
 async fn run_diagnostics(state: &State<'_, AppState>, input: &Value) -> Result<Value, String> {
     let report = match input["check"].as_str().unwrap_or_default() {
-        "sources" => crate::ai::check_sources(state.clone()).await?,
+        "sources" => redact_source_paths(crate::ai::check_sources(state.clone()).await?),
         "providers" => crate::ai::check_providers(state.clone()).await?,
         "network" => crate::ai::run_network_diagnostics().await?,
         other => {
@@ -679,6 +681,18 @@ async fn run_diagnostics(state: &State<'_, AppState>, input: &Value) -> Result<V
         }
     };
     Ok(json!(report.to_string()))
+}
+
+/// Keeps local folder paths out of what is sent to the API; source names identify them well enough.
+fn redact_source_paths(mut report: Value) -> Value {
+    if let Some(results) = report["results"].as_array_mut() {
+        for result in results {
+            if let Some(source) = result.as_object_mut() {
+                source.remove("path");
+            }
+        }
+    }
+    report
 }
 
 fn button_note(action: &ProposedAction) -> Value {
@@ -836,7 +850,10 @@ pub fn agent_set_model(state: State<'_, AppState>, model: String) -> Result<Agen
 #[tauri::command]
 pub fn agent_reset() -> Result<(), String> {
     let mut convo = conversation().lock().map_err(|e| e.to_string())?;
-    *convo = Conversation::default();
+    *convo = Conversation {
+        generation: convo.generation + 1,
+        ..Conversation::default()
+    };
     Ok(())
 }
 
@@ -867,9 +884,13 @@ pub async fn agent_chat(
         text
     };
 
-    let (mut messages, notes) = {
+    let (mut messages, notes, generation) = {
         let convo = conversation().lock().map_err(|e| e.to_string())?;
-        (convo.messages.clone(), convo.notes.clone())
+        (
+            convo.messages.clone(),
+            convo.notes.clone(),
+            convo.generation,
+        )
     };
     let committed_len = messages.len();
     messages.push(build_user_message(text, image.as_ref(), &notes));
@@ -926,16 +947,23 @@ pub async fn agent_chat(
 
     {
         let mut convo = conversation().lock().map_err(|e| e.to_string())?;
-        if stop_reason == "refusal" {
-            // Nothing from a declined turn is kept, so the history stays valid.
-            messages.truncate(committed_len);
+        if convo.generation != generation {
+            // The conversation was reset mid-request; keep it reset and offer no stale buttons.
+            actions.clear();
         } else {
-            convo.notes.clear();
-        }
-        trim_history(&mut messages, MAX_HISTORY_MESSAGES);
-        convo.messages = messages;
-        for action in &actions {
-            convo.pending.insert(action.id.clone(), action.clone());
+            if stop_reason == "refusal" {
+                // Nothing from a declined turn is kept, so the history stays valid.
+                messages.truncate(committed_len);
+            } else {
+                // Only drop the notes this request sent; actions may have added more since.
+                let sent = notes.len().min(convo.notes.len());
+                convo.notes.drain(..sent);
+            }
+            trim_history(&mut messages, MAX_HISTORY_MESSAGES);
+            convo.messages = messages;
+            for action in &actions {
+                convo.pending.insert(action.id.clone(), action.clone());
+            }
         }
     }
 
@@ -1153,6 +1181,31 @@ mod tests {
             data: "A".repeat(7 * 1024 * 1024),
         };
         assert!(validate_image(&huge).is_err());
+        // Just over 5 MB of base64 decodes to about 3.75 MB, which the API still rejects.
+        let over_encoded = AgentImage {
+            media_type: "image/jpeg".into(),
+            data: "A".repeat(MAX_IMAGE_BYTES + 4),
+        };
+        assert!(validate_image(&over_encoded).is_err());
+        let at_limit = AgentImage {
+            media_type: "image/jpeg".into(),
+            data: "A".repeat(MAX_IMAGE_BYTES),
+        };
+        assert!(validate_image(&at_limit).is_ok());
+    }
+
+    #[test]
+    fn source_diagnostics_leave_out_local_paths() {
+        let report = json!({
+            "type": "source_check",
+            "total_sources": 1,
+            "results": [{"name": "Movies", "path": "/home/me/Movies", "exists": true, "enabled": true, "items": 4}],
+        });
+        let redacted = redact_source_paths(report);
+        assert!(redacted["results"][0].get("path").is_none());
+        assert_eq!(redacted["results"][0]["name"], "Movies");
+        assert_eq!(redacted["results"][0]["items"], 4);
+        assert!(!redacted.to_string().contains("/home/me"));
     }
 
     #[test]
