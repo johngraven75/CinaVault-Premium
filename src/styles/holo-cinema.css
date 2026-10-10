@@ -948,6 +948,97 @@
   gap: 6px;
 }
 
+.holo-agent-line p {
+  margin: 0;
+}
+
+.holo-agent-thumb {
+  display: block;
+  max-width: 140px;
+  max-height: 110px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.holo-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.holo-agent-action {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--holo-ink);
+  background: linear-gradient(120deg, var(--holo-cyan), #c6a8ff);
+  box-shadow: 0 0 12px rgba(92, 246, 255, 0.35);
+  transition: opacity 150ms linear, transform 150ms var(--holo-ease-out);
+}
+
+.holo-agent-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.holo-agent-action:disabled {
+  opacity: 0.6;
+}
+
+.holo-agent-action.is-done {
+  color: #c9f6ff;
+  background: rgba(92, 246, 255, 0.12);
+  box-shadow: none;
+}
+
+.holo-agent-action.is-failed {
+  color: #ffd6db;
+  background: rgba(255, 107, 122, 0.18);
+  box-shadow: none;
+}
+
+.holo-agent-upgrade {
+  align-self: stretch;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  text-align: left;
+  color: #ffe7b0;
+  border: 1px dashed rgba(255, 196, 92, 0.45);
+  background: rgba(255, 196, 92, 0.07);
+}
+
+.holo-agent-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 210px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(92, 246, 255, 0.2);
+  background: rgba(4, 5, 12, 0.55);
+}
+
+.holo-agent-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  color: #c9f6ff;
+  background: rgba(92, 246, 255, 0.08);
+}
+
+.holo-agent-attachment img {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
 @keyframes holo-agent-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }

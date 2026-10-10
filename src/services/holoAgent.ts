@@ -17,7 +17,8 @@ export type AgentEvent =
   | { type: "submit"; prompt: string }
   | { type: "answer" }
   | { type: "fail" }
-  | { type: "done" };
+  | { type: "done" }
+  | { type: "reset" };
 
 export const AGENT_START: AgentState = Object.freeze({ mood: "idle", pending: null });
 
@@ -39,6 +40,9 @@ export function agentReducer(state: AgentState, event: AgentEvent): AgentState {
       return state.mood === "thinking" ? { mood: "error", pending: null } : state;
     case "done":
       return state.mood === "speaking" || state.mood === "error" ? { mood: "idle", pending: null } : state;
+    case "reset":
+      // A new conversation abandons whatever was in flight.
+      return AGENT_START;
     default:
       return state;
   }
@@ -278,4 +282,44 @@ export function summarizeAgentResult(result: unknown): string {
     .map(([key, value]) => `${humanKey(key)} ${value}`);
   if (counts.length > 0) return `Finished: ${counts.join(", ")}.`;
   return "Done.";
+}
+
+// ---------------------------------------------------------- Claude brain ----
+
+/** Progress the back end streams while Claude works (ai_agent.rs emit_activity). */
+export type AgentActivityPhase = "thinking" | "searching" | "acting" | "idle";
+
+const TOOL_ACTIVITY: Record<string, string> = {
+  search_library: "Searching your library",
+  library_overview: "Reading your library",
+  get_media_item: "Reading the details",
+  view_poster: "Looking at the poster",
+  run_diagnostics: "Running diagnostics",
+};
+
+/** Status line under the agent's name while it works. */
+export function activityLabel(phase: AgentActivityPhase, tool: string | null): string {
+  if (phase === "acting") return "Preparing an action for you";
+  if (phase === "searching") return (tool && TOOL_ACTIVITY[tool]) || "Checking";
+  if (phase === "thinking") return "Thinking";
+  return "Ready";
+}
+
+/** The Messages API accepts these image types, up to 5 MB each. */
+export const AGENT_IMAGE_TYPES: readonly string[] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+export const AGENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Why an attachment can't be sent, or null when it can. */
+export function imageAttachmentError(type: string, size: number): string | null {
+  if (!AGENT_IMAGE_TYPES.includes(type)) return "Attach a JPEG, PNG, GIF or WebP image.";
+  if (size <= 0) return "That image is empty.";
+  // Base64 grows the payload by a third; the limit applies to the encoded data.
+  if (Math.ceil(size / 3) * 4 > AGENT_IMAGE_MAX_BYTES) return "Images must be under about 3.7 MB.";
+  return null;
+}
+
+/** Strips the data-URL prefix FileReader adds, leaving bare base64. */
+export function base64FromDataUrl(dataUrl: string): string {
+  const comma = dataUrl.indexOf(",");
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
 }

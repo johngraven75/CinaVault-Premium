@@ -378,7 +378,7 @@ pub async fn ai_inference(
     }))
 }
 
-async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
+pub(crate) async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
     let mut results = serde_json::Map::new();
 
     // DNS check
@@ -436,7 +436,7 @@ async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
     }))
 }
 
-async fn check_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub(crate) async fn check_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let sources = db.get_sources_data().map_err(|e| e.to_string())?;
 
@@ -459,7 +459,9 @@ async fn check_sources(state: State<'_, AppState>) -> Result<serde_json::Value, 
     }))
 }
 
-async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub(crate) async fn check_providers(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = db
         .conn

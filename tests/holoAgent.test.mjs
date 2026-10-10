@@ -9,8 +9,13 @@ import {
   HEAD_CAMERA_DISTANCE,
   HEAD_REGION,
   JAW_DROP,
+  AGENT_IMAGE_MAX_BYTES,
+  AGENT_IMAGE_TYPES,
+  activityLabel,
   agentReducer,
+  base64FromDataUrl,
   buildHeadCloud,
+  imageAttachmentError,
   mouthEnvelope,
   projectHeadPoint,
   summarizeAgentResult,
@@ -37,6 +42,12 @@ test("agent ignores empty prompts, double submits and stray events", () => {
   assert.equal(run([{ type: "answer" }]), AGENT_START);
   assert.equal(run([{ type: "submit", prompt: "x" }, { type: "fail" }]).mood, "error");
   assert.equal(run([{ type: "submit", prompt: "x" }, { type: "fail" }, { type: "done" }]).mood, "idle");
+});
+
+test("a new conversation abandons an answer still in flight", () => {
+  const thinking = run([{ type: "submit", prompt: "first" }]);
+  assert.equal(agentReducer(thinking, { type: "reset" }), AGENT_START);
+  assert.equal(agentReducer(thinking, { type: "done" }), thinking, "done alone can't clear a pending answer");
 });
 
 test("head cloud has the requested points, both eyes, a mouth and a jaw", () => {
@@ -105,4 +116,60 @@ test("agent is mounted behind its Advanced switch and lazy-loaded", () => {
   const head = read("src/components/agent/HoloHead.tsx");
   assert.match(head, /if \(reduceMotion\) draw\(0\);\s*else frame = requestAnimationFrame\(loop\);/);
   assert.match(head, /canvas\.getContext\("2d"\)/, "2D fallback when WebGL2 is unavailable");
+});
+
+test("activity from the Claude brain becomes a readable status line", () => {
+  assert.equal(activityLabel("thinking", null), "Thinking");
+  assert.equal(activityLabel("searching", "search_library"), "Searching your library");
+  assert.equal(activityLabel("searching", "view_poster"), "Looking at the poster");
+  assert.equal(activityLabel("searching", "run_diagnostics"), "Running diagnostics");
+  assert.equal(activityLabel("searching", "something_new"), "Checking");
+  assert.equal(activityLabel("acting", "play_media"), "Preparing an action for you");
+  assert.equal(activityLabel("idle", null), "Ready");
+});
+
+test("image attachments are checked before they are encoded", () => {
+  assert.deepEqual([...AGENT_IMAGE_TYPES], ["image/jpeg", "image/png", "image/gif", "image/webp"]);
+  assert.equal(imageAttachmentError("image/png", 120_000), null);
+  assert.match(imageAttachmentError("image/svg+xml", 1000), /JPEG, PNG, GIF or WebP/);
+  assert.match(imageAttachmentError("image/jpeg", 0), /empty/);
+  // The encoded size is what the API limits, so a 4.5 MB file is too big.
+  assert.ok(imageAttachmentError("image/jpeg", 4.5 * 1024 * 1024));
+  assert.equal(imageAttachmentError("image/jpeg", Math.floor((AGENT_IMAGE_MAX_BYTES / 4) * 3) - 3), null);
+  assert.equal(base64FromDataUrl("data:image/png;base64,iVBORw0KGgo="), "iVBORw0KGgo=");
+  assert.equal(base64FromDataUrl("iVBORw0KGgo="), "iVBORw0KGgo=");
+});
+
+test("the Claude brain is wired front to back and keeps the key in Rust", () => {
+  const lib = read("src-tauri/src/lib.rs");
+  const rust = read("src-tauri/src/ai_agent.rs");
+  const brain = read("src/services/agentBrain.ts");
+  const panel = read("src/components/agent/HoloAgent.tsx");
+  for (const command of [
+    "agent_status",
+    "agent_set_api_key",
+    "agent_clear_api_key",
+    "agent_set_model",
+    "agent_reset",
+    "agent_chat",
+    "agent_run_action",
+  ]) {
+    assert.match(lib, new RegExp(`ai_agent::${command},`), `${command} is registered`);
+    assert.match(brain, new RegExp(`"${command}"`), `${command} is called from the front end`);
+  }
+  // Every action kind Rust can propose has a matching TypeScript shape.
+  for (const kind of ["play", "refreshMetadata", "rename", "setWatched", "discoverFolders", "organizeLibrary"]) {
+    assert.match(brain, new RegExp(`type: "${kind}"`), kind);
+  }
+  assert.match(rust, /DiscoverFolders,\s*OrganizeLibrary \{ tasks: Vec<String> \},/);
+  // The key never travels back to the WebView, and no SDK ships in the bundle.
+  assert.doesNotMatch(rust, /pub key:|api_key: String,\s*\n\s*pub/);
+  assert.match(rust, /pub key_source: Option<&'static str>/);
+  assert.doesNotMatch(brain + panel, /@anthropic-ai\/sdk/);
+  assert.match(panel, /type="password"/);
+  // Without a key the panel keeps working offline through ai_query.
+  assert.match(panel, /useClaude \? attachment : null/);
+  assert.match(panel, /sendAgentMessage\(clean, image\?\.input \?\? null/);
+  // Anything that changes the library is a button the user presses.
+  assert.match(panel, /runAgentAction\(action\.id\)/);
 });
