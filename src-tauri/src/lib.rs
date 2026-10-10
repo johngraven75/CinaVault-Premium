@@ -184,8 +184,9 @@ pub fn run() {
             );
 
             // Permanent media tools are a startup dependency. Verify and automatically
-            // repair yt-dlp/FFmpeg/FFprobe/MediaInfo/MKVToolNix before the UI is ready.
-            match media_tools::ensure_media_tools() {
+            // repair yt-dlp/FFmpeg/FFprobe/MediaInfo/MKVToolNix in the background, so a
+            // slow winget install or a stuck tool can never keep the window from opening.
+            std::thread::spawn(|| match media_tools::ensure_media_tools_blocking() {
                 Ok(status) => {
                     if status.get("ready").and_then(|value| value.as_bool()).unwrap_or(false) {
                         log::info!("Permanent media tools are ready at launch");
@@ -194,7 +195,7 @@ pub fn run() {
                     }
                 }
                 Err(error) => log::warn!("Permanent media tools startup repair failed: {error}"),
-            }
+            });
 
             if let Err(error) = user_data::ensure_tables(&database) {
                 log::warn!("Profile and playback tables could not be prepared: {error}");
