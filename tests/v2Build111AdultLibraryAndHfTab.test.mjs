@@ -45,11 +45,11 @@ test("AI agent exposes a cooperative backend Stop control", () => {
   assert.match(read("src-tauri/src/enrichment.rs"), /task_progress::stop_requested\(\)/);
 });
 
-test("all Windows version sources are synchronized at v1.0.1 Pre-Beta Build 101", () => {
+test("all Windows version sources are synchronized at v1.0.2 Pre-Beta Build 102", () => {
   const manifest = JSON.parse(read("build-version.json"));
-  assert.equal(manifest.semanticVersion, "1.0.1");
-  assert.equal(manifest.displayBuild, "101");
-  assert.equal(JSON.parse(read("package.json")).version, "1.0.1");
+  assert.equal(manifest.semanticVersion, "1.0.2");
+  assert.equal(manifest.displayBuild, "102");
+  assert.equal(JSON.parse(read("package.json")).version, "1.0.2");
   assert.match(read("src-tauri/Cargo.toml"), /version = "1\.0\.1"/);
-  assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, "1.0.1");
+  assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, "1.0.2");
 });

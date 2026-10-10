@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.0.2 Pre-Beta · Build 102
+
+### New
+
+- **The holographic agent can now use Claude.** Add your Anthropic API key under the gear icon in the agent panel and pick Opus, Sonnet or Haiku. It searches your library, looks at posters and images you attach or paste, runs source, provider and network checks, and offers buttons to play, rename, refresh metadata, mark watched, add discovered folders or organize the library. Nothing changes until you press a button. Your key stays in the system keychain and never reaches the app window. Without a key, the agent keeps its offline answers.
+- **Each profile gets its own agent conversation**, and the agent only sees titles the active profile's parental controls allow.
+
 ### Fixed
 
 - **MediaInfo no longer freezes the app or pops up on screen.** On Windows the startup tool check could open the MediaInfo desktop program and wait until you closed it. CinaVault now only uses the hidden command-line version, runs every media tool in the background with a time limit, and opens the window without waiting for tool setup to finish.
