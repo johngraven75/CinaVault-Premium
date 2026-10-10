@@ -35,7 +35,8 @@ const INSPECTION_TIMEOUT: Duration = Duration::from_secs(120);
 const WINGET_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Serialises `ensure_media_tools` so the startup repair and a UI-triggered
-/// repair never run two winget installs of the same package at once.
+/// repair never run two winget installs of the same package at once, and
+/// makes status reads wait for a repair in progress.
 static ENSURE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy)]
@@ -430,6 +431,11 @@ pub async fn get_media_tools_status() -> Result<serde_json::Value, String> {
 }
 
 fn media_tools_status() -> serde_json::Value {
+    // Wait for any repair in progress (the startup one included) so the UI
+    // reports the post-install state rather than tools winget is still adding.
+    let _guard = ENSURE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let tools = current_statuses();
     serde_json::json!({
         "ready": tools.iter().all(|tool| tool.installed),
@@ -496,7 +502,10 @@ pub async fn inspect_with_mkvtoolnix(path: String) -> Result<serde_json::Value, 
 
 #[cfg(test)]
 mod tests {
-    use super::{is_windows_gui_image, output_with_timeout, REQUIRED_MEDIA_TOOLS};
+    use super::{
+        is_windows_gui_image, media_tools_status, output_with_timeout, ENSURE_LOCK,
+        REQUIRED_MEDIA_TOOLS,
+    };
     use std::collections::HashSet;
     use std::process::Command;
     use std::time::{Duration, Instant};
@@ -561,6 +570,20 @@ mod tests {
         command.args(["-c", "head -c 1000000 /dev/zero"]);
         let output = output_with_timeout(command, Duration::from_secs(10)).unwrap();
         assert_eq!(output.stdout.len(), 1_000_000);
+    }
+
+    #[test]
+    fn status_waits_for_a_repair_in_progress() {
+        let guard = ENSURE_LOCK.lock().unwrap();
+        let reader = std::thread::spawn(media_tools_status);
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!reader.is_finished(), "status must not report mid-repair");
+        drop(guard);
+        let status = reader.join().unwrap();
+        assert!(status
+            .get("tools")
+            .and_then(|tools| tools.as_array())
+            .is_some());
     }
 
     #[test]
