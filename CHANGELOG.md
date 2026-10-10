@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **MediaInfo no longer freezes the app or pops up on screen.** On Windows the startup tool check could open the MediaInfo desktop program and wait until you closed it. CinaVault now only uses the hidden command-line version, runs every media tool in the background with a time limit, and opens the window without waiting for tool setup to finish.
+
 ## v1.0.1 Pre-Beta · Build 101
 
 The first pre-beta of CinaVault Premium for Windows.
