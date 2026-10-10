@@ -103,7 +103,9 @@ jobs:
         run: |
           $signing = @()
           if ($env:CINAVAULT_SIGNING_CONFIG) { $signing = @('--config', $env:CINAVAULT_SIGNING_CONFIG) }
-          npm run tauri build -- --target x86_64-pc-windows-msvc @signing
+          # Call the Tauri CLI directly: PowerShell drops a bare `--` before it
+          # reaches npm.ps1, so npm would swallow the --target flag.
+          npx --no-install tauri build --target x86_64-pc-windows-msvc @signing
           if ($LASTEXITCODE -ne 0) { throw "tauri build failed: $LASTEXITCODE" }
 
       - name: Verify installer signatures
