@@ -70,7 +70,7 @@ pub async fn stop_server(server_type: String) -> Result<serde_json::Value, Strin
     #[cfg(target_os = "windows")]
     {
         Command::new("taskkill")
-            .args(&["/IM", &format!("{}.exe", process_name), "/F"])
+            .args(["/IM", &format!("{}.exe", process_name), "/F"])
             .output()
             .map_err(|e| e.to_string())?;
     }

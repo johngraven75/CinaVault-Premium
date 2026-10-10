@@ -106,11 +106,13 @@ fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     command
 }
 
+#[allow(dead_code)]
 #[cfg(not(target_os = "windows"))]
 fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     Command::new(program)
 }
 
+#[allow(dead_code)]
 fn tunnel_service_name(profile_name: &str) -> String {
     format!("WireGuardTunnel${profile_name}")
 }
@@ -147,11 +149,13 @@ fn handshake_is_verified(executable: &std::path::Path, profile: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(dead_code)]
 #[cfg(not(target_os = "windows"))]
 fn handshake_is_verified(_executable: &std::path::Path, _profile: &str) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn log_confirms_handshake(log: &str, profile: &str) -> bool {
     let log = log.to_ascii_lowercase();
     log.contains(&profile.to_ascii_lowercase())

@@ -2,6 +2,7 @@ use crate::{metadata_ext, AppState};
 use rusqlite::{params, OptionalExtension};
 use tauri::State;
 
+#[allow(dead_code)]
 async fn fetch_tmdb_backdrop(tmdb_id: &str, media_type: &str, api_key: &str) -> Option<String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -32,6 +33,7 @@ async fn fetch_tmdb_backdrop(tmdb_id: &str, media_type: &str, api_key: &str) -> 
     None
 }
 
+#[allow(dead_code)]
 fn full_media_item(state: &State<'_, AppState>, id: i64) -> Result<serde_json::Value, String> {
     let db = state.db.lock().map_err(|err| err.to_string())?;
     db.conn
@@ -71,6 +73,7 @@ fn full_media_item(state: &State<'_, AppState>, id: i64) -> Result<serde_json::V
         .map_err(|err| err.to_string())
 }
 
+#[allow(dead_code)]
 async fn check_media_item_metadata(
     state: State<'_, AppState>,
     id: i64,

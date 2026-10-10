@@ -249,6 +249,7 @@ fn command_for(executable: &str) -> std::io::Result<Command> {
             format!("only a desktop (GUI) version of {executable} is installed"),
         ));
     }
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
     let mut command = Command::new(resolve_executable(executable));
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);

@@ -2,8 +2,10 @@ use crate::metadata_provider_config::MetadataProviderRegistry;
 use serde::{Deserialize, Serialize};
 
 pub const SHARED_CONTRACT_VERSION: u32 = 1;
+#[allow(dead_code)]
 pub const METADATA_PROVIDER_FIXTURE_SHA256: &str =
     "b7ca1f8748296ce7651d17dec3165ac8a37e3aca321eaf558199299b44b5820d";
+#[allow(dead_code)]
 pub const ARTWORK_CACHE_FIXTURE_SHA256: &str =
     "d9b08d61cd3451278315102da031d0834db315639d49d7c16efb533ddd26e697";
 
@@ -30,6 +32,7 @@ pub struct MetadataProviderRegistryContract {
     pub providers: Vec<MetadataProviderContract>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtworkCacheEntryContract {
@@ -52,6 +55,7 @@ pub trait MetadataProviderRegistryInterface {
     fn metadata_provider_contract(&self) -> MetadataProviderRegistryContract;
 }
 
+#[allow(dead_code)]
 pub trait ArtworkCacheInterface {
     fn artwork_contract(&self) -> ArtworkCacheEntryContract;
 }
@@ -114,6 +118,7 @@ pub fn validate_metadata_provider_contract(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn validate_artwork_contract(contract: &ArtworkCacheEntryContract) -> Result<(), String> {
     if contract.schema_version != SHARED_CONTRACT_VERSION {
         return Err(format!(

@@ -177,7 +177,7 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
         let mut results = Vec::new();
 
         let ytdlp = Command::new("winget")
-            .args(&[
+            .args([
                 "install",
                 "--id",
                 "yt-dlp.yt-dlp",
@@ -192,7 +192,7 @@ pub async fn install_download_tools() -> Result<serde_json::Value, String> {
         }));
 
         let ffmpeg = Command::new("winget")
-            .args(&[
+            .args([
                 "install",
                 "--id",
                 "Gyan.FFmpeg",
