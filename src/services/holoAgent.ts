@@ -17,7 +17,8 @@ export type AgentEvent =
   | { type: "submit"; prompt: string }
   | { type: "answer" }
   | { type: "fail" }
-  | { type: "done" };
+  | { type: "done" }
+  | { type: "reset" };
 
 export const AGENT_START: AgentState = Object.freeze({ mood: "idle", pending: null });
 
@@ -39,6 +40,9 @@ export function agentReducer(state: AgentState, event: AgentEvent): AgentState {
       return state.mood === "thinking" ? { mood: "error", pending: null } : state;
     case "done":
       return state.mood === "speaking" || state.mood === "error" ? { mood: "idle", pending: null } : state;
+    case "reset":
+      // A new conversation abandons whatever was in flight.
+      return AGENT_START;
     default:
       return state;
   }

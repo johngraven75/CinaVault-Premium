@@ -91,6 +91,8 @@ export default function HoloAgent() {
   const nextId = useRef(1);
   const timer = useRef<number | null>(null);
   /** The answer currently typing out, so an interruption can still show all of it. */
+  /** Bumped by "New conversation", so a reply that was still on its way is dropped. */
+  const session = useRef(0);
   const typing = useRef<{ id: number; text: string; actions?: AgentAction[] } | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -190,6 +192,7 @@ export default function HoloAgent() {
     const useClaude = status ? status.configured : (await getAgentStatus().catch(() => null))?.configured === true;
     const image = useClaude ? attachment : null;
     if (!clean && !image) return;
+    const asked = session.current;
     const shownPrompt = clean || "What is in this image?";
     stopSpeaking();
     dispatch({ type: "submit", prompt: shownPrompt });
@@ -203,15 +206,18 @@ export default function HoloAgent() {
           setActivity(phase === "idle" ? null : activityLabel(phase, tool)),
         );
         setActivity(null);
+        if (session.current !== asked) return;
         dispatch({ type: "answer" });
         speak(reply.text, reply.actions);
       } else {
         const result = await invoke<unknown>("ai_query", { prompt: clean });
+        if (session.current !== asked) return;
         dispatch({ type: "answer" });
         speak(summarizeAgentResult(result));
       }
     } catch (error) {
       setActivity(null);
+      if (session.current !== asked) return;
       dispatch({ type: "fail" });
       speak(`That didn't work: ${errorText(error)}`);
     }
@@ -283,13 +289,23 @@ export default function HoloAgent() {
     }
   };
 
-  const newConversation = async () => {
+  const newConversation = useCallback(async () => {
+    session.current += 1;
+    typing.current = null;
     stopSpeaking();
+    setActivity(null);
     await resetAgent().catch(() => undefined);
     setActionStates({});
     setLines([{ id: nextId.current++, role: "agent", text: GREETING }]);
-    dispatch({ type: "done" });
-  };
+    dispatch({ type: "reset" });
+  }, [stopSpeaking]);
+
+  // A different profile gets its own conversation; nothing the last one saw carries over.
+  useEffect(() => {
+    const onProfileChange = () => void newConversation();
+    window.addEventListener("cinavault:profile-changed", onProfileChange);
+    return () => window.removeEventListener("cinavault:profile-changed", onProfileChange);
+  }, [newConversation]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();

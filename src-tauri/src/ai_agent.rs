@@ -133,6 +133,54 @@ struct Conversation {
     notes: Vec<String>,
     /// Bumped by a reset, so a request that started before it doesn't restore old history.
     generation: u64,
+    /// Profile the conversation belongs to; another profile starts a fresh one.
+    profile_id: Option<i64>,
+}
+
+impl Conversation {
+    fn reset(&mut self) {
+        *self = Conversation {
+            generation: self.generation + 1,
+            ..Conversation::default()
+        };
+    }
+
+    /// Starts over when a different profile is now watching, so nothing one
+    /// profile saw (titles, tool results, buttons) carries over to another.
+    fn claim_for_profile(&mut self, profile_id: i64) {
+        if self.profile_id != Some(profile_id) {
+            self.reset();
+            self.profile_id = Some(profile_id);
+        }
+    }
+}
+
+fn active_profile(state: &AppState) -> Result<i64, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::user_data::active_profile_id(&db))
+}
+
+const PAST_IMAGE_NOTE: &str = "[An image was shown here earlier.]";
+
+/// Swaps uploaded images and posters from finished turns for a short note, so
+/// later requests don't resend megabytes of base64 every time.
+pub fn drop_past_images(messages: &mut [Value]) {
+    fn strip(blocks: &mut [Value]) {
+        for block in blocks.iter_mut() {
+            if block["type"] == "image" && block["source"]["type"] == "base64" {
+                *block = json!({"type": "text", "text": PAST_IMAGE_NOTE});
+            } else if block["type"] == "tool_result" {
+                if let Some(inner) = block["content"].as_array_mut() {
+                    strip(inner);
+                }
+            }
+        }
+    }
+    for message in messages.iter_mut().filter(|m| m["role"] == "user") {
+        if let Some(blocks) = message["content"].as_array_mut() {
+            strip(blocks);
+        }
+    }
 }
 
 fn conversation() -> &'static Mutex<Conversation> {
@@ -838,6 +886,10 @@ pub fn agent_set_model(state: State<'_, AppState>, model: String) -> Result<Agen
     if !ALLOWED_MODELS.contains(&model.as_str()) {
         return Err(format!("Unsupported model {model}"));
     }
+    if selected_model(&state) != model {
+        // Thinking from one model can't be replayed to another, so a switch starts a new conversation.
+        conversation().lock().map_err(|e| e.to_string())?.reset();
+    }
     state
         .db
         .lock()
@@ -849,11 +901,7 @@ pub fn agent_set_model(state: State<'_, AppState>, model: String) -> Result<Agen
 
 #[tauri::command]
 pub fn agent_reset() -> Result<(), String> {
-    let mut convo = conversation().lock().map_err(|e| e.to_string())?;
-    *convo = Conversation {
-        generation: convo.generation + 1,
-        ..Conversation::default()
-    };
+    conversation().lock().map_err(|e| e.to_string())?.reset();
     Ok(())
 }
 
@@ -884,8 +932,10 @@ pub async fn agent_chat(
         text
     };
 
+    let profile_id = active_profile(&state)?;
     let (mut messages, notes, generation) = {
-        let convo = conversation().lock().map_err(|e| e.to_string())?;
+        let mut convo = conversation().lock().map_err(|e| e.to_string())?;
+        convo.claim_for_profile(profile_id);
         (
             convo.messages.clone(),
             convo.notes.clone(),
@@ -960,6 +1010,7 @@ pub async fn agent_chat(
                 convo.notes.drain(..sent);
             }
             trim_history(&mut messages, MAX_HISTORY_MESSAGES);
+            drop_past_images(&mut messages);
             convo.messages = messages;
             for action in &actions {
                 convo.pending.insert(action.id.clone(), action.clone());
@@ -985,12 +1036,15 @@ pub async fn agent_run_action(
     state: State<'_, AppState>,
     action_id: String,
 ) -> Result<String, String> {
-    let action = conversation()
-        .lock()
-        .map_err(|e| e.to_string())?
-        .pending
-        .remove(&action_id)
-        .ok_or("That action has expired")?;
+    let profile_id = active_profile(&state)?;
+    let action = {
+        let mut convo = conversation().lock().map_err(|e| e.to_string())?;
+        convo.claim_for_profile(profile_id);
+        convo
+            .pending
+            .remove(&action_id)
+            .ok_or("That action has expired")?
+    };
 
     let result = match action.media_id {
         None => run_library_action(state, &action.kind).await,
@@ -1192,6 +1246,62 @@ mod tests {
             data: "A".repeat(MAX_IMAGE_BYTES),
         };
         assert!(validate_image(&at_limit).is_ok());
+    }
+
+    #[test]
+    fn switching_profiles_starts_a_fresh_conversation() {
+        let mut convo = Conversation::default();
+        convo.claim_for_profile(1);
+        convo
+            .messages
+            .push(json!({"role": "user", "content": "Find R-rated films"}));
+        convo.pending.insert(
+            "act-1".into(),
+            propose_library_action("add_discovered_folders", &json!({})).unwrap(),
+        );
+        convo.notes.push("played".into());
+        let before = convo.generation;
+
+        convo.claim_for_profile(1);
+        assert_eq!(convo.messages.len(), 1, "same profile keeps its history");
+
+        convo.claim_for_profile(2);
+        assert!(convo.messages.is_empty());
+        assert!(convo.pending.is_empty());
+        assert!(convo.notes.is_empty());
+        assert_eq!(convo.profile_id, Some(2));
+        assert_eq!(
+            convo.generation,
+            before + 1,
+            "in-flight chats from the old profile are discarded"
+        );
+    }
+
+    #[test]
+    fn past_images_are_not_resent() {
+        let image = json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}});
+        let remote =
+            json!({"type": "image", "source": {"type": "url", "url": "https://img.example/p.jpg"}});
+        let mut messages = vec![
+            json!({"role": "user", "content": [image.clone(), {"type": "text", "text": "What is this?"}]}),
+            json!({"role": "assistant", "content": [{"type": "text", "text": "A poster."}]}),
+            json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image.clone(), remote.clone()]}]}),
+        ];
+        drop_past_images(&mut messages);
+        assert_eq!(
+            messages[0]["content"][0],
+            json!({"type": "text", "text": PAST_IMAGE_NOTE})
+        );
+        assert_eq!(messages[0]["content"][1]["text"], "What is this?");
+        assert_eq!(
+            messages[2]["content"][0]["content"][0]["text"],
+            PAST_IMAGE_NOTE
+        );
+        assert_eq!(
+            messages[2]["content"][0]["content"][1], remote,
+            "small URL images stay"
+        );
+        assert!(!serde_json::to_string(&messages).unwrap().contains("AAAA"));
     }
 
     #[test]

@@ -44,6 +44,12 @@ test("agent ignores empty prompts, double submits and stray events", () => {
   assert.equal(run([{ type: "submit", prompt: "x" }, { type: "fail" }, { type: "done" }]).mood, "idle");
 });
 
+test("a new conversation abandons an answer still in flight", () => {
+  const thinking = run([{ type: "submit", prompt: "first" }]);
+  assert.equal(agentReducer(thinking, { type: "reset" }), AGENT_START);
+  assert.equal(agentReducer(thinking, { type: "done" }), thinking, "done alone can't clear a pending answer");
+});
+
 test("head cloud has the requested points, both eyes, a mouth and a jaw", () => {
   const cloud = buildHeadCloud(1200, 40, 100);
   assert.equal(cloud.count, 1200 + 80 + 100 + FEATURE_POINT_COUNT);
