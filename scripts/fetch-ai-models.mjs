@@ -31,9 +31,15 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
+function trimTrailingSlashes(url) {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end -= 1;
+  return url.slice(0, end);
+}
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MODEL_ID = "Xenova/clip-vit-base-patch32";
-const ENDPOINT = (process.env.HF_ENDPOINT || "https://huggingface.co").replace(/\/+$/, "");
+const ENDPOINT = trimTrailingSlashes(process.env.HF_ENDPOINT || "https://huggingface.co");
 // Xenova/clip-vit-base-patch32 at the 2025-07-08 commit.
 export const REVISION = "d15189d7028b43f1d3e65039190477f6af591c2a";
 const MODEL_DIR = join(ROOT, "public", "models", ...MODEL_ID.split("/"));

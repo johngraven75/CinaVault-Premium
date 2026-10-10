@@ -41,7 +41,7 @@ const CollectionAutoPanel: FeaturePanel<CollectionConfig> = ({ enabled, config, 
     <div className="space-y-2 text-xs">
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-1">
-          Genre collections
+          <span>Genre collections</span>
           <input
             type="number"
             min={1}
@@ -52,7 +52,7 @@ const CollectionAutoPanel: FeaturePanel<CollectionConfig> = ({ enabled, config, 
           />
         </label>
         <label className="flex items-center gap-1">
-          Smallest collection
+          <span>Smallest collection</span>
           <input
             type="number"
             min={2}
@@ -61,7 +61,7 @@ const CollectionAutoPanel: FeaturePanel<CollectionConfig> = ({ enabled, config, 
             defaultValue={boundedInt(config.minItems, 2, 2, 50)}
             onBlur={(event) => void setConfig({ minItems: boundedInt(event.target.value, 2, 2, 50) })}
           />
-          titles
+          <span>titles</span>
         </label>
         <button
           type="button"

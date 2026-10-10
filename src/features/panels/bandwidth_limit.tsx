@@ -22,7 +22,7 @@ const BandwidthPanel: FeaturePanel<{ mbps?: number }> = ({ config, setConfig }) 
   return (
     <div className="space-y-1.5">
       <label className="flex items-center gap-2 text-xs">
-        Each stream at most
+        <span>Each stream at most</span>
         <input
           className="cv-input w-20 text-xs"
           inputMode="decimal"
@@ -32,7 +32,9 @@ const BandwidthPanel: FeaturePanel<{ mbps?: number }> = ({ config, setConfig }) 
           onKeyDown={(event) => event.key === "Enter" && save()}
           aria-label="Megabits per second"
         />
-        Mbps <span className="text-[10px] text-cv-subtext">({mbpsHint(parseMbps(text) ?? mbps)})</span>
+        <span>
+          Mbps <span className="text-[10px] text-cv-subtext">({mbpsHint(parseMbps(text) ?? mbps)})</span>
+        </span>
       </label>
       {error && <div className="text-[11px] text-rose-300">{error}</div>}
       <p className="text-[10px] text-cv-subtext">

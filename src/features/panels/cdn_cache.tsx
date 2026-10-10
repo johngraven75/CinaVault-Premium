@@ -15,7 +15,7 @@ const CdnCachePanel: FeaturePanel<CacheConfig> = ({ config, setConfig }) => {
   return (
     <div className="space-y-1.5">
       <label className="flex items-center gap-2 text-xs">
-        Artwork kept in memory up to
+        <span>Artwork kept in memory up to</span>
         <input
           key={`a${artwork}`}
           className="cv-input w-20 text-xs"
@@ -27,10 +27,10 @@ const CdnCachePanel: FeaturePanel<CacheConfig> = ({ config, setConfig }) => {
             if (value !== null && value !== artwork) void setConfig({ artworkCacheMb: value });
           }}
         />
-        MB
+        <span>MB</span>
       </label>
       <label className="flex items-center gap-2 text-xs">
-        Clients may reuse library lists for
+        <span>Clients may reuse library lists for</span>
         <input
           key={`l${maxAge}`}
           className="cv-input w-20 text-xs"
@@ -42,7 +42,7 @@ const CdnCachePanel: FeaturePanel<CacheConfig> = ({ config, setConfig }) => {
             if (value !== null && value !== maxAge) void setConfig({ libraryMaxAge: value });
           }}
         />
-        seconds
+        <span>seconds</span>
       </label>
       <p className="text-[10px] text-cv-subtext">
         Artwork is sent with a one-day immutable cache and ETags; sign-in responses are never cached.

@@ -773,7 +773,6 @@ const LibraryPlayer: FC = () => {
               // protocol and the loopback server both send CORS headers.
               crossOrigin="anonymous"
               playsInline
-              aria-hidden={i !== active}
               onClick={i === active ? togglePlay : undefined}
               className={i === active ? "h-full w-full object-contain" : "hidden"}
               {...elementEvents(i)}

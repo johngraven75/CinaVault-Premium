@@ -1031,7 +1031,7 @@ export default function RemoteAccessTab() {
                     .catch((error) => addStatusMessage(`Bandwidth limiter not changed: ${error}`))
                 }
               />
-              Apply limit
+              <span>Apply limit</span>
             </span>
           </label>
           <input

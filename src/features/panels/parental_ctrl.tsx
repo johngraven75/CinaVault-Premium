@@ -184,11 +184,11 @@ const ParentalPanel: FeaturePanel<Partial<ParentalConfig>> = ({ enabled, config,
       </label>
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" checked={rules.blockAdult} onChange={(event) => void save({ blockAdult: event.target.checked })} />
-        Hide adult titles
+        <span>Hide adult titles</span>
       </label>
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" checked={rules.blockUnrated} onChange={(event) => void save({ blockUnrated: event.target.checked })} />
-        Hide titles without a known rating (when a highest rating is set)
+        <span>Hide titles without a known rating (when a highest rating is set)</span>
       </label>
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-cv-subtext">
