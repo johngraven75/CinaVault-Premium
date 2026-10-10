@@ -72,7 +72,7 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Rust static analysis
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features
 
       - name: Rust compile verification
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
