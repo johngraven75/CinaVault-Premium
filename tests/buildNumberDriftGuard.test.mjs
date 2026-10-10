@@ -21,7 +21,9 @@ test("authoritative build identity is internally consistent", () => {
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.displayName, expectedDisplayName);
   assert.match(manifest.semanticVersion, /^\d+\.\d+\.\d+$/);
-  assert.match(manifest.releaseTag, /^v2-build-\d+\.\d+$/);
+  // Tags start with v so the Windows installer workflow (tags: v*) builds them.
+  assert.match(manifest.releaseTag, /^v\d+\.\d+\.\d+(-[a-z0-9]+(?:[.-][a-z0-9]+)*)?$/);
+  assert.ok(manifest.releaseTag.startsWith(`v${manifest.semanticVersion}`), "release tag must name the semantic version");
 });
 
 test("version manifests carry forward together for the current build", () => {

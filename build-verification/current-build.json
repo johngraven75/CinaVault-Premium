@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "build": "v2.15 Build 215",
-  "internalBuild": "215",
+  "build": "v1.0.1 Pre-Beta Build 101",
+  "internalBuild": "101",
   "status": "verified",
   "releaseAuthorized": true,
   "referenceRepository": "johngraven75/CinaVault-Premium",
@@ -126,7 +126,7 @@
     }
   ],
   "criticalDefects": [],
-  "release": "v2-build-2.15",
-  "semanticVersion": "2.0.15",
-  "displayBuild": "215"
+  "release": "v1.0.1-pre-beta",
+  "semanticVersion": "1.0.1",
+  "displayBuild": "101"
 }

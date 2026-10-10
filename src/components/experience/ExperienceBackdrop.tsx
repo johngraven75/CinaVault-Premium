@@ -39,7 +39,7 @@ export default function ExperienceBackdrop() {
   }, [pointerX, pointerY]);
 
   return (
-    <div className="cv-experience-backdrop" aria-hidden="true">
+    <div className="cv-experience-backdrop cv-experience-backdrop-layer" aria-hidden="true">
       <div className="cv-deep-space" />
       <motion.div
         className="cv-aurora cv-aurora-a"

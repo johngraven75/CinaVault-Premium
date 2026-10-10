@@ -90,12 +90,36 @@ jobs:
             tests/nasSyncVerification.test.mjs \
             2>&1 | tee tests.log
 
+      - name: Library engine, local AI and UI suites
+        shell: bash
+        run: |
+          set -o pipefail
+          ( npm run test:remote-user \
+            && npm run test:local-vision \
+            && npm run test:library-engine \
+            && npm run test:holo-ui \
+            && npm run test:code-signing ) 2>&1 | tee feature-tests.log
+
       - name: Production frontend build
         id: frontend
         shell: bash
         run: |
           set -o pipefail
           npm run build 2>&1 | tee frontend.log
+
+      - name: Restore offline vision model
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: public/models
+          key: vision-model-${{ hashFiles('scripts/fetch-ai-models.mjs') }}
+
+      - name: Offline vision model end to end
+        # Downloads the pinned, digest-checked CLIP weights and runs them with
+        # no network access, the same way the installed app does.
+        shell: bash
+        run: |
+          set -o pipefail
+          ( npm run fetch:ai-models && npm run test:vision-e2e ) 2>&1 | tee vision-e2e.log
 
       - name: Install Tauri Linux prerequisites
         shell: bash
@@ -188,6 +212,7 @@ jobs:
             rust-tests.log
             rust.log
             live-metadata.log
+            vision-e2e.log
             master-evidence/*
             build-verification/current-build.json
             contracts/v1/contract-manifest.json

@@ -1544,12 +1544,7 @@ async fn ai_library_manage(
 
     // --- Duplicate detection ---
     if requested.iter().any(|t| t == "duplicates") {
-        match crate::duplicates::find_duplicates(
-            state.clone(),
-            Some("name_size".to_string()),
-            Some(0.0),
-        )
-        .await
+        match crate::duplicates::find_duplicates(state.clone(), Some("name_size".to_string())).await
         {
             Ok(report) => {
                 results.insert(

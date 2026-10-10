@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore, type MediaItem } from "../../store/appStore";
 import KodiHomeLayout from "../kodi/KodiHomeLayout";
 import {
@@ -22,6 +22,15 @@ import {
   isLibraryDisplayableMediaItem,
 } from "../../utils/mediaPlaybackSafety";
 import MeteorShower from "../effects/MeteorShower";
+import { isFeatureOn } from "../../features/featureFlags";
+import { playMedia } from "../../services/playback";
+import HoloCard from "../holo/HoloCard";
+import {
+  HoloProgressBar,
+  HoloSkeletonCard,
+  OrbitalSpinner,
+  StatusBeacon,
+} from "../holo/CinematicLoaders";
 import {
   Activity,
   ChevronDown,
@@ -42,6 +51,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { IS_STORE_SAFE } from "../../config/edition";
+import { loadUnifiedLibrary } from "../../services/unifiedLibrary";
+import { CopiesList, CopyCountBadge } from "../library/UnifiedCopies";
+import type { MediaCopyInfo } from "../../store/appStore";
+import DiscoveryShelves from "../discovery/DiscoveryShelves";
+import MoreLikeThis from "../discovery/MoreLikeThis";
+import PosterPreview from "../discovery/PosterPreview";
+import WatchlistButton from "../discovery/WatchlistButton";
 
 type Shelf = "recent" | "verified" | "unverified" | "favorites";
 
@@ -69,7 +85,7 @@ interface ChapterThumb {
 }
 
 const SHELF_OPTIONS: ShelfOption[] = [
-  { id: "recent", label: "Trending Now", icon: Clock },
+  { id: "recent", label: "Recently Added", icon: Clock },
   { id: "verified", label: "Verified Signal", icon: CheckCircle },
   { id: "unverified", label: "Needs Metadata", icon: Sparkles },
   { id: "favorites", label: "My Vault", icon: Heart },
@@ -168,8 +184,10 @@ export default function HomeTab(): JSX.Element {
     searchQuery,
     addStatusMessage,
     currentTheme,
+    featureSettings,
   } = useAppStore();
 
+  const unifiedLibraryOn = useAppStore((state) => state.settings.unified_library !== "false");
   const [activeShelf, setActiveShelf] = useState<Shelf>("recent");
   const [typeFilter, setTypeFilter] = useState("all");
   const [loading, setLoading] = useState(false);
@@ -182,6 +200,7 @@ export default function HomeTab(): JSX.Element {
     useState<TitleInitialFilter>("all");
   const [metadataCheckId, setMetadataCheckId] = useState<number | null>(null);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
+  const [unifiedView, setUnifiedView] = useState(false);
   const libraryLoadGenerationRef = useRef(0);
 
   const requestMediaPage = useCallback(
@@ -239,22 +258,34 @@ export default function HomeTab(): JSX.Element {
     setLibraryLoadError(null);
 
     try {
-      const [items, exactCount] = await Promise.all([
-        requestMediaPage(0),
-        requestAuthoritativeCount(),
+      // Unified library first (one card per work, duplicates folded into
+      // copies); falls back to the paged get_media_items bridge.
+      // The count is informational: if it fails, still show the library.
+      const [libraryLoad, exactCount] = await Promise.all([
+        // Settings > Library > Unified Library off shows every file on its own.
+        unifiedLibraryOn
+          ? loadUnifiedLibrary(typeFilter, () => requestMediaPage(0))
+          : requestMediaPage(0).then((items) => ({ items, unified: false })),
+        requestAuthoritativeCount().catch(() => null),
       ]);
       if (generation !== libraryLoadGenerationRef.current) return;
 
-      const hasMore = hasMoreLibraryPages(items);
+      const items = libraryLoad.items;
+      const unified = libraryLoad.unified;
+      const hasMore = !unified && hasMoreLibraryPages(items);
+      setUnifiedView(unified);
       setMediaItems(items);
       setLibraryOffset(items.length);
       setLibraryHasMore(hasMore);
       setAuthoritativeCount(exactCount);
-      setAutoLoadingLibrary(shouldAutoLoadNextLibraryPage(items));
+      setAutoLoadingLibrary(!unified && shouldAutoLoadNextLibraryPage(items));
+      const countLabel = exactCount === null ? null : exactCount.toLocaleString();
       addStatusMessage(
-        hasMore
-          ? `HUD opened ${items.length} records; authoritative inventory is ${exactCount.toLocaleString()} and the full library is compiling`
-          : `HUD loaded all ${exactCount.toLocaleString()} vault records`,
+        unified
+          ? `Unified vault: ${items.length.toLocaleString()} titles${countLabel ? ` from ${countLabel} files` : ""} across every library`
+          : hasMore
+            ? `HUD opened ${items.length} records; authoritative inventory is ${countLabel ?? "unavailable"} and the full library is compiling`
+            : `HUD loaded all ${countLabel ?? items.length.toLocaleString()} vault records`,
       );
     } catch (error) {
       if (generation !== libraryLoadGenerationRef.current) return;
@@ -276,6 +307,8 @@ export default function HomeTab(): JSX.Element {
     requestMediaPage,
     setMediaItems,
     setSelectedMedia,
+    typeFilter,
+    unifiedLibraryOn,
   ]);
 
   const loadMoreMedia = useCallback(
@@ -384,12 +417,17 @@ export default function HomeTab(): JSX.Element {
       return;
     }
     try {
-      await invoke("play_media", { filePath: item.file_path });
+      const queue = filteredItems.filter(canPlayMediaItem);
+      const index = queue.findIndex((entry) => entry.file_path === item.file_path);
+      await playMedia(index >= 0 ? queue : [item], Math.max(0, index), { source: "library" });
       addStatusMessage(`Quick Play engaged: ${item.title}`);
     } catch (error) {
       addStatusMessage(`Quick Play failed: ${String(error)}`);
     }
   };
+
+  const handlePlayCopy = (item: MediaItem, copy: MediaCopyInfo) =>
+    void handlePlay({ ...item, file_path: copy.file_path, resolution: copy.resolution ?? item.resolution });
 
   const handleVerify = async (item: MediaItem) => {
     if (!item.id) return;
@@ -426,26 +464,23 @@ export default function HomeTab(): JSX.Element {
   return (
     <div className="cyber-home space-y-5">
       <section className="cyber-hero">
-        <MeteorShower meteorCount={34} />
+        {isFeatureOn(featureSettings, "particle_bg") && <MeteorShower meteorCount={34} />}
         {heroImageSrc && (
           <div
-            className="absolute inset-0 z-0 opacity-30"
-            style={{
-              backgroundImage: `url(${heroImageSrc})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-            }}
+            key={heroImageSrc}
+            className="holo-hero-art"
+            style={{ backgroundImage: `url(${heroImageSrc})` }}
           />
         )}
         <div className="absolute inset-0 z-[1] bg-[linear-gradient(90deg,rgba(5,5,10,0.95),rgba(5,5,10,0.52)_45%,rgba(5,5,10,0.82)),radial-gradient(circle_at_80%_22%,rgba(189,0,255,0.24),transparent_36%)]" />
         <div className="relative z-10 grid min-h-[310px] gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex min-w-0 flex-col justify-end">
             <div className="cyber-eyebrow mb-2 flex items-center gap-2">
-              <Zap size={14} /> {heroItem ? "Trending Now / Holographic Carousel" : libraryLoadError ? "Library Bridge Offline" : "Vault Empty / Awaiting Scan"}
+              <Zap size={14} /> {heroItem ? "Recently Added / Holographic Carousel" : libraryLoadError ? "Library Bridge Offline" : "Vault Empty / Awaiting Scan"}
             </div>
             {heroItem ? (
               <>
-                <h2 className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">{heroItem.title}</h2>
+                <motion.h2 key={heroItem.id ?? heroItem.title} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="cyber-title max-w-4xl text-4xl font-black tracking-tight lg:text-6xl">{heroItem.title}</motion.h2>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {heroItem.year && <span className="cyber-chip">{heroItem.year}</span>}
                   <span className="cyber-chip">{heroItem.media_type || "media"}</span>
@@ -473,10 +508,10 @@ export default function HomeTab(): JSX.Element {
             </div>
           </div>
           <div className="cyber-terminal-panel hidden bg-black/35 p-4 lg:block">
-            <div className="cyber-eyebrow mb-3 flex items-center gap-2"><Activity size={13} /> User Terminal Quick-Stats</div>
+            <div className="cyber-eyebrow mb-3 flex items-center justify-between gap-2"><span className="flex items-center gap-2"><Activity size={13} /> User Terminal Quick-Stats</span><StatusBeacon status={libraryLoadError ? "offline" : loading || autoLoadingLibrary ? "syncing" : "online"} /></div>
             <TerminalLine label="Watchtime" value={`${watchtimeHours}h`} />
             <TerminalLine label="Vault Inventory" value={inventoryLabel} />
-            <TerminalLine label="Loaded Records" value={displayableMediaItems.length.toLocaleString()} />
+            <TerminalLine label={unifiedView ? "Unified Titles" : "Loaded Records"} value={displayableMediaItems.length.toLocaleString()} />
             <TerminalLine label="Visible Records" value={filteredItems.length.toLocaleString()} />
             <TerminalLine label="Verified Signal" value={`${verifiedCount} locked`} />
             <TerminalLine label="Count Policy" value={authoritativeCount === null ? "Unavailable" : "Uncapped DB total"} />
@@ -489,6 +524,8 @@ export default function HomeTab(): JSX.Element {
         <StatCard icon={Database} label="Vault Inventory" value={inventoryLabel} detail={authoritativeCount === null ? "Authoritative database count unavailable" : "Exact uncapped indexed-media count"} />
         <StatCard icon={Activity} label="System Status" value={libraryLoadError ? "Offline" : autoLoadingLibrary ? "Compiling" : "Nominal"} detail={`${verifiedCount} visible verified / ${movieCount} visible movies`} />
       </section>
+
+      <DiscoveryShelves skin="holo" onSelect={setSelectedMedia} />
 
       <section className="cyber-control-core">
         <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
@@ -530,7 +567,7 @@ export default function HomeTab(): JSX.Element {
       <section className={`grid gap-4 ${selectedMedia ? "xl:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
         <div>
           {loading ? (
-            <div className="cyber-grid">{Array.from({ length: 12 }).map((_, index) => <div key={index} className="cyber-card shimmer h-56" />)}</div>
+            <div className="holo-grid" role="status" aria-label="Loading library">{Array.from({ length: 16 }).map((_, index) => <HoloSkeletonCard key={index} index={index} />)}</div>
           ) : filteredItems.length === 0 ? (
             <div className="cyber-panel rounded-[18px] p-12 text-center">
               <Film size={48} className="mx-auto mb-4 text-cv-subtext/40" />
@@ -538,9 +575,9 @@ export default function HomeTab(): JSX.Element {
               <p className="mt-2 text-sm text-cv-subtext">{libraryLoadError ? "No demo records are loaded when the backend is unavailable." : "Add media sources and scan to populate the holographic vault."}</p>
             </div>
           ) : libraryView === "card" ? (
-            <div className="cyber-grid">
+            <div className="holo-grid">
               {filteredItems.map((item, index) => (
-                <MediaCard key={`${item.id || item.title}-${index}`} item={item} checking={metadataCheckId === item.id} onSelect={() => setSelectedMedia(item)} onPlay={() => void handlePlay(item)} onCheckMetadata={() => void handleCheckMetadata(item)} />
+                <MediaCard key={`${item.id || item.title}-${index}`} item={item} index={index} selected={selectedMedia !== null && (selectedMedia.id != null ? selectedMedia.id === item.id : selectedMedia === item)} checking={metadataCheckId === item.id} onSelect={() => setSelectedMedia(item)} onPlay={() => void handlePlay(item)} onCheckMetadata={() => void handleCheckMetadata(item)} />
               ))}
             </div>
           ) : (
@@ -550,7 +587,7 @@ export default function HomeTab(): JSX.Element {
                 const checking = metadataCheckId === item.id;
                 return (
                   <div key={`${item.id || item.title}-row-${index}`} role="button" tabIndex={0} onClick={() => setSelectedMedia(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedMedia(item); } }} className="cyber-table-row with-metadata-action w-full text-left text-sm">
-                    <span className="truncate font-semibold">{item.title}</span>
+                    <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{item.title}</span><CopyCountBadge item={item} className="shrink-0" /></span>
                     <span className="text-xs capitalize text-cv-subtext">{item.media_type}</span>
                     <span className="text-xs text-cv-subtext">{item.year || "—"}</span>
                     <span className="flex items-center gap-1 text-xs">{item.rating ? <><Star size={11} className="text-[var(--cyber-amber)]" />{item.rating}</> : "—"}</span>
@@ -565,8 +602,9 @@ export default function HomeTab(): JSX.Element {
           )}
         </div>
 
+        <AnimatePresence mode="wait">
         {selectedMedia && (
-          <motion.aside key={selectedMedia.id || selectedMedia.title} initial={{ opacity: 0, x: 28 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 28 }} transition={{ duration: 0.24 }} className="cyber-terminal-panel bg-[#05050a]/90 p-4">
+          <motion.aside key={selectedMedia.id || selectedMedia.title} initial={{ opacity: 0, x: 36, scale: 0.97 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 36, scale: 0.97 }} transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }} className="cyber-terminal-panel holo-glass-panel p-4">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div><div className="cyber-eyebrow flex items-center gap-2"><Sparkles size={13} /> Terminal Panel</div><h3 className="mt-1 text-xl font-black leading-tight text-cv-text">{selectedMedia.title}</h3></div>
               <button type="button" onClick={() => setSelectedMedia(null)} className="cyber-button h-10 w-10 px-0" title="Close terminal panel"><X size={15} /></button>
@@ -581,18 +619,22 @@ export default function HomeTab(): JSX.Element {
               <TerminalLine label="Favorite" value={selectedMedia.favorite ? "Vaulted" : "Not Set"} />
             </div>
             {selectedMedia.overview && <p className="mt-4 rounded border border-cyan-300/10 bg-black/30 p-3 text-xs leading-6 text-cv-subtext">{selectedMedia.overview}</p>}
+            <CopiesList item={selectedMedia} onPlayCopy={(copy) => handlePlayCopy(selectedMedia, copy)} />
             {!IS_STORE_SAFE && selectedMedia.media_type === "adult" && <AdultChapterArtwork filePath={selectedMedia.file_path} />}
             <div className="mt-4 grid gap-2">
               <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button"><Play size={14} /> Quick Play</button>
               <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button"><CheckCircle size={14} /> Verify Signal</button>
               <button type="button" onClick={() => void handleCheckMetadata(selectedMedia)} disabled={metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60">{metadataCheckId === selectedMedia.id ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />} Check Metadata</button>
+              <WatchlistButton item={selectedMedia} className="cyber-button" />
             </div>
+            <MoreLikeThis item={selectedMedia} skin="holo" onSelect={setSelectedMedia} />
           </motion.aside>
         )}
+        </AnimatePresence>
       </section>
 
       {autoLoadingLibrary && !loading && (
-        <div className="flex justify-center"><div className="cyber-button pointer-events-none"><RefreshCw size={14} className="animate-spin" /> Compiling full library ({displayableMediaItems.length.toLocaleString()} loaded / {inventoryLabel} total)</div></div>
+        <div className="holo-loading-strip holo-glass-panel"><span className="flex items-center gap-3"><OrbitalSpinner size={22} label="Compiling full library" /> Compiling full library ({displayableMediaItems.length.toLocaleString()} loaded / {inventoryLabel} total)</span><HoloProgressBar label="Library compile progress" value={displayableMediaItems.length} max={unifiedView ? null : authoritativeCount} /></div>
       )}
       {libraryHasMore && !loading && !autoLoadingLibrary && (
         <div className="flex justify-center"><button type="button" onClick={() => void loadMoreMedia()} disabled={loadingMore} className="cyber-button">{loadingMore ? <RefreshCw size={14} className="animate-spin" /> : <ChevronDown size={14} />} {loadingMore ? "Compiling" : `Load Next ${LIBRARY_PAGE_SIZE}`}</button></div>
@@ -640,29 +682,44 @@ function TerminalLine({ label, value }: { label: string; value: string }): JSX.E
   return <div className="terminal-line"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function MediaCard({ item, checking, onSelect, onPlay, onCheckMetadata }: { item: MediaItem; checking: boolean; onSelect: () => void; onPlay: () => void; onCheckMetadata: () => void }): JSX.Element {
+function MediaCard({ item, index, selected, checking, onSelect, onPlay, onCheckMetadata }: { item: MediaItem; index: number; selected: boolean; checking: boolean; onSelect: () => void; onPlay: () => void; onCheckMetadata: () => void }): JSX.Element {
   return (
-    <motion.div className="cyber-card group" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} onClick={onSelect}>
-      <CardVisual item={item} />
-      <div className="relative z-10 p-3"><h4 className="truncate text-sm font-black text-cv-text">{item.title}</h4><div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.08em] text-cv-subtext">{item.year && <span>{item.year}</span>}<span>{item.media_type}</span>{item.resolution && <span className="text-cyan-200">{item.resolution}</span>}</div>{item.genre && <div className="mt-2 truncate text-[11px] text-cv-subtext/80">{item.genre}</div>}</div>
-      <div className="cyber-card-actions">
-        <button type="button" onClick={(event) => { event.stopPropagation(); onPlay(); }} className="cyber-button flex-1 text-[10px]"><span className="cyber-bracket">[▶]</span> Play</button>
-        <button type="button" onClick={(event) => { event.stopPropagation(); onCheckMetadata(); }} disabled={checking} className="cyber-button flex-1 text-[10px] disabled:opacity-60">{checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}<span className="metadata-action-label">{checking ? "Checking..." : "Check Metadata"}</span></button>
-      </div>
-    </motion.div>
-  );
-}
-
-function CardVisual({ item }: { item: MediaItem }): JSX.Element {
-  return (
-    <div className="cyber-poster aspect-[2/3]">
-      <MediaPosterImage path={item.poster_path || item.backdrop_path} alt={item.title} fallbackClassName="flex h-full w-full items-center justify-center" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-      <div className="absolute right-2 top-2 flex flex-col gap-1">
-        {item.verified && <span className="grid h-6 w-6 place-items-center border border-cyan-200/40 bg-cyan-300/20 text-cyan-100"><CheckCircle size={12} /></span>}
-        {item.favorite && <span className="grid h-6 w-6 place-items-center border border-[var(--cyber-amber)]/50 bg-[var(--cyber-amber)]/20 text-[var(--cyber-amber)]"><Heart size={12} /></span>}
-      </div>
-      {item.resolution && <span className="cyber-chip absolute bottom-2 left-2 py-1 text-[9px]">{item.resolution}</span>}
-    </div>
+    <HoloCard
+      label={`${item.title}${item.year ? ` (${item.year})` : ""}`}
+      index={index}
+      selected={selected}
+      onSelect={onSelect}
+      media={<MediaPosterImage path={item.poster_path || item.backdrop_path} alt={item.title} fallbackClassName="flex h-full w-full items-center justify-center" />}
+      badges={
+        <>
+          <span className="flex flex-col items-start gap-1">
+            <CopyCountBadge item={item} />
+            {item.resolution && <span className="holo-badge is-res">{item.resolution}</span>}
+          </span>
+          <span className="holo-badge-stack">
+            {item.verified && <span className="holo-badge is-verified" title="Verified"><CheckCircle size={12} /></span>}
+            {item.favorite && <span className="holo-badge is-favorite" title="In My Vault"><Heart size={12} /></span>}
+          </span>
+        </>
+      }
+      info={
+        <>
+          <PosterPreview item={item} />
+          <h4 className="holo-card__title">{item.title}</h4>
+          <div className="holo-card__meta">
+            {item.year && <span>{item.year}</span>}
+            <span>{item.media_type}</span>
+            {item.rating ? <span className="is-accent">★ {item.rating}</span> : null}
+          </div>
+        </>
+      }
+      actions={
+        <>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onPlay(); }} className="holo-action is-primary" title={`Play ${item.title}`}><Play size={12} /> Play</button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onCheckMetadata(); }} disabled={checking} className="holo-action" title={`Check metadata for ${item.title}`}>{checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}<span className="metadata-action-label">{checking ? "Checking" : "Metadata"}</span></button>
+          <WatchlistButton item={item} compact className="holo-action" />
+        </>
+      }
+    />
   );
 }

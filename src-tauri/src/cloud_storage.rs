@@ -80,6 +80,56 @@ fn resolve_provider_path(provider: &str, requested: &str) -> Result<PathBuf, Str
         })
 }
 
+/// Canonical, readable synchronized-folder roots of `provider`: the root
+/// recorded when the provider was connected/synced plus the detected
+/// desktop-client folders.
+fn provider_roots(provider: &str, recorded_root: Option<&str>) -> Result<Vec<PathBuf>, String> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let candidates = recorded_root
+        .map(PathBuf::from)
+        .into_iter()
+        .chain(provider_candidates(provider)?);
+    for candidate in candidates {
+        if readable_directory(&candidate) {
+            if let Ok(root) = candidate.canonicalize() {
+                if !roots.contains(&root) {
+                    roots.push(root);
+                }
+            }
+        }
+    }
+    Ok(roots)
+}
+
+/// Resolve a browse request inside one of `roots`. The requested path is
+/// canonicalized first, so `..` segments and symlinks that point outside the
+/// synchronized folder are rejected instead of listing arbitrary directories.
+fn resolve_browse_path(roots: &[PathBuf], requested: &str) -> Result<PathBuf, String> {
+    let Some(first) = roots.first() else {
+        return Err(
+            "No synchronized folder is connected for this provider. Connect or sync it first."
+                .to_string(),
+        );
+    };
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Ok(first.clone());
+    }
+    let path = PathBuf::from(requested)
+        .canonicalize()
+        .map_err(|_| format!("Cloud folder is not readable: {requested}"))?;
+    if !roots.iter().any(|root| path.starts_with(root)) {
+        return Err(format!(
+            "{} is outside the provider's synchronized folder",
+            path.display()
+        ));
+    }
+    if !readable_directory(&path) {
+        return Err(format!("Cloud folder is not readable: {}", path.display()));
+    }
+    Ok(path)
+}
+
 fn count_media_files(root: &Path) -> u64 {
     WalkDir::new(root)
         .follow_links(false)
@@ -217,14 +267,30 @@ pub fn cloud_sync(state: State<AppState>, provider: String, path: String) -> Res
 }
 
 #[tauri::command]
-pub fn cloud_browse(provider: String, path: String) -> Result<Vec<Value>, String> {
-    let root = resolve_provider_path(&provider, &path)?;
-    list_directory_entries(&root)
+pub fn cloud_browse(
+    state: State<AppState>,
+    provider: String,
+    path: String,
+) -> Result<Vec<Value>, String> {
+    let recorded_root = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        db.get_setting_data(&setting_key(&provider)?)
+            .map_err(|error| error.to_string())?
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|record| record["root"].as_str().map(str::to_string))
+    };
+    let roots = provider_roots(&provider, recorded_root.as_deref())?;
+    let target = resolve_browse_path(&roots, &path)?;
+    list_directory_entries(&target)
 }
 
 #[tauri::command]
-pub fn cloud_list_files(provider: String, path: String) -> Result<Vec<Value>, String> {
-    cloud_browse(provider, path)
+pub fn cloud_list_files(
+    state: State<AppState>,
+    provider: String,
+    path: String,
+) -> Result<Vec<Value>, String> {
+    cloud_browse(state, provider, path)
 }
 
 #[tauri::command]
@@ -257,7 +323,10 @@ pub fn cloud_get_status(state: State<AppState>) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{count_media_files, list_directory_entries, resolve_provider_path};
+    use super::{
+        count_media_files, list_directory_entries, provider_roots, resolve_browse_path,
+        resolve_provider_path,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -279,6 +348,43 @@ mod tests {
         assert!(entries.iter().any(|entry| entry["name"] == "notes.txt"));
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn browse_is_confined_to_the_provider_sync_root() {
+        let base = std::env::temp_dir().join(format!("cinavault-browse-{}", uuid::Uuid::new_v4()));
+        let root = base.join("Dropbox");
+        let outside = base.join("Private");
+        std::fs::create_dir_all(root.join("Movies")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"x").unwrap();
+
+        let roots = provider_roots("dropbox", root.to_str()).unwrap();
+        let canonical_root = root.canonicalize().unwrap();
+        assert_eq!(roots.first(), Some(&canonical_root));
+
+        // The root itself and folders inside it are browsable.
+        assert_eq!(resolve_browse_path(&roots, "").unwrap(), canonical_root);
+        assert_eq!(
+            resolve_browse_path(&roots, root.join("Movies").to_str().unwrap()).unwrap(),
+            canonical_root.join("Movies")
+        );
+        // Arbitrary readable folders and `..` escapes are refused.
+        assert!(resolve_browse_path(&roots, outside.to_str().unwrap()).is_err());
+        let escape = root.join("Movies").join("..").join("..").join("Private");
+        assert!(resolve_browse_path(&roots, escape.to_str().unwrap()).is_err());
+        assert!(resolve_browse_path(&roots, std::env::temp_dir().to_str().unwrap()).is_err());
+        // A symlink inside the root that points outside it is refused too.
+        #[cfg(unix)]
+        {
+            let link = root.join("escape");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            assert!(resolve_browse_path(&roots, link.to_str().unwrap()).is_err());
+        }
+        // Without any synchronized folder nothing can be browsed.
+        assert!(resolve_browse_path(&[], "").is_err());
+
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

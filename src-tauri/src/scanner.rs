@@ -39,7 +39,48 @@ struct ScanDirectoryReport {
     found: u64,
     added: u64,
     updated: u64,
+    nfo_applied: u64,
+    added_ids: Vec<i64>,
     errors: Vec<String>,
+}
+
+/// Switches that change how files become library rows.
+#[derive(Debug, Clone, Copy, Default)]
+struct ScanOptions {
+    smart_match: bool,
+    nfo_import: bool,
+}
+
+impl ScanOptions {
+    fn read(db: &crate::db::Database) -> Self {
+        Self {
+            smart_match: crate::feature_flags::is_enabled(db, "smart_match"),
+            nfo_import: crate::feature_flags::is_enabled(db, "nfo_import"),
+        }
+    }
+}
+
+/// What the scanner already knows about a file it has indexed before.
+#[derive(Debug, Default)]
+struct ExistingRow {
+    id: i64,
+    title: String,
+    poster_path: Option<String>,
+    /// Verified by the user, or filled by a metadata lookup: a rescan keeps
+    /// its title instead of resetting it to the file name.
+    curated: bool,
+}
+
+/// smart_match: cleaned title, "episode" for SxxEyy names, and the year.
+/// With the switch off the scanner keeps `title_from_filename` and no year.
+fn scanned_identity(path: &Path, base_type: &str) -> (String, String, Option<i32>) {
+    let parsed = crate::title_clean::parse_path(path);
+    let media_type = if parsed.is_episode() && base_type == "movie" {
+        "episode"
+    } else {
+        base_type
+    };
+    (parsed.display_title(), media_type.to_string(), parsed.year)
 }
 
 const VIDEO_EXTS: &[&str] = &[
@@ -116,8 +157,7 @@ fn title_from_filename(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "Unknown".into())
-        .replace('_', " ")
-        .replace('.', " ")
+        .replace(['_', '.'], " ")
 }
 
 fn normalize_source_path(raw: &str) -> PathBuf {
@@ -383,6 +423,10 @@ fn scan_directory(
     state: &State<AppState>,
     source: &MediaSource,
 ) -> Result<ScanDirectoryReport, String> {
+    let options = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        ScanOptions::read(&db)
+    };
     let path = normalize_source_path(&source.path);
     let collection = collect_media_files(&path)?;
     SCAN_TOTAL.store(collection.files.len() as u64, Ordering::Relaxed);
@@ -405,16 +449,28 @@ fn scan_directory(
             let db = state.db.lock().map_err(|error| error.to_string())?;
             db.conn
                 .query_row(
-                    "SELECT poster_path FROM media_items WHERE file_path = ?1",
+                    "SELECT id, title, poster_path,
+                            COALESCE(verified, 0) = 1
+                            OR trim(COALESCE(overview, '')) <> ''
+                            OR trim(COALESCE(tmdb_id, '')) <> ''
+                            OR trim(COALESCE(imdb_id, '')) <> ''
+                     FROM media_items WHERE file_path = ?1",
                     rusqlite::params![file_path],
-                    |row| row.get::<_, Option<String>>(0),
+                    |row| {
+                        Ok(ExistingRow {
+                            id: row.get(0)?,
+                            title: row.get(1)?,
+                            poster_path: row.get(2)?,
+                            curated: row.get(3)?,
+                        })
+                    },
                 )
                 .optional()
                 .map_err(|error| error.to_string())?
-                .flatten()
         };
         let poster_path = if existing
-            .as_deref()
+            .as_ref()
+            .and_then(|row| row.poster_path.as_deref())
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .is_some()
@@ -424,7 +480,7 @@ fn scan_directory(
             sidecar
         };
 
-        let item = MediaItem {
+        let mut item = MediaItem {
             id: None,
             title: title_from_filename(Path::new(file_path)),
             file_path: file_path.clone(),
@@ -448,17 +504,54 @@ fn scan_directory(
             imdb_id: None,
             source_id: source.id,
         };
+        if options.smart_match {
+            let (title, media_type, year) =
+                scanned_identity(Path::new(file_path), &item.media_type);
+            item.title = title;
+            item.media_type = media_type;
+            item.year = year;
+        }
+        if let Some(row) = existing
+            .as_ref()
+            .filter(|row| row.curated && !row.title.trim().is_empty())
+        {
+            item.title = row.title.clone();
+        }
 
-        let result = {
-            let db = state.db.lock().map_err(|error| error.to_string())?;
-            db.upsert_scanned_media_item_data(&item)
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        let row_id = match db.upsert_scanned_media_item_data(&item) {
+            Ok(true) => {
+                report.added += 1;
+                let id = db
+                    .conn
+                    .query_row(
+                        "SELECT id FROM media_items WHERE file_path = ?1",
+                        rusqlite::params![file_path],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .ok();
+                report.added_ids.extend(id);
+                id
+            }
+            Ok(false) => {
+                report.updated += 1;
+                existing.as_ref().map(|row| row.id)
+            }
+            Err(error) => {
+                report
+                    .errors
+                    .push(format!("library upsert failed for {file_path}: {error}"));
+                None
+            }
         };
-        match result {
-            Ok(true) => report.added += 1,
-            Ok(false) => report.updated += 1,
-            Err(error) => report
-                .errors
-                .push(format!("library upsert failed for {file_path}: {error}")),
+        if let (true, Some(id)) = (options.nfo_import, row_id) {
+            match crate::nfo::import_for_item(&db, id, Path::new(file_path)) {
+                Ok(applied) if applied.nfo_found => report.nfo_applied += 1,
+                Ok(_) => {}
+                Err(error) => report
+                    .errors
+                    .push(format!("nfo import for {file_path}: {error}")),
+            }
         }
     }
 
@@ -476,6 +569,41 @@ fn scan_directory(
     }
 
     Ok(report)
+}
+
+/// Records the scan in the activity log and hands new items to post_scan.
+fn finish_scan(
+    state: &State<AppState>,
+    report: &ScanDirectoryReport,
+    status: &str,
+) -> serde_json::Value {
+    let follow_up = if CANCEL_FLAG.load(Ordering::Relaxed) {
+        "cancelled"
+    } else {
+        "scheduled"
+    };
+    if let Ok(db) = state.db.lock() {
+        crate::user_data::emit(
+            &db,
+            "scan.finished",
+            &format!(
+                "Library scan: {} new, {} updated",
+                report.added, report.updated
+            ),
+            serde_json::json!({
+                "status": status,
+                "found": report.found,
+                "added": report.added,
+                "updated": report.updated,
+                "nfoApplied": report.nfo_applied,
+                "errors": report.errors.len(),
+            }),
+        );
+    }
+    if follow_up == "scheduled" {
+        crate::post_scan::schedule(report.added_ids.clone());
+    }
+    serde_json::json!({ "new_items": report.added_ids.len(), "follow_up": follow_up })
 }
 
 #[tauri::command]
@@ -528,6 +656,8 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
                 totals.found += report.found;
                 totals.added += report.added;
                 totals.updated += report.updated;
+                totals.nfo_applied += report.nfo_applied;
+                totals.added_ids.extend(report.added_ids.iter().copied());
                 totals.errors.extend(
                     report
                         .errors
@@ -563,11 +693,14 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         "failed"
     };
 
+    let post_scan = finish_scan(&state, &totals, status);
     Ok(serde_json::json!({
         "status": status,
         "total_found": totals.found,
         "total_added": totals.added,
         "total_updated": totals.updated,
+        "nfo_applied": totals.nfo_applied,
+        "post_scan": post_scan,
         "sources_total": sources.len(),
         "sources_enabled": enabled,
         "sources_scanned": scanned,
@@ -604,15 +737,19 @@ pub async fn scan_single_source(
     }
 
     let report = scan_directory(&state, &source)?;
+    let status = if report.errors.is_empty() {
+        "success"
+    } else {
+        "partial"
+    };
+    let post_scan = finish_scan(&state, &report, status);
     Ok(serde_json::json!({
-        "status": if report.errors.is_empty() {
-            "success"
-        } else {
-            "partial"
-        },
+        "status": status,
         "total_found": report.found,
         "total_added": report.added,
         "total_updated": report.updated,
+        "nfo_applied": report.nfo_applied,
+        "post_scan": post_scan,
         "errors": report.errors,
     }))
 }
@@ -685,7 +822,8 @@ pub async fn apply_embedded_titles(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_media_files, discover_and_add_sources, scanned_media_type, should_index_path,
+        collect_media_files, discover_and_add_sources, scanned_identity, scanned_media_type,
+        should_index_path, title_from_filename,
     };
     use crate::db::{Database, MediaSource};
     use std::path::{Path, PathBuf};
@@ -694,6 +832,29 @@ mod tests {
     fn media_filter_excludes_artwork() {
         assert!(should_index_path(Path::new("movie.mkv")));
         assert!(!should_index_path(Path::new("poster.jpg")));
+    }
+
+    #[test]
+    fn smart_match_off_keeps_the_raw_file_name_title() {
+        let path = Path::new("/tv/Breaking.Bad.S01E02.720p_WEB-DL.mkv");
+        assert_eq!(title_from_filename(path), "Breaking Bad S01E02 720p WEB-DL");
+        assert_eq!(
+            scanned_identity(path, "movie"),
+            (
+                "Breaking Bad - S01E02".to_string(),
+                "episode".to_string(),
+                None
+            )
+        );
+        assert_eq!(
+            scanned_identity(Path::new("/m/Heat.1995.1080p.BluRay.x264-GRP.mkv"), "movie"),
+            ("Heat".to_string(), "movie".to_string(), Some(1995))
+        );
+        // Adult rows keep their type even with an episode-like marker.
+        assert_eq!(
+            scanned_identity(Path::new("/x/Scene.S01E01.mkv"), "adult").1,
+            "adult"
+        );
     }
 
     #[test]

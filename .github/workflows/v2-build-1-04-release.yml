@@ -1,15 +1,12 @@
-# Rustfmt-verified v2.15 Build 215 runtime release candidate
-# Runtime command bridge and complete-suite repairs for Build 215
-# Cross-platform evidence synchronized for Build 215
-# Rustfmt-verified adult-provider release candidate
-# Cross-platform adult-provider release gate
-name: CinaVault Premium v2.15 Build 215 Release
+# CinaVault Premium v1.0.1 Pre-Beta Build 101 release: library engine, holo UI,
+# holographic AI agent, offline vision model, no paywall. Signs when configured.
+name: CinaVault Premium v1.0.1 Pre-Beta Release
 
 on:
   push:
     branches: [main]
     paths:
-      - ".github/release-triggers/v2-build-2.15"
+      - ".github/release-triggers/v1.0.1-pre-beta"
       - ".github/workflows/v2-build-1-04-release.yml"
   workflow_dispatch:
 
@@ -18,14 +15,15 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v2-15-build-215-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v1-0-1-pre-beta-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: 2.0.15
-  TAG_NAME: v2-build-2.15
-  ARTIFACT_NAME: CinaVault-Premium-Windows-v2.15-Build-215
-  TEST_ARTIFACT_NAME: CinaVault-Premium-v2.15-Build-215-Test-Notes
+  APP_VERSION: 1.0.1
+  TAG_NAME: v1.0.1-pre-beta
+  DISPLAY_NAME: v1.0.1 Pre-Beta Build 101
+  ARTIFACT_NAME: CinaVault-Premium-Windows-v1.0.1-Pre-Beta
+  TEST_ARTIFACT_NAME: CinaVault-Premium-v1.0.1-Pre-Beta-Test-Notes
   WIREGUARD_MSI_URL: https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi
 
 jobs:
@@ -60,9 +58,9 @@ jobs:
           @"
           # CinaVault Premium Build Test Notes
 
-          - Public release: v2.15
-          - Build: 215
-          - Internal version: 2.0.15
+          - Public release: v1.0.1 Pre-Beta
+          - Build: 101
+          - Internal version: 1.0.1
           - Commit: $env:GITHUB_SHA
           - Event: $env:GITHUB_EVENT_NAME
           - Started (UTC): $([DateTime]::UtcNow.ToString('o'))
@@ -88,9 +86,9 @@ jobs:
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
           if ($manifest.semanticVersion -ne $env:APP_VERSION) { throw "build manifest mismatch: $($manifest.semanticVersion)" }
-          if ($manifest.displayBuild -ne '215') { throw "display build mismatch: $($manifest.displayBuild)" }
-          if ($manifest.displayName -ne 'v2.15 Build 215') { throw "display name mismatch: $($manifest.displayName)" }
-          if ($manifest.releaseTag -ne 'v2-build-2.15') { throw "release tag format mismatch: $($manifest.releaseTag)" }
+          if ($manifest.displayBuild -ne '101') { throw "display build mismatch: $($manifest.displayBuild)" }
+          if ($manifest.displayName -ne $env:DISPLAY_NAME) { throw "display name mismatch: $($manifest.displayName)" }
+          if ($manifest.releaseTag -ne $env:TAG_NAME) { throw "release tag format mismatch: $($manifest.releaseTag)" }
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
           if ($cargoVersion -ne $env:APP_VERSION) { throw "cargo version mismatch: $cargoVersion" }
           "- Release identity: PASS" | Add-Content test-evidence/TEST-NOTES.md
@@ -127,6 +125,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "- Preventive risk scan: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
+      - name: Bundle and verify offline vision model
+        # Pinned, digest-checked CLIP weights go into the installer; the model
+        # is then run with no network access before anything is built.
+        shell: pwsh
+        run: |
+          npm run fetch:ai-models 2>&1 | Tee-Object test-evidence/vision-model-fetch.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:vision-e2e 2>&1 | Tee-Object test-evidence/vision-model-e2e.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "- Offline vision model end to end: PASS" | Add-Content test-evidence/TEST-NOTES.md
+
       - name: Frontend validation
         shell: pwsh
         run: |
@@ -134,7 +143,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test 2>&1 | Tee-Object test-evidence/frontend-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test --test-concurrency=1 tests/*.test.mjs 2>&1 | Tee-Object test-evidence/complete-node-suite.log
+          node --loader ./tests/typescript-loader.mjs --test --test-concurrency=1 tests/*.test.mjs 2>&1 | Tee-Object test-evidence/complete-node-suite.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test tests/huggingFaceModelSelection.test.mjs tests/libraryLoadPolicy.test.mjs tests/metadataTaskProgress.test.mjs tests/build165PluginProviderConfig.test.mjs tests/adultMediaIsolation.test.mjs tests/v2Build110RuntimeRepairs.test.mjs tests/v2Build111AdultLibraryAndHfTab.test.mjs 2>&1 | Tee-Object test-evidence/carry-forward-feature-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -188,12 +197,46 @@ jobs:
           if ($log -notmatch 'test result: ok\. 2 passed; 0 failed') { throw 'Live metadata gate did not report exactly two passing acceptance tests.' }
           "- Live metadata and poster acceptance: PASS" | Add-Content test-evidence/TEST-NOTES.md
 
+      - name: Configure code signing
+        # Azure Artifact Signing (docs/CODE_SIGNING.md). Without the settings
+        # the installers are built unsigned and the run shows a warning.
+        id: signing
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: |
+          ./scripts/configure-windows-signing.ps1 -ConfigPath "$env:RUNNER_TEMP\cinavault-signing.tauri.json"
+
+      - name: Install Artifact Signing CLI
+        if: steps.signing.outputs.enabled == 'true'
+        run: cargo install artifact-signing-cli --version 0.11.0 --locked
+
       - name: Build Windows installers
         shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
         run: |
-          npm run tauri build -- --target x86_64-pc-windows-msvc 2>&1 | Tee-Object test-evidence/windows-build.log
+          $signing = @()
+          if ($env:CINAVAULT_SIGNING_CONFIG) { $signing = @('--config', $env:CINAVAULT_SIGNING_CONFIG) }
+          npm run tauri build -- --target x86_64-pc-windows-msvc @signing 2>&1 | Tee-Object test-evidence/windows-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "- Windows MSI and NSIS build: PASS" | Add-Content test-evidence/TEST-NOTES.md
+          if ($env:CINAVAULT_SIGNING_CONFIG) { "- Code signing: signed" } else { "- Code signing: NOT SIGNED (signing not configured)" } | Add-Content test-evidence/TEST-NOTES.md
+
+      - name: Verify installer signatures
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: ./scripts/verify-windows-signatures.ps1 -Root 'src-tauri\target\x86_64-pc-windows-msvc\release'
 
       - name: Stage installers and finalize test notes
         shell: pwsh
@@ -207,7 +250,7 @@ jobs:
           Set-Content installer-staging/SHA256SUMS.txt $checksums -Encoding utf8
           Copy-Item installer-staging/SHA256SUMS.txt test-evidence/INSTALLER-SHA256SUMS.txt
           "`n## Final result`n- Completed (UTC): $([DateTime]::UtcNow.ToString('o'))`n- All required tests: PASS`n- Packaging: PASS" | Add-Content test-evidence/TEST-NOTES.md
-          Compress-Archive -Path test-evidence/* -DestinationPath installer-staging/CinaVault-Premium-v2.15-Build-215-Test-Notes.zip -Force
+          Compress-Archive -Path test-evidence/* -DestinationPath installer-staging/CinaVault-Premium-v1.0.1-Pre-Beta-Test-Notes.zip -Force
 
       - name: Record failure in test notes
         if: failure()
@@ -242,20 +285,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish v2.15 Build 215 GitHub release
+      - name: Publish v1.0.1 Pre-Beta Build 101 GitHub release
         if: github.event_name != 'pull_request' && success()
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ env.TAG_NAME }}
           target_commitish: main
-          name: CinaVault Premium v2.15 Build 215
+          name: CinaVault Premium v1.0.1 Pre-Beta Build 101
           body_path: test-evidence/TEST-NOTES.md
           draft: false
-          prerelease: false
+          prerelease: true
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
             installer-staging/*.msi
             installer-staging/*.exe
             installer-staging/SHA256SUMS.txt
-            installer-staging/CinaVault-Premium-v2.15-Build-215-Test-Notes.zip
+            installer-staging/CinaVault-Premium-v1.0.1-Pre-Beta-Test-Notes.zip

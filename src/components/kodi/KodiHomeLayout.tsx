@@ -29,6 +29,14 @@ import {
 import { useAppStore, type MediaItem } from "../../store/appStore";
 import "../../styles/kodi-skin.css";
 import { IS_STORE_SAFE } from "../../config/edition";
+import { loadUnifiedLibrary } from "../../services/unifiedLibrary";
+import { playMedia } from "../../services/playback";
+import { CopiesList, CopyCountBadge } from "../library/UnifiedCopies";
+import DiscoveryShelves from "../discovery/DiscoveryShelves";
+import MoreLikeThis from "../discovery/MoreLikeThis";
+import PosterPreview from "../discovery/PosterPreview";
+import ShelfRow from "../discovery/ShelfRow";
+import WatchlistButton from "../discovery/WatchlistButton";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -251,8 +259,13 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
         fallbackSize={28}
       />
       <div className="kodi-poster-overlay" />
+      <PosterPreview item={item} max={150} />
 
       {/* Badges */}
+      <CopyCountBadge
+        item={item}
+        className="absolute left-2 top-2 z-[3]"
+      />
       <div className="kodi-card-badges">
         {item.verified && (
           <span className="kodi-badge kodi-badge-verified">
@@ -321,6 +334,7 @@ function KodiCard({ item, onSelect, onPlay }: CardProps): JSX.Element {
         >
           <Info size={12} /> Details
         </button>
+        <WatchlistButton item={item} className="kodi-quick-meta" />
       </div>
     </motion.div>
   );
@@ -361,7 +375,7 @@ function KodiShelf({
           </button>
         )}
       </div>
-      <div className="kodi-shelf">
+      <ShelfRow label={title} rowClassName="kodi-shelf" gridClassName="kodi-shelf-grid">
         {items.map((item) => (
           <KodiCard
             key={item.id}
@@ -370,7 +384,7 @@ function KodiShelf({
             onPlay={onPlay}
           />
         ))}
-      </div>
+      </ShelfRow>
     </section>
   );
 }
@@ -380,6 +394,7 @@ function KodiShelf({
 interface DetailPanelProps {
   item: MediaItem;
   onPlay: (item: MediaItem) => void;
+  onSelect: (item: MediaItem) => void;
   onClose: () => void;
   onCheckMetadata: (item: MediaItem) => void;
   checkingId: number | null;
@@ -388,6 +403,7 @@ interface DetailPanelProps {
 function KodiDetailPanel({
   item,
   onPlay,
+  onSelect,
   onClose,
   onCheckMetadata,
   checkingId,
@@ -437,6 +453,11 @@ function KodiDetailPanel({
       </div>
 
       {item.overview && <p className="kodi-detail-overview">{item.overview}</p>}
+
+      <CopiesList
+        item={item}
+        onPlayCopy={(copy) => onPlay({ ...item, file_path: copy.file_path })}
+      />
 
       <div>
         {item.genre && (
@@ -499,6 +520,7 @@ function KodiDetailPanel({
           )}
           {checkingId === item.id ? "Fetching…" : "Refresh Metadata"}
         </button>
+        <WatchlistButton item={item} className="kodi-detail-btn secondary" />
         <button
           type="button"
           className="kodi-detail-btn secondary"
@@ -507,6 +529,8 @@ function KodiDetailPanel({
           Close
         </button>
       </div>
+
+      <MoreLikeThis item={item} skin="kodi" onSelect={onSelect} />
     </motion.aside>
   );
 }
@@ -531,22 +555,31 @@ export default function KodiHomeLayout(): JSX.Element {
   const [searchQuery, setSearchQuery] = useState("");
   const [checkingId, setCheckingId] = useState<number | null>(null);
 
-  // Load library
-  useEffect(() => {
+  // Load library (again after a scan or other change announces a refresh)
+  const loadLibrary = useCallback(() => {
     setLoading(true);
-    invoke<MediaItem[]>("get_media_items", {
-      mediaType: "all",
-      limit: 500,
-      offset: 0,
-    })
-      .then((items) => setMediaItems(items))
+    // Unified library (one card per work); legacy page request as fallback.
+    loadUnifiedLibrary(undefined, () =>
+      invoke<MediaItem[]>("get_media_items", {
+        mediaType: "all",
+        limit: 500,
+        offset: 0,
+      }),
+    )
+      .then((result) => setMediaItems(result.items))
       .catch((err) => addStatusMessage(`Library load error: ${err}`))
       .finally(() => setLoading(false));
   }, [setMediaItems, addStatusMessage]);
 
+  useEffect(() => {
+    loadLibrary();
+    window.addEventListener("cinavault:library-refresh", loadLibrary);
+    return () => window.removeEventListener("cinavault:library-refresh", loadLibrary);
+  }, [loadLibrary]);
+
   const handlePlay = useCallback(
     (item: MediaItem) => {
-      invoke("play_media", { filePath: item.file_path }).catch((err) =>
+      playMedia([item], 0, { source: "library" }).catch((err) =>
         addStatusMessage(`Playback error: ${err}`),
       );
     },
@@ -751,8 +784,11 @@ export default function KodiHomeLayout(): JSX.Element {
         <div style={{ flex: 1, minWidth: 0 }}>
           {viewMode === "shelves" ? (
             <>
+              <div style={{ marginBottom: 28 }}>
+                <DiscoveryShelves skin="kodi" onSelect={setSelectedMedia} />
+              </div>
               <KodiShelf
-                title="Trending Now"
+                title="Recently Added"
                 icon={Clock}
                 items={recentItems}
                 onSelect={setSelectedMedia}
@@ -827,6 +863,7 @@ export default function KodiHomeLayout(): JSX.Element {
             <KodiDetailPanel
               item={selectedMedia}
               onPlay={handlePlay}
+              onSelect={setSelectedMedia}
               onClose={() => setSelectedMedia(null)}
               onCheckMetadata={handleCheckMetadata}
               checkingId={checkingId}

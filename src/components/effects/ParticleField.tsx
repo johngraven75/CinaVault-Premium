@@ -19,6 +19,9 @@ export default function ParticleField({
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
     let animId: number;
+    // Under prefers-reduced-motion draw one still frame instead of looping.
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
     const resize = () => {
       canvas.width = canvas.offsetWidth * 2;
@@ -26,7 +29,12 @@ export default function ParticleField({
       ctx.scale(2, 2);
     };
     resize();
-    window.addEventListener("resize", resize);
+    // Resizing clears the canvas, so a still (reduced-motion) frame is redrawn.
+    const handleResize = () => {
+      resize();
+      if (reduceMotion) draw();
+    };
+    window.addEventListener("resize", handleResize);
 
     const particles = Array.from({ length: particleCount }, () => ({
       x: Math.random() * canvas.offsetWidth,
@@ -77,14 +85,14 @@ export default function ParticleField({
         }
       }
 
-      animId = requestAnimationFrame(draw);
+      if (!reduceMotion) animId = requestAnimationFrame(draw);
     };
 
     draw();
 
     return () => {
       cancelAnimationFrame(animId);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", handleResize);
     };
   }, [particleCount, color]);
 

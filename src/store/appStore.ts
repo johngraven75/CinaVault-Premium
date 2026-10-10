@@ -1,7 +1,9 @@
 // CinaVault Premium — Global State Store (Zustand) with Persistence
 import { create } from "zustand";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
+import featureDefaults from "../features/featureDefaults.json";
 import {
+  IS_STORE_SAFE,
   filterStoreSafeMedia,
   filterStoreSafeProviders,
   filterStoreSafeSources,
@@ -68,6 +70,21 @@ export interface MediaItem {
   imdb_id?: string;
   source_id?: number;
   nfo_path?: string;
+  /** Unified library: identity of the work this card represents. */
+  work_key?: string;
+  /** Unified library: number of files (copies) of this work across all sources. */
+  copy_count?: number;
+  /** Unified library: every file of this work, best copy first. */
+  copies?: MediaCopyInfo[];
+}
+
+/** One physical file of a work in the unified library (get_unified_library). */
+export interface MediaCopyInfo {
+  id: number;
+  file_path: string;
+  source_id: number | null;
+  file_size: number | null;
+  resolution: string | null;
 }
 
 export interface MediaSource {
@@ -264,23 +281,29 @@ const DEFAULT_PROVIDERS: MetadataProvider[] = [
     category: "Artwork",
     enabled: true,
   },
-  // Adult
-  { id: "pgma", name: "PGMA Modernized", category: "Adult", enabled: true },
-  {
-    id: "porn_site_nuxt",
-    name: "Porn Site Nuxt",
-    category: "Adult",
-    enabled: true,
-  },
-  { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: true },
-  { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
-  {
-    id: "phoenixadult",
-    name: "PhoenixAdult",
-    category: "Adult",
-    enabled: true,
-  },
-  { id: "iafd", name: "IAFD", category: "Adult", enabled: true },
+  // Adult — compiled out of the store-safe (MS-v1) bundle entirely, so the
+  // provider names never ship in that edition (filterStoreSafeProviders
+  // still guards restored state at runtime).
+  ...(IS_STORE_SAFE
+    ? []
+    : [
+        { id: "pgma", name: "PGMA Modernized", category: "Adult", enabled: true },
+        {
+          id: "porn_site_nuxt",
+          name: "Porn Site Nuxt",
+          category: "Adult",
+          enabled: true,
+        },
+        { id: "theporndb", name: "ThePornDB", category: "Adult", enabled: true },
+        { id: "stashdb", name: "StashDB", category: "Adult", enabled: true },
+        {
+          id: "phoenixadult",
+          name: "PhoenixAdult",
+          category: "Adult",
+          enabled: true,
+        },
+        { id: "iafd", name: "IAFD", category: "Adult", enabled: true },
+      ]),
   // Subtitles
   {
     id: "opensubtitles",
@@ -317,35 +340,16 @@ const DEFAULT_SCHEDULED_TASKS: ScheduledTaskConfig = {
   match_unmatch: "on_import",
 };
 
-// ── Premium feature defaults (all enabled) ──
+// ── Feature switch defaults ──
+// Every switch in Advanced > Feature Matrix, from featureDefaults.json (the
+// Rust side reads the same file), so an untouched switch means the same thing
+// to the UI and the back end.
 const DEFAULT_FEATURE_SETTINGS: Record<
   string,
   { enabled: boolean; config: any }
-> = {
-  smart_collections: { enabled: true, config: {} },
-  poster_sync: { enabled: true, config: {} },
-  unified_library: { enabled: true, config: {} },
-  watchlist: { enabled: true, config: {} },
-  skip_intro: { enabled: true, config: {} },
-  skip_outro: { enabled: true, config: {} },
-  auto_next: { enabled: true, config: {} },
-  auto_subtitles: { enabled: true, config: {} },
-  chapter_thumbs: { enabled: true, config: {} },
-  hw_transcoding: { enabled: true, config: {} },
-  motion_effects: { enabled: true, config: {} },
-  splash_screen: { enabled: true, config: {} },
-  particle_effects: { enabled: true, config: {} },
-  ai_visualizer: { enabled: true, config: {} },
-  glassmorphism: { enabled: true, config: {} },
-  starfield_header: { enabled: true, config: {} },
-  animated_sidebar: { enabled: true, config: {} },
-  emby_sdk: { enabled: true, config: {} },
-  vpn_integration: { enabled: true, config: {} },
-  ai_diagnostics: { enabled: true, config: {} },
-  duplicate_finder: { enabled: true, config: {} },
-  iptv_support: { enabled: true, config: {} },
-  plugin_system: { enabled: true, config: {} },
-};
+> = Object.fromEntries(
+  Object.entries(featureDefaults).map(([key, enabled]) => [key, { enabled, config: {} }]),
+);
 
 // ── Premium settings defaults ──
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -353,19 +357,9 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   splash_enabled: "true",
   sidebar_collapsed: "false",
   motion_enabled: "true",
-  skip_intro: "true",
-  skip_outro: "true",
-  auto_next: "true",
-  auto_subtitles: "true",
-  chapter_thumbs_enabled: "true",
   prefer_embedded_titles: "true",
-  smart_collections: "true",
-  poster_sync: "true",
   unified_library: "true",
-  watchlist_enabled: "true",
-  hw_transcoding: "true",
   quality_control: "auto",
-  remote_access_enabled: "true",
   remote_manually_specify_port: "false",
   remote_public_port: "32400",
   remote_secure_connections: "preferred",
@@ -376,9 +370,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   remote_enable_upnp: "true",
   remote_enable_natpmp: "true",
   default_player: "system",
-  particle_effects: "true",
   ai_visualizer: "true",
-  glassmorphism: "true",
   starfield_header: "true",
   window_opacity: "100",
 };

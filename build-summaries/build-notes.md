@@ -1,4 +1,0 @@
-- Build: 140
-- Date: June 30, 2026
-- Status: Governance cleanup and Build 140 alignment
-- Description: Active Build 140 files now carry Build 140 identity across app shell, sidebar, Cyber HUD header, installer script, PGMA build notes, regression tests, and drift guard coverage. Historical release materials remain under releases/build-*/.

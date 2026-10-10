@@ -1,5 +1,5 @@
 // CinaVault Premium — Settings Tab (Premium UI defaults + Persistent Settings)
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store/appStore";
@@ -24,8 +24,18 @@ import {
   Download,
   RefreshCw,
   HardDrive,
+  Wand2,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import { openFirstRunSetup } from "../setup/FirstRunSetup";
+import { BUILD_INFO } from "../../buildInfo";
+import {
+  FEATURE_DEFAULTS,
+  FEATURE_KEYS,
+  isFeatureOn,
+  saveFeature,
+  type FeatureKey,
+} from "../../features/featureFlags";
 
 export default function SettingsTab() {
   const {
@@ -34,13 +44,35 @@ export default function SettingsTab() {
     currentTheme,
     setTheme,
     featureSettings,
-    toggleFeature,
     addStatusMessage,
     getPersistedState,
   } = useAppStore();
 
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState("appearance");
+  const [players, setPlayers] = useState<PlayerInfo[]>([]);
+
+  // play_media launches the stored executable path, or the system handler for
+  // "system", so the picker must offer the real paths the back end detected.
+  useEffect(() => {
+    invoke<PlayerInfo[]>("get_available_players")
+      .then(setPlayers)
+      .catch((error) => addStatusMessage(`Unable to list media players: ${error}`));
+  }, [addStatusMessage]);
+
+  const chooseDefaultPlayer = useCallback(
+    async (player: string) => {
+      try {
+        await invoke("set_default_player", { player });
+        setSetting("default_player", player);
+        const name = players.find((p) => p.executable === player)?.name || "System Default";
+        addStatusMessage(`Default player: ${name}`);
+      } catch (error) {
+        addStatusMessage(`Could not set the default player: ${error}`);
+      }
+    },
+    [players, setSetting, addStatusMessage],
+  );
 
   // ── Manual save ──
   const handleSave = useCallback(async () => {
@@ -72,36 +104,37 @@ export default function SettingsTab() {
       splash_enabled: "true",
       sidebar_collapsed: "false",
       motion_enabled: "true",
-      skip_intro: "true",
-      skip_outro: "true",
-      auto_next: "true",
-      auto_subtitles: "true",
-      chapter_thumbs_enabled: "true",
-      smart_collections: "true",
-      poster_sync: "true",
       unified_library: "true",
-      watchlist_enabled: "true",
-      hw_transcoding: "true",
       quality_control: "auto",
       default_player: "system",
-      particle_effects: "true",
       ai_visualizer: "true",
-      glassmorphism: "true",
       starfield_header: "true",
       window_opacity: "100",
     };
     for (const [k, v] of Object.entries(premiumDefaults)) {
       setSetting(k, v);
     }
+    for (const key of FEATURE_KEYS) {
+      void saveFeature(key, FEATURE_DEFAULTS[key], featureSettings[key]?.config ?? {}).catch(() => {});
+    }
     setTheme("vidhub_flagship");
     applyTheme("vidhub_flagship");
     addStatusMessage(
-      "Settings reset to Premium defaults — all features enabled",
+      "Settings and feature switches reset to their defaults",
     );
-  }, [setSetting, setTheme, addStatusMessage]);
+  }, [setSetting, setTheme, addStatusMessage, featureSettings]);
 
-  // Toggle helper
+  // Toggle helpers. Switches that also appear in Advanced > Feature Matrix
+  // are the same switch here, saved through saveFeature.
   const isOn = (key: string) => settings[key] === "true";
+  const isFeature = (key: FeatureKey) => isFeatureOn(featureSettings, key);
+  const toggleFeatureSwitch = async (key: FeatureKey) => {
+    try {
+      await saveFeature(key, !isFeature(key), featureSettings[key]?.config ?? {});
+    } catch (error) {
+      addStatusMessage(`Could not change ${key}: ${String(error)}`);
+    }
+  };
   const toggle = (key: string) => setSetting(key, isOn(key) ? "false" : "true");
 
   const SECTIONS = [
@@ -136,6 +169,14 @@ export default function SettingsTab() {
 
         {/* Save / Reset */}
         <div className="pt-3 space-y-2">
+          <button
+            type="button"
+            onClick={openFirstRunSetup}
+            className="w-full cv-btn cv-btn-secondary text-xs py-2.5 flex items-center justify-center gap-1.5"
+            title="Reopen the first-run setup wizard (metadata keys, AI vision)"
+          >
+            <Wand2 size={12} /> Run Setup Wizard
+          </button>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -275,32 +316,32 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Skip Intro Detection"
                 desc="Automatically detect and skip intros"
-                checked={isOn("skip_intro")}
-                onChange={() => toggle("skip_intro")}
+                checked={isFeature("skip_intro")}
+                onChange={() => void toggleFeatureSwitch("skip_intro")}
               />
               <ToggleRow
                 label="Skip Outro / Credits"
                 desc="Auto-skip end credits and outros"
-                checked={isOn("skip_outro")}
-                onChange={() => toggle("skip_outro")}
+                checked={isFeature("skip_credits")}
+                onChange={() => void toggleFeatureSwitch("skip_credits")}
               />
               <ToggleRow
                 label="Auto-Play Next Episode"
                 desc="Seamlessly play the next episode in a series"
-                checked={isOn("auto_next")}
-                onChange={() => toggle("auto_next")}
+                checked={isFeature("next_up")}
+                onChange={() => void toggleFeatureSwitch("next_up")}
               />
               <ToggleRow
                 label="Auto-Download Subtitles"
-                desc="Fetch subtitles automatically for all media"
-                checked={isOn("auto_subtitles")}
-                onChange={() => toggle("auto_subtitles")}
+                desc="Download subtitles for new titles from OpenSubtitles (needs an API key)"
+                checked={isFeature("subtitle_fetch")}
+                onChange={() => void toggleFeatureSwitch("subtitle_fetch")}
               />
               <ToggleRow
                 label="Chapter Thumbnails"
-                desc="Generate preview thumbnails for video chapters"
-                checked={isOn("chapter_thumbs_enabled")}
-                onChange={() => toggle("chapter_thumbs_enabled")}
+                desc="Generate chapter preview frames for new videos after each scan"
+                checked={isFeature("chapter_thumbs")}
+                onChange={() => void toggleFeatureSwitch("chapter_thumbs")}
               />
 
               <SectionHeader
@@ -309,17 +350,22 @@ export default function SettingsTab() {
               />
               <SettingRow
                 label="Player"
-                desc="System default or built-in Vidstack player"
+                desc="Players found on this PC; others are listed as not installed"
               >
                 <select
-                  value={settings.default_player || "system"}
-                  onChange={(e) => setSetting("default_player", e.target.value)}
+                  value={
+                    players.some((p) => p.available && p.executable === settings.default_player)
+                      ? settings.default_player
+                      : "system"
+                  }
+                  onChange={(e) => void chooseDefaultPlayer(e.target.value)}
                   className="cv-input text-xs min-w-[140px]"
                 >
-                  <option value="system">System Default</option>
-                  <option value="vidstack">Vidstack (Built-in)</option>
-                  <option value="mpv">MPV</option>
-                  <option value="vlc">VLC</option>
+                  {(players.length ? players : [{ name: "System Default", executable: "system", available: true }]).map((p) => (
+                    <option key={p.name} value={p.available ? p.executable : `missing:${p.name}`} disabled={!p.available}>
+                      {p.available ? p.name : `${p.name} (not installed)`}
+                    </option>
+                  ))}
                 </select>
               </SettingRow>
             </>
@@ -334,15 +380,15 @@ export default function SettingsTab() {
               />
               <ToggleRow
                 label="Smart Collections"
-                desc="Auto-generate collections based on genres, years, and actors"
-                checked={isOn("smart_collections")}
-                onChange={() => toggle("smart_collections")}
+                desc="Group the library into series, franchise and genre collections after each scan"
+                checked={isFeature("collection_auto")}
+                onChange={() => void toggleFeatureSwitch("collection_auto")}
               />
               <ToggleRow
                 label="Poster Sync"
-                desc="Keep poster artwork synced across all connected servers"
-                checked={isOn("poster_sync")}
-                onChange={() => toggle("poster_sync")}
+                desc="Share artwork through a folder such as OneDrive (choose it in Advanced > Feature Matrix)"
+                checked={isFeature("poster_sync")}
+                onChange={() => void toggleFeatureSwitch("poster_sync")}
               />
               <ToggleRow
                 label="Unified Library"
@@ -353,8 +399,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Watchlist"
                 desc="Track what you want to watch next"
-                checked={isOn("watchlist_enabled")}
-                onChange={() => toggle("watchlist_enabled")}
+                checked={isFeature("watchlist")}
+                onChange={() => void toggleFeatureSwitch("watchlist")}
               />
             </>
           )}
@@ -375,8 +421,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Particle Effects"
                 desc="Ambient floating particle system in backgrounds"
-                checked={isOn("particle_effects")}
-                onChange={() => toggle("particle_effects")}
+                checked={isFeature("particle_bg")}
+                onChange={() => void toggleFeatureSwitch("particle_bg")}
               />
               <ToggleRow
                 label="AI Visualizer"
@@ -387,8 +433,8 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Glassmorphism"
                 desc="Frosted glass UI panels with blur effects"
-                checked={isOn("glassmorphism")}
-                onChange={() => toggle("glassmorphism")}
+                checked={isFeature("glass_effects")}
+                onChange={() => void toggleFeatureSwitch("glass_effects")}
               />
               <ToggleRow
                 label="Starfield Header"
@@ -409,12 +455,12 @@ export default function SettingsTab() {
               <ToggleRow
                 label="Hardware Transcoding"
                 desc="Use GPU acceleration for video transcoding"
-                checked={isOn("hw_transcoding")}
-                onChange={() => toggle("hw_transcoding")}
+                checked={isFeature("hw_transcode")}
+                onChange={() => void toggleFeatureSwitch("hw_transcode")}
               />
               <SettingRow
                 label="Quality Control"
-                desc="Automatic bitrate selection or manual override"
+                desc="Transcode bitrate: Auto follows the source resolution; Max 20 Mbps, Balanced 8 Mbps at 1080p, Low 2.5 Mbps at 720p"
               >
                 <select
                   value={settings.quality_control || "auto"}
@@ -481,7 +527,7 @@ export default function SettingsTab() {
                   Fusion Edition
                 </p>
                 <p className="text-xs" style={{ color: "var(--cv-subtext)" }}>
-                  v1.6.6 · Build 166 · Tauri v2 + React 18
+                  {BUILD_INFO.displayName} · Tauri v2 + React 19
                 </p>
                 <div className="mt-4 grid grid-cols-3 gap-3 text-center">
                   <div className="p-3 rounded-xl bg-white/3">
@@ -565,6 +611,8 @@ export default function SettingsTab() {
 }
 
 // ── Reusable Components ──
+
+type PlayerInfo = { name: string; executable: string; available: boolean };
 
 function SectionHeader({ title, desc }: { title: string; desc: string }) {
   return (

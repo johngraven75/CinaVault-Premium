@@ -3,11 +3,11 @@ import "./styles/poster-card-standard.css";
 import "./styles/media-row-poster-final-fix.css";
 import "./styles/media-card-hard-fix.css";
 import "./styles/media-card-final-standard.css";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { BrainCircuit, Layers3, RadioTower, Sparkles } from "lucide-react";
 import { useAppStore, type TabId } from "./store/appStore";
 import { applyTheme } from "./themes";
@@ -29,6 +29,11 @@ import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
+import FirstRunSetup from "./components/setup/FirstRunSetup";
+import LibraryPlayer from "./components/player/LibraryPlayer";
+// The agent (WebGL head + chat) loads only when it is switched on.
+const HoloAgent = lazy(() => import("./components/agent/HoloAgent"));
+import { StatusBeacon } from "./components/holo/CinematicLoaders";
 import { pluginEngine } from "./data/pluginAdapter";
 import {
   getWheelDeltaPixels,
@@ -36,8 +41,11 @@ import {
 } from "./utils/pageWheelScroll";
 import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
 import { startAiMediaAutopilot } from "./services/aiMediaAutopilot";
+import { startPosterAutopilot } from "./services/aiPosterAutopilot";
 import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
+import { isFeatureOn, syncFeatureSettingsFromBackend } from "./features/featureFlags";
+import { useShellPreferences } from "./features/shellPreferences";
 import {
   ensurePermanentMediaPluginsAtStartup,
   initializePermanentMediaPluginsAtStartup,
@@ -163,27 +171,26 @@ const TAB_TITLES: Record<
   },
 };
 
+// Tab transitions animate only transform and opacity so they stay on the
+// compositor; animating filter: blur() repainted the whole workspace each frame.
 const TAB_MOTION = {
   initial: {
     opacity: 0,
-    y: 34,
+    y: 28,
     scale: 0.975,
     rotateX: 2.2,
-    filter: "blur(12px)",
   },
   animate: {
     opacity: 1,
     y: 0,
     scale: 1,
     rotateX: 0,
-    filter: "blur(0px)",
   },
   exit: {
     opacity: 0,
-    y: -20,
+    y: -16,
     scale: 0.988,
     rotateX: -1.5,
-    filter: "blur(10px)",
   },
 };
 
@@ -311,6 +318,11 @@ export default function App(): JSX.Element {
         }
 
         restorePersistedState(persistedState);
+        try {
+          await syncFeatureSettingsFromBackend();
+        } catch (error) {
+          console.warn("Saved feature switches unavailable; using defaults:", error);
+        }
         hasRestoredSettings.current = true;
         if (cancelled) return;
 
@@ -360,6 +372,21 @@ export default function App(): JSX.Element {
     });
   }, [addStatusMessage, setMediaItems, settings.ai_media_autopilot_interval_minutes]);
 
+  // Local AI vision: warm the bundled CLIP model once the UI is idle, then
+  // check unverified posters in the background. No user input, no token.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void startPosterAutopilot().then((result) => {
+        if (result && (result.verified.length > 0 || result.flagged.length > 0)) {
+          addStatusMessage(
+            `AI vision checked ${result.checked} posters: ${result.verified.length} confirmed, ${result.flagged.length} look mismatched.`,
+          );
+        }
+      });
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [addStatusMessage]);
+
   useEffect(() => {
     applyTheme(currentTheme);
   }, [currentTheme]);
@@ -408,9 +435,11 @@ export default function App(): JSX.Element {
     }
   }, []);
 
+  const shell = useShellPreferences(settings, featureSettings);
   const CurrentTabComponent = TAB_COMPONENTS[activeTab];
 
   return (
+    <MotionConfig reducedMotion={shell.reduceMotion ? "always" : "user"}>
     <div className="app-shell cv-app min-h-screen overflow-hidden bg-[#02040a] text-cv-text">
       <ExperienceBackdrop />
 
@@ -446,8 +475,8 @@ export default function App(): JSX.Element {
             <div className="relative z-10 grid min-h-[172px] grid-cols-1 items-end gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_380px] lg:p-6">
               <motion.div
                 key={`${activeTab}-title`}
-                initial={{ opacity: 0, x: -20, filter: "blur(8px)" }}
-                animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
               >
                 <div className="cv-stage-kicker">
@@ -492,7 +521,10 @@ export default function App(): JSX.Element {
                 >
                   <RadioTower size={15} className="mb-2 text-emerald-300" />
                   <div className="cv-telemetry-value">
-                    {startupPluginsReady ? "Live" : "Syncing"}
+                    <StatusBeacon
+                      status={startupPluginsReady ? "online" : "syncing"}
+                      label={startupPluginsReady ? "Live" : "Syncing"}
+                    />
                   </div>
                   <div className="cv-telemetry-label">Service fabric</div>
                 </motion.div>
@@ -515,6 +547,7 @@ export default function App(): JSX.Element {
                 className="cv-workspace-panel"
                 style={{ transformPerspective: 1200 }}
               >
+                <span className="holo-route-veil" aria-hidden="true" />
                 {CurrentTabComponent ? (
                   <CurrentTabComponent />
                 ) : (
@@ -525,6 +558,15 @@ export default function App(): JSX.Element {
           </div>
         </main>
       </motion.div>
+
+      <FirstRunSetup />
+      <LibraryPlayer />
+      {isFeatureOn(featureSettings, "holo_agent") && (
+        <Suspense fallback={null}>
+          <HoloAgent />
+        </Suspense>
+      )}
     </div>
+    </MotionConfig>
   );
 }

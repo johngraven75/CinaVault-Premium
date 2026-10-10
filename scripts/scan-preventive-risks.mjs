@@ -48,8 +48,9 @@ for (const required of [
 }
 assert.equal(build.schemaVersion, 1);
 assert.match(build.semanticVersion, /^\d+\.\d+\.\d+$/);
-assert.match(build.displayName, /^v\d+(?:\.\d+)? Build \d+(?:\.\d+)?$/);
-assert.match(build.releaseTag, /^v\d+-build-\d+(?:\.\d+)?$/);
+assert.match(build.displayName, /^v\d+(?:\.\d+)*(?: [A-Za-z-]+)? Build \d+(?:\.\d+)?$/);
+// Legacy v2-build-N.N tags, or semver tags such as v1.0.1-pre-beta.
+assert.match(build.releaseTag, /^v(?:\d+-build-\d+(?:\.\d+)?|\d+\.\d+\.\d+(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?)$/);
 
 requireMarker("src/buildInfo.ts", 'import manifest from "../build-version.json"', "UI build identity must derive from build-version.json");
 requireMarker("src/main.tsx", "BUILD_INFO.displayName", "Startup diagnostics must use the authoritative build identity");
@@ -58,7 +59,7 @@ requireMarker("src/components/Sidebar.tsx", 'import { BUILD_INFO } from "../buil
 requireMarker("src-tauri/src/build_identity.rs", 'include_str!("../../build-version.json")', "Rust build identity must derive from build-version.json");
 requireMarker("src-tauri/src/lib.rs", "build_identity::get_current_build_info", "Tauri runtime app info must use the typed manifest-driven build identity");
 requireMarker("src-tauri/src/main.rs", "cinavault_premium_lib::run();", "Windows binary entrypoint must execute the repaired shared Tauri runtime");
-requireMarker(".github/workflows/release-build-170.yml", "npm run verify:master-release", "Master-gated packaging must remain blocked by the master release gate");
+requireMarker(".github/workflows/v2-build-1-04-release.yml", "npm run verify:master-release", "Master-gated packaging must remain blocked by the master release gate");
 
 const packageJson = JSON.parse(read("package.json"));
 if (packageJson.version !== build.semanticVersion) findings.push({ severity: "high", file: "package.json", reason: `Package version ${packageJson.version} does not match ${build.semanticVersion}` });

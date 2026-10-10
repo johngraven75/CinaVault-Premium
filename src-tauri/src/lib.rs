@@ -14,6 +14,7 @@ mod downloads;
 mod duplicates;
 mod edition;
 mod embedded_server;
+mod feature_flags;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
@@ -21,6 +22,7 @@ mod iptv;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
+mod library_unify;
 mod media_tools;
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
@@ -39,22 +41,41 @@ mod metadata_guard {
         "/metadata_guard_without_commands.rs"
     ));
 }
+mod api_keys_server;
+mod content_rating;
+mod discovery;
+mod gpu_startup;
 mod metadata_keyless;
 #[cfg(test)]
 mod metadata_posting_tests;
 mod metadata_provider_config;
 mod nas_devices;
+mod parental;
 mod pgma_bridge;
 mod player;
+mod player_stream;
 mod plugin_configs;
 mod plugins;
 mod remote_connectivity;
 mod scanner;
 mod secure_credentials;
+mod server_access;
+mod server_cache;
 pub mod server_lifecycle;
 mod shared_contracts;
 mod source_health;
 mod task_progress;
+mod throttle;
+mod transcode;
+mod user_data;
+// library switches
+mod collections;
+mod media_extras;
+mod nfo;
+mod post_scan;
+mod poster_sync;
+mod subtitles;
+mod title_clean;
 mod vpn;
 mod vpn_profile_store;
 
@@ -72,6 +93,8 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
+    // GPU acceleration switch: the webview reads its arguments when created.
+    gpu_startup::apply();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -173,10 +196,28 @@ pub fn run() {
                 Err(error) => log::warn!("Permanent media tools startup repair failed: {error}"),
             }
 
+            if let Err(error) = user_data::ensure_tables(&database) {
+                log::warn!("Profile and playback tables could not be prepared: {error}");
+            }
+            if let Err(error) = discovery::ensure_tables(&database) {
+                log::warn!("Discovery cache table could not be prepared: {error}");
+            }
+            if let Err(error) = parental::ensure_tables(&database)
+                .and_then(|_| api_keys_server::ensure_tables(&database))
+                .and_then(|_| server_access::migrate_legacy_settings(&database))
+            {
+                log::warn!("Server and parental-control tables could not be prepared: {error}");
+            }
+            if let Err(error) = collections::ensure_tables(&database) {
+                log::warn!("Collection tables could not be prepared: {error}");
+            }
+
             app.manage(AppState {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
             });
+            content_rating::spawn_startup_refresh(app.handle().clone());
+            post_scan::configure(app.handle().clone());
             let startup_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let result = vpn::startup_auto_connect(startup_handle).await;
@@ -227,6 +268,7 @@ pub fn run() {
             duplicates::get_duplicate_groups,
             duplicates::remove_duplicate,
             duplicates::quarantine,
+            library_unify::get_unified_library,
             iptv::add_xtream_profile,
             iptv::get_xtream_profiles,
             iptv::remove_xtream_profile,
@@ -261,6 +303,52 @@ pub fn run() {
             pgma_bridge::find_local_candidates,
             pgma_bridge::refresh_pgma_library,
             player::play_media,
+            user_data::profiles_list,
+            user_data::profile_active,
+            user_data::profile_create,
+            user_data::profile_update,
+            user_data::profile_delete,
+            user_data::profile_switch,
+            user_data::playback_progress_save,
+            user_data::playback_progress_get,
+            user_data::playback_progress_clear,
+            user_data::continue_watching_list,
+            user_data::watchlist_toggle,
+            user_data::watchlist_list,
+            user_data::activity_log_list,
+            user_data::activity_log_clear,
+            user_data::activity_record,
+            user_data::webhook_test,
+            // discovery switches
+            discovery::discovery_recommendations,
+            discovery::discovery_similar,
+            discovery::discovery_trending,
+            discovery::discovery_new_releases,
+            discovery::discovery_genres,
+            discovery::discovery_genre_queue,
+            // player switches
+            player_stream::player_prepare,
+            player_stream::player_transcode_status,
+            player_stream::player_subtitles,
+            // media server, profiles and parental controls switches
+            api_keys_server::api_keys_list,
+            api_keys_server::api_key_issue,
+            api_keys_server::api_key_revoke,
+            parental::parental_status,
+            parental::parental_set_pin,
+            parental::parental_unlock,
+            parental::parental_lock,
+            content_rating::parental_refresh_ratings,
+            // library switches
+            post_scan::post_scan_status,
+            subtitles::subtitles_status,
+            subtitles::subtitles_find,
+            poster_sync::poster_sync_status,
+            poster_sync::poster_sync_now,
+            collections::collections_list,
+            collections::collection_items,
+            collections::collections_rebuild,
+            media_extras::media_item_extras_get,
             player::get_available_players,
             player::set_default_player,
             casting::discover_casting_devices,

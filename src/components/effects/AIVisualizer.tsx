@@ -17,6 +17,9 @@ export default function AIVisualizer({
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
     let animId: number;
+    // Under prefers-reduced-motion draw one still frame instead of looping.
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     let t = 0;
 
     const resize = () => {
@@ -109,7 +112,7 @@ export default function AIVisualizer({
       ctx.fillStyle = `rgba(255,255,255,${0.5 + intensity * 0.4})`;
       ctx.fill();
 
-      animId = requestAnimationFrame(draw);
+      if (!reduceMotion) animId = requestAnimationFrame(draw);
     };
 
     draw();

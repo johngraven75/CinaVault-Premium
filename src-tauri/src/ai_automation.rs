@@ -92,9 +92,7 @@ pub async fn ai_library_manage(
     }
 
     if requested.iter().any(|task| task == "duplicates") {
-        match duplicates::find_duplicates(state.clone(), Some("name_size".to_string()), Some(0.0))
-            .await
-        {
+        match duplicates::find_duplicates(state.clone(), Some("name_size".to_string())).await {
             Ok(report) => {
                 results.insert(
                     "duplicates".to_string(),
