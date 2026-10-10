@@ -154,8 +154,8 @@ pub fn movie_hash(path: &Path) -> std::io::Result<String> {
         let mut buffer = vec![0u8; CHUNK.min(size) as usize];
         let read = file.read(&mut buffer)?;
         buffer.truncate(read - read % 8);
-        for word in buffer.chunks_exact(8) {
-            hash = hash.wrapping_add(u64::from_le_bytes(word.try_into().expect("8 bytes")));
+        for word in buffer.as_chunks::<8>().0 {
+            hash = hash.wrapping_add(u64::from_le_bytes(*word));
         }
         Ok(())
     };
@@ -722,8 +722,8 @@ mod tests {
         std::fs::write(&path, &bytes).unwrap();
         let mut expected = bytes.len() as u64;
         for chunk in [&bytes[..65536], &bytes[bytes.len() - 65536..]] {
-            for word in chunk.chunks_exact(8) {
-                expected = expected.wrapping_add(u64::from_le_bytes(word.try_into().unwrap()));
+            for word in chunk.as_chunks::<8>().0 {
+                expected = expected.wrapping_add(u64::from_le_bytes(*word));
             }
         }
         assert_eq!(movie_hash(&path).unwrap(), format!("{expected:016x}"));

@@ -4,6 +4,7 @@
 // winget to install missing permanent tools. It never marks a tool ready based
 // only on catalog flags.
 use serde::Serialize;
+#[cfg(target_os = "windows")]
 use std::collections::HashSet;
 use std::env;
 #[cfg(target_os = "windows")]
@@ -135,6 +136,7 @@ pub(crate) fn resolve_executable(executable: &str) -> PathBuf {
 }
 
 fn command_for(executable: &str) -> Command {
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
     let mut command = Command::new(resolve_executable(executable));
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);

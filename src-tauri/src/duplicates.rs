@@ -34,16 +34,19 @@ pub struct DuplicateScanResult {
     pub scanned_files: usize,
 }
 
+#[allow(dead_code)]
 fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+#[allow(dead_code)]
 pub fn calculate_key_hash(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
     bytes_to_hex(&hasher.finalize())
 }
 
+#[allow(dead_code)]
 pub fn calculate_file_hash(path: &Path) -> Result<String, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
@@ -61,10 +64,7 @@ pub fn calculate_file_hash(path: &Path) -> Result<String, String> {
 }
 
 fn file_name_of(path: &str) -> String {
-    path.rsplit(|c| c == '/' || c == '\\')
-        .next()
-        .unwrap_or(path)
-        .to_string()
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
 fn to_duplicate_file(item: &MediaItem) -> DuplicateFile {

@@ -1,6 +1,6 @@
 use regex::Regex;
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 const MAX_ARTWORK_BYTES: usize = 25 * 1024 * 1024;
@@ -26,8 +26,11 @@ pub struct KeylessMetadataMatch {
 #[derive(Debug, Clone)]
 pub struct CachedArtwork {
     pub path: String,
+    #[allow(dead_code)]
     pub mime_type: String,
+    #[allow(dead_code)]
     pub byte_length: usize,
+    #[allow(dead_code)]
     pub sha256: String,
 }
 
@@ -56,15 +59,14 @@ pub fn metadata_query(title: &str, file_path: &str) -> String {
     let title_candidate = normalize_media_name(title);
     let file_candidate = normalize_media_name(portable_file_stem(file_path));
 
-    if title_candidate.is_empty()
+    if (title_candidate.is_empty()
         || title.eq_ignore_ascii_case("unknown")
         || title.contains('_')
         || title.contains('.')
-        || looks_like_release_name(title)
+        || looks_like_release_name(title))
+        && !file_candidate.is_empty()
     {
-        if !file_candidate.is_empty() {
-            return file_candidate;
-        }
+        return file_candidate;
     }
 
     if !title_candidate.is_empty() {

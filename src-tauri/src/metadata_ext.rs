@@ -70,7 +70,7 @@ pub(crate) fn resolve_stored_provider_key(provider: &str, stored: &str) -> Resul
 }
 
 fn clean_local_metadata_title(query: &str) -> String {
-    let normalized = query.replace('_', " ").replace('.', " ").replace('-', " ");
+    let normalized = query.replace(['_', '.', '-'], " ");
     let noise = [
         "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd", "x264", "x265", "h264", "h265",
         "hevc", "webdl", "webrip", "bluray", "brrip", "dvdrip", "aac", "ddp", "mp4", "mkv", "avi",

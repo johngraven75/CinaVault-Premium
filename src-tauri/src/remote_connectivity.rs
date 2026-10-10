@@ -52,22 +52,12 @@ impl Default for RemoteConnectivityStatus {
     }
 }
 
+#[derive(Default)]
 struct ConnectivityRuntime {
     status: RemoteConnectivityStatus,
     tunnel: Option<Child>,
     mapping_shutdown: Option<oneshot::Sender<()>>,
     mapping: Option<ActiveMapping>,
-}
-
-impl Default for ConnectivityRuntime {
-    fn default() -> Self {
-        Self {
-            status: RemoteConnectivityStatus::default(),
-            tunnel: None,
-            mapping_shutdown: None,
-            mapping: None,
-        }
-    }
 }
 
 #[derive(Clone, Copy)]

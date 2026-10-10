@@ -669,7 +669,7 @@ async fn resolve_provider_match(
     provider_keys: &HashMap<String, String>,
     source_kind: SourceKind,
     queries: &[String],
-    file_path: &str,
+    _file_path: &str,
     provider_errors: &mut Vec<String>,
 ) -> Option<ProviderMatch> {
     for query in queries {
@@ -1249,6 +1249,7 @@ pub(crate) async fn download_poster_to_sidecar(
 }
 
 /// Writes a Kodi-compatible NFO sidecar XML file next to the video file.
+#[allow(clippy::too_many_arguments)]
 fn write_nfo_sidecar(
     video_path: &str,
     title: &str,

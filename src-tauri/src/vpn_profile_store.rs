@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
@@ -255,7 +256,7 @@ pub fn list_profiles(
             is_default: state.default_profile.as_deref() == Some(name),
         });
     }
-    profiles.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    profiles.sort_by_key(|profile| profile.name.to_lowercase());
     Ok(profiles)
 }
 
@@ -288,6 +289,7 @@ fn write_state(app: &AppHandle, state: &ProfileState) -> Result<(), String> {
     restrict_to_current_user(&path)
 }
 
+#[allow(dead_code)]
 pub fn record_verified_connection(app: &AppHandle, name: &str) -> Result<(), String> {
     let name = sanitize_profile_name(name)?;
     profile_path(app, &name)?;
@@ -325,6 +327,7 @@ pub fn default_profile(app: &AppHandle) -> Result<Option<(String, bool)>, String
     Ok(state.default_profile.map(|name| (name, state.auto_connect)))
 }
 
+#[allow(dead_code)]
 pub fn profile_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let name = sanitize_profile_name(name)?;
     let path = profile_directory(app)?.join(format!("{name}.conf"));

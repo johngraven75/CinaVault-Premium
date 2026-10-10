@@ -291,11 +291,7 @@ fn year_token(token: &str) -> Option<i32> {
 /// source and audio tags; pulls out the year (kept separately) and any
 /// SxxExx marker; folds case, accents and punctuation.
 pub fn normalize_title(raw: &str) -> NormalizedTitle {
-    let base = raw
-        .rsplit(|c| c == '/' || c == '\\')
-        .next()
-        .unwrap_or(raw)
-        .trim();
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
     let base = strip_extension(base);
     let folded = fold_text(&strip_bracketed(base));
     let tokens: Vec<&str> = folded.split_whitespace().collect();
@@ -342,7 +338,7 @@ pub fn normalize_title(raw: &str) -> NormalizedTitle {
         .skip(1)
         .filter(|(_, token)| year_token(token).is_some())
         .map(|(index, _)| index)
-        .last();
+        .next_back();
     let (title_tokens, year) = match year_index {
         Some(index) => (&kept[..index], year_token(kept[index])),
         None => (kept, None),
@@ -378,10 +374,7 @@ fn non_empty(value: &Option<String>) -> Option<&str> {
 }
 
 fn file_stem(path: &str) -> &str {
-    let name = path
-        .rsplit(|c| c == '/' || c == '\\')
-        .next()
-        .unwrap_or(path);
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
     strip_extension(name)
 }
 
@@ -721,9 +714,9 @@ pub fn group_items(items: Vec<MediaItem>) -> Vec<UnifiedEntry> {
     // A copy whose title key has no year joins the single same-title work that
     // does have a year ("Heat" + "Heat (1995)"), but not when several exist.
     let mut yeared_roots: HashMap<String, BTreeSet<usize>> = HashMap::new();
-    for index in 0..count {
-        if let Some(yearless) = yearless_title_key(&titles[index]) {
-            if yearless != titles[index] {
+    for (index, title) in titles.iter().enumerate() {
+        if let Some(yearless) = yearless_title_key(title) {
+            if yearless != *title {
                 let root = sets.find(index);
                 yeared_roots.entry(yearless).or_default().insert(root);
             }

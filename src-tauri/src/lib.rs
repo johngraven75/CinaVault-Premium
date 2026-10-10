@@ -24,17 +24,26 @@ mod library_artifacts;
 mod library_count;
 mod library_unify;
 mod media_tools;
+// Legacy module compiled without its #[tauri::command] attributes (see build.rs);
+// the newer guarded wrappers own the commands, so most of it is unreachable by design.
+#[allow(dead_code)]
 mod metadata {
     include!(concat!(env!("OUT_DIR"), "/metadata_without_commands.rs"));
 }
 mod metadata_bridge;
 mod metadata_enrichment_runtime;
+// Legacy module compiled without its #[tauri::command] attributes (see build.rs);
+// the newer guarded wrappers own the commands, so most of it is unreachable by design.
+#[allow(dead_code)]
 mod metadata_ext {
     include!(concat!(
         env!("OUT_DIR"),
         "/metadata_ext_without_repaired_commands.rs"
     ));
 }
+// Legacy module compiled without its #[tauri::command] attributes (see build.rs);
+// the newer guarded wrappers own the commands, so most of it is unreachable by design.
+#[allow(dead_code)]
 mod metadata_guard {
     include!(concat!(
         env!("OUT_DIR"),
