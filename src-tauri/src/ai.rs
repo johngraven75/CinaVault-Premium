@@ -14,6 +14,7 @@ use tauri::State;
 const DEFAULT_MODEL: &str = "Qwen/Qwen3-4B-Instruct-2507";
 const ROUTING_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
+#[allow(dead_code)]
 static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -142,6 +143,7 @@ fn automation_tasks_from_prompt(prompt: &str) -> Vec<String> {
     tasks.into_iter().collect()
 }
 
+#[allow(dead_code)]
 pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bool {
     let path_lower = file_path.replace('/', "\\").to_lowercase();
     let is_video = [
@@ -162,6 +164,7 @@ pub(crate) fn is_adult_gather_candidate(media_type: &str, file_path: &str) -> bo
     matches!(media_type, "adult" | "movie" | "video")
 }
 
+#[allow(dead_code)]
 fn normalize_adult_provider_key(provider: &str) -> String {
     match provider.trim().to_lowercase().as_str() {
         "theporndb" | "tpdb" => "tpdb".to_string(),
@@ -169,6 +172,7 @@ fn normalize_adult_provider_key(provider: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn normalize_provider_key(provider: &str) -> String {
     match provider.trim().to_lowercase().as_str() {
         "themoviedb" | "themoviedb_images" | "tmdb_images" | "tmdb" => "tmdb".to_string(),
@@ -178,6 +182,7 @@ fn normalize_provider_key(provider: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn is_adult_library_item(
     media_type: &str,
     title: &str,
@@ -208,14 +213,15 @@ fn is_adult_library_item(
     classify_library_item(&item) == SourceKind::AdultVideo
 }
 
+#[allow(dead_code)]
 fn title_from_filename(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "Unknown".to_string())
-        .replace('_', " ")
-        .replace('.', " ")
+        .replace(['_', '.'], " ")
 }
 
+#[allow(dead_code)]
 fn should_refresh_title_from_embedded(current_title: &str, file_path: &str) -> bool {
     let trimmed = current_title.trim();
     if trimmed.is_empty() {
@@ -226,6 +232,7 @@ fn should_refresh_title_from_embedded(current_title: &str, file_path: &str) -> b
     trimmed.eq_ignore_ascii_case(&filename_title)
 }
 
+#[allow(dead_code)]
 fn extract_embedded_title(file_path: &str) -> Option<String> {
     let mut cmd = Command::new("ffprobe");
     cmd.args([
@@ -395,7 +402,7 @@ async fn run_network_diagnostics() -> Result<serde_json::Value, String> {
         .output();
     #[cfg(not(target_os = "windows"))]
     let ping = std::process::Command::new("ping")
-        .args(&["-c", "3", "8.8.8.8"])
+        .args(["-c", "3", "8.8.8.8"])
         .output();
 
     results.insert(
@@ -471,6 +478,7 @@ async fn check_providers(state: State<'_, AppState>) -> Result<serde_json::Value
     }))
 }
 
+#[allow(dead_code)]
 fn detect_local_poster(file_path: &str) -> Option<String> {
     let media = std::path::Path::new(file_path);
     let parent = media.parent()?;
@@ -489,6 +497,7 @@ fn detect_local_poster(file_path: &str) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
+#[allow(dead_code)]
 fn chapter_dir_for(file_path: &str) -> Option<String> {
     let p = std::path::Path::new(file_path);
     let parent = p.parent()?;
@@ -501,6 +510,7 @@ fn chapter_dir_for(file_path: &str) -> Option<String> {
     )
 }
 
+#[allow(dead_code)]
 fn count_existing_chapter_images(chapter_dir: &str) -> usize {
     let dir = std::path::Path::new(chapter_dir);
     if !dir.exists() {
@@ -520,6 +530,7 @@ fn count_existing_chapter_images(chapter_dir: &str) -> usize {
         .count()
 }
 
+#[allow(dead_code)]
 fn metadata_sidecar_path(file_path: &str) -> Option<std::path::PathBuf> {
     let media = std::path::Path::new(file_path);
     let parent = media.parent()?;
@@ -527,6 +538,7 @@ fn metadata_sidecar_path(file_path: &str) -> Option<std::path::PathBuf> {
     Some(parent.join(format!("{stem}.cinavault.json")))
 }
 
+#[allow(dead_code, clippy::too_many_arguments)]
 fn write_metadata_sidecar(
     file_path: &str,
     title: &str,
@@ -556,6 +568,7 @@ fn write_metadata_sidecar(
     Ok(true)
 }
 
+#[allow(dead_code)]
 #[derive(Default, Debug, Clone)]
 struct RemoteMetadata {
     title: Option<String>,
@@ -568,6 +581,7 @@ struct RemoteMetadata {
     imdb_id: Option<String>,
 }
 
+#[allow(dead_code)]
 fn non_empty_string(value: Option<&str>) -> Option<String> {
     value
         .map(|v| v.trim())
@@ -575,6 +589,7 @@ fn non_empty_string(value: Option<&str>) -> Option<String> {
         .map(|v| v.to_string())
 }
 
+#[allow(dead_code)]
 fn parse_year_prefix(value: Option<&str>) -> Option<i32> {
     let text = value?.trim();
     if text.len() < 4 {
@@ -583,6 +598,7 @@ fn parse_year_prefix(value: Option<&str>) -> Option<i32> {
     text[..4].parse::<i32>().ok()
 }
 
+#[allow(dead_code)]
 fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
     match current_poster.map(str::trim).filter(|v| !v.is_empty()) {
         None => true,
@@ -604,6 +620,7 @@ fn should_prefer_remote_poster(current_poster: Option<&str>) -> bool {
     }
 }
 
+#[allow(dead_code)]
 async fn fetch_tmdb_metadata(
     client: &reqwest::Client,
     api_key: &str,
@@ -654,6 +671,7 @@ async fn fetch_tmdb_metadata(
     })
 }
 
+#[allow(dead_code)]
 async fn fetch_omdb_metadata(
     client: &reqwest::Client,
     api_key: &str,
@@ -697,6 +715,7 @@ async fn fetch_omdb_metadata(
     })
 }
 
+#[allow(dead_code)]
 async fn fetch_stashdb_metadata(
     client: &reqwest::Client,
     api_key: &str,
@@ -769,6 +788,7 @@ async fn fetch_stashdb_metadata(
     })
 }
 
+#[allow(dead_code)]
 fn merge_remote_metadata(
     primary: Option<RemoteMetadata>,
     secondary: Option<RemoteMetadata>,
@@ -803,6 +823,7 @@ fn merge_remote_metadata(
     Some(merged)
 }
 
+#[allow(dead_code)]
 async fn gather_adult_metadata_assets(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
@@ -823,6 +844,24 @@ async fn gather_adult_metadata_assets(
     result
 }
 
+/// One media_items row as read by the adult metadata gather pass.
+type AdultGatherRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<i32>,
+    Option<f64>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+#[allow(dead_code)]
 async fn gather_adult_metadata_assets_inner(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
@@ -875,21 +914,7 @@ async fn gather_adult_metadata_assets_inner(
     let omdb_key = provider_keys.get("omdb").cloned();
     let stashdb_key = provider_keys.get("stashdb").cloned();
 
-    let media_items: Vec<(
-        i64,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<i32>,
-        Option<f64>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-    )> = {
+    let media_items: Vec<AdultGatherRow> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let mut stmt = db
             .conn
@@ -1490,6 +1515,7 @@ pub fn get_ai_config(state: State<AppState>) -> Result<serde_json::Value, String
     }))
 }
 
+#[allow(dead_code)]
 /// AI-powered automated library management: runs all library functions in sequence
 /// using the configured HuggingFace model. Covers: scan, enrich, poster sync,
 /// NFO write-back, duplicate detection, filename normalization, genre tagging.

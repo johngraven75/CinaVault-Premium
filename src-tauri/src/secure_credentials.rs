@@ -31,6 +31,8 @@ pub fn delete(provider: &str) -> Result<(), String> {
     }
 }
 
+pub(crate) const SECURE_STORE_MARKER: &str = "__secure_store__";
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -38,5 +40,3 @@ mod tests {
         assert!(!super::SERVICE_NAME.contains(".json"));
     }
 }
-
-pub(crate) const SECURE_STORE_MARKER: &str = "__secure_store__";

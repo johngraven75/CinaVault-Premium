@@ -911,8 +911,10 @@ async fn fetch_standard_item_metadata(
 }
 
 fn build_metadata_update(item: &MediaItemLookup, provider: &ProviderWriteMatch) -> ProviderWriteMatch {
-    let mut update = ProviderWriteMatch::default();
-    update.title = should_replace_title(&item.title, &item.file_path, provider.title.as_deref());
+    let mut update = ProviderWriteMatch {
+        title: should_replace_title(&item.title, &item.file_path, provider.title.as_deref()),
+        ..ProviderWriteMatch::default()
+    };
     if item.overview.as_deref().map(|value| value.trim().is_empty()).unwrap_or(true) {
         update.overview = provider.overview.clone();
     }
@@ -1318,6 +1320,51 @@ pub async fn test_api_key(provider: String, api_key: String) -> Result<serde_jso
     }))
 }
 
+#[tauri::command]
+pub fn set_api_key(
+    state: State<AppState>,
+    provider: String,
+    api_key: String,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let provider = normalize_provider_key(&provider);
+    db.conn
+        .execute(
+            "INSERT OR REPLACE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
+            params![provider, api_key],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = db
+        .conn
+        .prepare("SELECT provider, api_key FROM api_keys")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut keys = serde_json::Map::new();
+    for row in rows {
+        let (provider, key) = row.map_err(|e| e.to_string())?;
+        let normalized_provider = normalize_provider_key(&provider);
+        let masked = if key.len() > 4 {
+            format!("{}...{}", &key[..2], &key[key.len() - 2..])
+        } else {
+            "****".to_string()
+        };
+        keys.insert(normalized_provider, serde_json::Value::String(masked));
+    }
+
+    Ok(serde_json::Value::Object(keys))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1434,49 +1481,4 @@ mod tests {
         let queries = build_metadata_queries(&item);
         assert_eq!(queries.first().map(String::as_str), Some("The Real Thing"));
     }
-}
-
-#[tauri::command]
-pub fn set_api_key(
-    state: State<AppState>,
-    provider: String,
-    api_key: String,
-) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let provider = normalize_provider_key(&provider);
-    db.conn
-        .execute(
-            "INSERT OR REPLACE INTO api_keys (provider, api_key) VALUES (?1, ?2)",
-            params![provider, api_key],
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut stmt = db
-        .conn
-        .prepare("SELECT provider, api_key FROM api_keys")
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| e.to_string())?;
-
-    let mut keys = serde_json::Map::new();
-    for row in rows {
-        let (provider, key) = row.map_err(|e| e.to_string())?;
-        let normalized_provider = normalize_provider_key(&provider);
-        let masked = if key.len() > 4 {
-            format!("{}...{}", &key[..2], &key[key.len() - 2..])
-        } else {
-            "****".to_string()
-        };
-        keys.insert(normalized_provider, serde_json::Value::String(masked));
-    }
-
-    Ok(serde_json::Value::Object(keys))
 }

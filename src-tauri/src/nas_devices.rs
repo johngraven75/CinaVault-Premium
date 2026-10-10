@@ -14,6 +14,7 @@ use tauri::State;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NasCredentials {
     pub device_type: String,
@@ -445,7 +446,7 @@ fn network_source_path(host: &str, share_name: &str, share_path: &str) -> String
     let share = if share_name.trim().is_empty() {
         share_path
             .trim_matches(|character| character == '/' || character == '\\')
-            .split(|character| character == '/' || character == '\\')
+            .split(['/', '\\'])
             .next()
             .unwrap_or("Public")
     } else {
@@ -519,6 +520,8 @@ fn authenticate_windows_shares(
 }
 
 fn ensure_network_source_reachable(source_path: &str) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    let _ = source_path;
     #[cfg(target_os = "windows")]
     if !Path::new(source_path).is_dir() {
         return Err(format!(

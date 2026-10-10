@@ -29,10 +29,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
-      - name: Checkout main
+      # Schedule and push runs already check out main; a manual run checks out
+      # the branch it was dispatched from, so a fix can be verified before merge.
+      - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: main
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

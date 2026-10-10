@@ -32,6 +32,7 @@ pub struct MetadataProviderRegistry {
     pub providers: Vec<MetadataProviderDefinition>,
 }
 
+#[allow(dead_code)]
 pub fn configure(config_root: PathBuf) {
     let _ = CONFIG_ROOT.set(config_root);
 }
@@ -347,6 +348,7 @@ fn merge_existing(
     defaults
 }
 
+#[allow(dead_code)]
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
@@ -357,6 +359,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::rename(&temporary, path).map_err(|error| error.to_string())
 }
 
+#[allow(dead_code)]
 fn ui_provider_json(registry: &MetadataProviderRegistry) -> Result<String, String> {
     let providers = registry
         .providers
@@ -373,6 +376,7 @@ fn ui_provider_json(registry: &MetadataProviderRegistry) -> Result<String, Strin
     serde_json::to_string(&providers).map_err(|error| error.to_string())
 }
 
+#[allow(dead_code)]
 pub fn ensure_registry(database: &Database) -> Result<MetadataProviderRegistry, String> {
     let path = registry_path()?;
     let current = if path.exists() {
@@ -422,11 +426,13 @@ pub fn public_registry() -> Result<MetadataProviderRegistry, String> {
     Ok(default_registry())
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn get_metadata_provider_registry() -> Result<MetadataProviderRegistry, String> {
     public_registry()
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn ensure_metadata_provider_registry(
     state: tauri::State<'_, crate::AppState>,

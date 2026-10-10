@@ -3,7 +3,6 @@
 
 #[cfg(test)]
 use crate::library_artifacts::sidecar_poster_path_for_video;
-use crate::library_artifacts::{is_generated_chapter_image_path, is_sidecar_artwork_image};
 use crate::AppState;
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -12,6 +11,7 @@ use argon2::{
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::path::Path;
 use tauri::State;
 
@@ -974,6 +974,7 @@ impl Database {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_media_metadata_data(
         &self,
         file_path: &str,
@@ -1045,7 +1046,7 @@ impl Database {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT * FROM media_items WHERE (title LIKE ?1 OR genre LIKE ?1 OR overview LIKE ?1) AND {visible} ORDER BY title"
         ))?;
-        let rows = stmt.query_map(params![pattern], |row| Self::row_to_media(row))?;
+        let rows = stmt.query_map(params![pattern], Self::row_to_media)?;
         rows.collect()
     }
 
@@ -1062,7 +1063,7 @@ impl Database {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT * FROM media_items WHERE {visible} ORDER BY date_added DESC LIMIT ?1"
         ))?;
-        let rows = stmt.query_map(params![limit], |row| Self::row_to_media(row))?;
+        let rows = stmt.query_map(params![limit], Self::row_to_media)?;
         rows.collect()
     }
 
@@ -1070,7 +1071,7 @@ impl Database {
         let mut stmt = self
             .conn
             .prepare("SELECT * FROM media_items WHERE verified = 0 ORDER BY date_added DESC")?;
-        let rows = stmt.query_map([], |row| Self::row_to_media(row))?;
+        let rows = stmt.query_map([], Self::row_to_media)?;
         rows.collect()
     }
 
@@ -1139,7 +1140,7 @@ impl Database {
         let access_key_hash = hash_secret(&access_key_salt, &access_key);
         let access_key_preview = preview_secret(&access_key);
         let display_name = display_name
-            .and_then(|value| non_empty_trimmed(value))
+            .and_then(non_empty_trimmed)
             .or_else(|| Some(email.clone()));
 
         self.conn
