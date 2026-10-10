@@ -601,6 +601,108 @@ pub async fn subtitles_find(
     Ok(report)
 }
 
+/// A text subtitle next to a video that the built-in player can show.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerSubtitle {
+    /// BCP 47-style tag from the file name (`movie.pt-br.srt` -> "pt-br"),
+    /// or "und" for a plain `movie.srt`.
+    pub language: String,
+    pub label: String,
+    /// The subtitle as WebVTT, ready for a `<track>`.
+    pub vtt: String,
+}
+
+/// SubRip and WebVTT sidecars for `video`, converted to WebVTT. Other formats
+/// (ASS, SSA, VobSub) are left to external players. Unreadable, oversized or
+/// empty files are skipped.
+pub fn player_subtitles(video: &Path) -> Vec<PlayerSubtitle> {
+    let (Some(parent), Some(stem)) = (video.parent(), video.file_stem()) else {
+        return Vec::new();
+    };
+    let stem = stem.to_string_lossy().to_ascii_lowercase();
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(String, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let (base, ext) = name.rsplit_once('.')?;
+            if ext != "srt" && ext != "vtt" {
+                return None;
+            }
+            let language = if base == stem {
+                "und".to_string()
+            } else {
+                let tags = base.strip_prefix(&format!("{stem}."))?;
+                tags.split('.')
+                    .find(|tag| is_language_tag(tag))?
+                    .to_string()
+            };
+            Some((language, entry.path()))
+        })
+        .collect();
+    found.sort();
+    found
+        .into_iter()
+        .filter_map(|(language, path)| {
+            let bytes = std::fs::read(&path).ok()?;
+            if bytes.is_empty() || bytes.len() > MAX_SUBTITLE_BYTES {
+                return None;
+            }
+            let vtt = to_webvtt(&String::from_utf8_lossy(&bytes));
+            let label = if language == "und" {
+                "Subtitles".to_string()
+            } else {
+                language.to_uppercase()
+            };
+            Some(PlayerSubtitle {
+                language,
+                label,
+                vtt,
+            })
+        })
+        .collect()
+}
+
+/// "en", "eng", "pt-br", "zh-hans": letters with at most one hyphen part.
+fn is_language_tag(tag: &str) -> bool {
+    let mut parts = tag.split('-');
+    let primary = parts.next().unwrap_or("");
+    let rest: Vec<&str> = parts.collect();
+    (2..=3).contains(&primary.len())
+        && primary.bytes().all(|b| b.is_ascii_lowercase())
+        && rest.len() <= 1
+        && rest.iter().all(|part| {
+            (2..=4).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_alphanumeric())
+        })
+}
+
+/// Converts SubRip text to WebVTT (WebVTT input passes through): drops a
+/// byte-order mark, normalises line endings, and switches the millisecond
+/// separator on cue timing lines from "," to ".".
+pub fn to_webvtt(text: &str) -> String {
+    let text = text
+        .trim_start_matches('\u{feff}')
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    if text.trim_start().starts_with("WEBVTT") {
+        return text;
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    out.push_str("WEBVTT\n\n");
+    for line in text.lines() {
+        if line.contains("-->") {
+            out.push_str(&line.replace(',', "."));
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -740,5 +842,55 @@ mod tests {
             .execute("DELETE FROM api_keys WHERE provider = 'opensubtitles'", [])
             .ok();
         assert_eq!(api_key(&db), None);
+    }
+
+    #[test]
+    fn srt_becomes_webvtt() {
+        let srt = "\u{feff}1\r\n00:00:01,500 --> 00:00:03,250\r\nHello, world\r\n\r\n";
+        assert_eq!(
+            to_webvtt(srt),
+            "WEBVTT\n\n1\n00:00:01.500 --> 00:00:03.250\nHello, world\n\n"
+        );
+        let vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n";
+        assert_eq!(to_webvtt(vtt), vtt);
+    }
+
+    #[test]
+    fn player_subtitles_lists_srt_and_vtt_sidecars_only() {
+        let dir = temp_dir();
+        let video = dir.join("Movie.mkv");
+        std::fs::write(&video, b"x").unwrap();
+        std::fs::write(
+            dir.join("Movie.en.srt"),
+            "1\n00:00:01,000 --> 00:00:02,000\nHi\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("movie.pt-br.forced.vtt"), "WEBVTT\n\n").unwrap();
+        std::fs::write(
+            dir.join("Movie.srt"),
+            "1\n00:00:01,000 --> 00:00:02,000\nPlain\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("Movie.fr.ass"), "[Script Info]").unwrap();
+        std::fs::write(dir.join("Other.en.srt"), "x").unwrap();
+        std::fs::write(dir.join("Movie.de.srt"), "").unwrap();
+
+        let subs = player_subtitles(&video);
+        let languages: Vec<&str> = subs.iter().map(|s| s.language.as_str()).collect();
+        assert_eq!(languages, ["en", "pt-br", "und"]);
+        assert!(subs[0].vtt.contains("00:00:01.000 --> 00:00:02.000"));
+        assert_eq!(subs[0].label, "EN");
+        assert_eq!(subs[2].label, "Subtitles");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn language_tags() {
+        for ok in ["en", "eng", "pt-br", "zh-hans"] {
+            assert!(is_language_tag(ok), "{ok}");
+        }
+        for bad in ["forced", "e", "en-us-x", "1080p"] {
+            assert!(!is_language_tag(bad), "{bad}");
+        }
     }
 }

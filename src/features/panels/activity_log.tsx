@@ -23,7 +23,7 @@ const ActivityLogPanel: FeaturePanel = ({ enabled }) => {
     void reload();
   }, [reload]);
 
-  const groups = useMemo(() => [...new Set(entries.map((entry) => activityGroup(entry.kind)))].sort(), [entries]);
+  const groups = useMemo(() => [...new Set(entries.map((entry) => activityGroup(entry.kind)))].sort((a, b) => a.localeCompare(b)), [entries]);
   const shown = group === "all" ? entries : entries.filter((entry) => activityGroup(entry.kind) === group);
 
   const clear = async () => {

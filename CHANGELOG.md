@@ -10,6 +10,7 @@ The first pre-beta of CinaVault Premium for Windows.
 - **Built-in player.** It plays files directly when it can and transcodes on the fly (with NVENC, Quick Sync or AMF) when it can't. It adds resume, skip intro and credits, a Next Up countdown, gapless playback, audio crossfade, cinema mode and buffering control.
 - **Discovery shelves:** Continue Watching, Watchlist, Trending, Recommendations, Similar Titles, Genre Radio and New Releases.
 - **Library automation:** smart title matching, Kodi `.nfo` import, metadata lookup after scans, OpenSubtitles downloads, chapter thumbnails, a poster sync folder and automatic collections.
+- **Subtitles in the built-in player:** `.srt` and `.vtt` files next to a title, including ones Auto Subtitle Download saves, show up behind a CC button, and stay in sync after seeking a transcoded stream.
 - **Households:**
   - Profiles with their own progress and watchlist, plus a profile switcher.
   - Parental controls based on content ratings, behind a PIN.

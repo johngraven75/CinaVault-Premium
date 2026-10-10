@@ -348,3 +348,59 @@ export function formatClock(seconds: number): string {
   const s = String(total % 60).padStart(2, "0");
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
+
+// ── Subtitles ───────────────────────────────────────────────────────────────
+
+const VTT_TIMING = /^(\S+)\s+-->\s+(\S+)(.*)$/;
+
+/** "01:02:03.500" or "02:03.500" to seconds; NaN when malformed. */
+export function parseVttTime(text: string): number {
+  const parts = text.split(":");
+  if (parts.length < 2 || parts.length > 3) return Number.NaN;
+  const seconds = Number(parts.pop());
+  const minutes = Number(parts.pop());
+  const hours = parts.length ? Number(parts.pop()) : 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+export function formatVttTime(seconds: number): string {
+  const ms = Math.max(0, Math.round(seconds * 1000));
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms % 1000, 3)}`;
+}
+
+/**
+ * Moves every cue `offset` seconds earlier. Transcodes restart the element's
+ * clock at the seek point, so their captions must start there too; cues that
+ * end before it are dropped.
+ */
+export function shiftVtt(vtt: string, offset: number): string {
+  if (!(offset > 0)) return vtt;
+  const blocks = vtt.replaceAll("\r\n", "\n").split(/\n{2,}/);
+  const kept: string[] = [];
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const at = lines.findIndex((line) => line.includes("-->"));
+    if (at < 0) {
+      kept.push(block);
+      continue;
+    }
+    const match = VTT_TIMING.exec(lines[at].trim());
+    if (!match) continue;
+    const start = parseVttTime(match[1]) - offset;
+    const end = parseVttTime(match[2]) - offset;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= 0) continue;
+    lines[at] = `${formatVttTime(Math.max(0, start))} --> ${formatVttTime(end)}${match[3]}`;
+    kept.push(lines.join("\n"));
+  }
+  return kept.join("\n\n");
+}
+
+/** CC button: off (-1), then each track in turn, then off again. */
+export function nextCaptionChoice(current: number, count: number): number {
+  if (count <= 0) return -1;
+  return current + 1 >= count ? -1 : current + 1;
+}

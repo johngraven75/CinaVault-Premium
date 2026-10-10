@@ -89,6 +89,9 @@ test("normalizeTitle strips release tags, years, punctuation and leading article
   assert.equal(normalizeTitle("The.Matrix.1999.1080p.BluRay.x264"), "matrix");
   assert.equal(normalizeTitle("Amélie (2001) [4K]"), "amelie");
   assert.equal(normalizeTitle("Fast & Furious"), "fast and furious");
+  assert.equal(normalizeTitle("Matrix, The (1999)"), "matrix");
+  assert.equal(normalizeTitle("Beautiful Mind, A"), "beautiful mind");
+  assert.equal(normalizeTitle("Them, the Others"), "them the others");
 });
 
 test("titleSimilarity is 1 for equivalent titles and low for unrelated ones", () => {

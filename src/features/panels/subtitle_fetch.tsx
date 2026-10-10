@@ -100,7 +100,7 @@ const SubtitleFetchPanel: FeaturePanel<SubtitleConfig> = ({ config, setConfig })
           checked={Boolean(config.hearingImpaired)}
           onChange={(event) => void setConfig({ hearingImpaired: event.target.checked })}
         />
-        Prefer hearing-impaired (SDH) subtitles
+        <span>Prefer hearing-impaired (SDH) subtitles</span>
       </label>
       <div>
         <div className="text-cv-subtext">

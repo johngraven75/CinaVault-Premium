@@ -14,7 +14,7 @@ const ChapterThumbsPanel: FeaturePanel<{ intervalMinutes?: number }> = ({ config
   return (
     <div className="space-y-2 text-xs">
       <label className="flex items-center gap-2">
-        One frame every
+        <span>One frame every</span>
         <input
           type="number"
           min={0.5}
@@ -25,7 +25,7 @@ const ChapterThumbsPanel: FeaturePanel<{ intervalMinutes?: number }> = ({ config
           onChange={(event) => setValue(event.target.value)}
           onBlur={() => void save()}
         />
-        minutes
+        <span>minutes</span>
       </label>
       <div className="text-cv-subtext">
         After a scan, new videos get frames in a "&lt;name&gt;_chapters" folder next to the file (needs FFmpeg).

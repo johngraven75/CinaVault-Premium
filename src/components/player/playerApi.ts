@@ -42,3 +42,16 @@ export const recordActivity = (kind: string, title: string, detail: Record<strin
 
 /** Hands a title to the external player (Settings > Default Player). */
 export const openExternally = (filePath: string) => invoke("play_media", { filePath });
+
+/** subtitles.rs PlayerSubtitle: an .srt/.vtt saved next to the title, as WebVTT. */
+export interface PlayerSubtitle {
+  language: string;
+  label: string;
+  vtt: string;
+}
+
+export const loadSubtitles = (mediaId: number) =>
+  invoke<PlayerSubtitle[]>("player_subtitles", { mediaId }).catch((error) => {
+    console.warn("Subtitles not loaded:", error);
+    return [] as PlayerSubtitle[];
+  });

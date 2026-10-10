@@ -36,4 +36,6 @@ test("custom CSS applies only while its switch is on, without remote loads", () 
   const applied = shellPreferences({}, { custom_css: on(true, { css }) }).customCss;
   assert.equal(applied, "body{color:red}.a{background:none}><script>");
   assert.equal(sanitizeCustomCss(42), "");
+  assert.equal(sanitizeCustomCss(".a{background:url( \"https://evil.test/p.png\" )}"), ".a{background:none}");
+  assert.doesNotMatch(sanitizeCustomCss(".a{background:url('javascript:alert(1)')}"), /javascript:/);
 });

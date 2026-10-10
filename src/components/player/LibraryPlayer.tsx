@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FC, SyntheticEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Loader2, X } from "lucide-react";
+import { Captions, CaptionsOff, Loader2, X } from "lucide-react";
 
 import { useFeature } from "../../features/featureFlags";
 import { registerPlayer, type PlayRequest } from "../../services/playback";
@@ -20,11 +20,13 @@ import {
   chooseRoute,
   fadeSeconds,
   formatClock,
+  nextCaptionChoice,
   nextUpRemaining,
   nextUpStart,
   resumeDecision,
   routeAfterError,
   shouldPreloadNext,
+  shiftVtt,
   shouldSaveProgress,
   skipWindows,
   transcodeSrc,
@@ -34,11 +36,13 @@ import { useAppStore, type MediaItem } from "../../store/appStore";
 import PlayerControls from "./PlayerControls";
 import {
   loadProgress,
+  loadSubtitles,
   openExternally,
   preparePlayback,
   recordActivity,
   saveProgress,
   type PlayerSource,
+  type PlayerSubtitle,
 } from "./playerApi";
 import { useAudioFade } from "./useAudioFade";
 
@@ -73,10 +77,17 @@ const num = (value: unknown, fallback: number) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+/** Uniform integer in [0, bound) from the platform CSPRNG. */
+function randomBelow(bound: number): number {
+  const sample = new Uint32Array(1);
+  crypto.getRandomValues(sample);
+  return sample[0] % bound;
+}
+
 function shuffleAround<T>(list: T[], index: number): T[] {
   const rest = list.filter((_, i) => i !== index);
   for (let i = rest.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomBelow(i + 1);
     [rest[i], rest[j]] = [rest[j], rest[i]];
   }
   return [list[index], ...rest];
@@ -123,6 +134,9 @@ const LibraryPlayer: FC = () => {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [nextUpShownAt, setNextUpShownAt] = useState<number | null>(null);
   const [nextUpDismissed, setNextUpDismissed] = useState(false);
+  const [subtitles, setSubtitles] = useState<PlayerSubtitle[]>([]);
+  const [captionTracks, setCaptionTracks] = useState<Array<{ key: string; language: string; label: string; url: string }>>([]);
+  const [captionChoice, setCaptionChoice] = useState(-1);
 
   const videoA = useRef<HTMLVideoElement>(null);
   const videoB = useRef<HTMLVideoElement>(null);
@@ -326,7 +340,7 @@ const LibraryPlayer: FC = () => {
 
   // ── Requests from playMedia() ─────────────────────────────────────────────
 
-  const handleRequest = useRef<(request: PlayRequest) => Promise<boolean>>(async () => false);
+  const handleRequest = useRef<(request: PlayRequest) => Promise<boolean>>(() => Promise.resolve(false));
   handleRequest.current = async (request) => {
     const list = request.shuffle ? shuffleAround(request.queue, request.index) : request.queue;
     const index = request.shuffle ? 0 : request.index;
@@ -662,6 +676,43 @@ const LibraryPlayer: FC = () => {
     return () => window.clearInterval(timer);
   }, [activeVideo, buffering, slotDuration]);
 
+  // ── Subtitles saved next to the title (.srt/.vtt, e.g. from Auto Subtitle Download) ──
+
+  const subtitleItemId = slot?.item.id;
+  useEffect(() => {
+    setSubtitles([]);
+    setCaptionChoice(-1);
+    if (subtitleItemId === undefined) return;
+    let current = true;
+    void loadSubtitles(subtitleItemId).then((found) => {
+      if (current) setSubtitles(found);
+    });
+    return () => {
+      current = false;
+    };
+  }, [subtitleItemId]);
+
+  // Transcodes restart the element's clock at `offset`, so cues shift with it.
+  const subtitleOffset = slot?.offset ?? 0;
+  useEffect(() => {
+    const tracks = subtitles.map((sub, n) => ({
+      key: `${n}:${sub.language}:${subtitleOffset}`,
+      language: sub.language,
+      label: sub.label,
+      url: URL.createObjectURL(new Blob([shiftVtt(sub.vtt, subtitleOffset)], { type: "text/vtt" })),
+    }));
+    setCaptionTracks(tracks);
+    return () => tracks.forEach((track) => URL.revokeObjectURL(track.url));
+  }, [subtitles, subtitleOffset]);
+
+  useEffect(() => {
+    const v = videos[active].current;
+    if (!v) return;
+    Array.from(v.textTracks).forEach((track, n) => {
+      track.mode = n === captionChoice ? "showing" : "disabled";
+    });
+  }, [active, captionChoice, captionTracks, videos]);
+
   // Free a slot's network stream (and its ffmpeg process) when it is cleared.
   useEffect(() => {
     videos.forEach((ref, i) => {
@@ -776,7 +827,12 @@ const LibraryPlayer: FC = () => {
               onClick={i === active ? togglePlay : undefined}
               className={i === active ? "h-full w-full object-contain" : "hidden"}
               {...elementEvents(i)}
-            />
+            >
+              {i === active &&
+                captionTracks.map((track) => (
+                  <track key={track.key} kind="captions" src={track.url} srcLang={track.language} label={track.label} />
+                ))}
+            </video>
           );
         })}
 
@@ -795,6 +851,18 @@ const LibraryPlayer: FC = () => {
             <div className="truncate text-sm font-semibold text-white">{title}</div>
             <div className="text-[11px] text-white/60">{routeLabel}</div>
           </div>
+          {captionTracks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setCaptionChoice((choice) => nextCaptionChoice(choice, captionTracks.length))}
+              aria-label={captionChoice < 0 ? "Turn subtitles on" : `Subtitles: ${captionTracks[captionChoice]?.label ?? ""}. Next track`}
+              title={captionChoice < 0 ? "Subtitles off" : `Subtitles: ${captionTracks[captionChoice]?.label ?? ""}`}
+              className="flex h-9 items-center gap-1 rounded-lg px-2 text-xs text-white/85 hover:bg-white/10"
+            >
+              {captionChoice < 0 ? <CaptionsOff size={18} /> : <Captions size={18} />}
+              {captionChoice >= 0 && <span>{captionTracks[captionChoice]?.label}</span>}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void close()}

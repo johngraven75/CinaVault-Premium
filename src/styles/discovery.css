@@ -194,13 +194,28 @@
   border-color: rgba(0, 245, 255, 0.18);
   background: rgba(5, 8, 16, 0.78);
 }
+.cv-disc-open {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.cv-disc-open:focus-visible {
+  outline: none;
+}
+.cv-disc-card .cv-poster-preview {
+  pointer-events: none;
+}
 .cv-disc-card:hover,
-.cv-disc-card:focus-visible {
+.cv-disc-card:has(.cv-disc-open:focus-visible) {
   transform: translateY(-4px);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
   border-color: color-mix(in srgb, var(--cv-accent, #38bdf8) 60%, transparent);
 }
-.cv-disc-card:focus-visible {
+.cv-disc-card:has(.cv-disc-open:focus-visible) {
   outline: 2px solid var(--cv-accent, #38bdf8);
   outline-offset: 2px;
 }

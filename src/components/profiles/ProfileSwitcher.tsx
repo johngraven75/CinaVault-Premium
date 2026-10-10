@@ -27,6 +27,7 @@ export default function ProfileSwitcher() {
   const [error, setError] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<{ top: number; right: number }>({ top: 80, right: 16 });
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const pinRef = useRef<HTMLInputElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -46,6 +47,11 @@ export default function ProfileSwitcher() {
     window.addEventListener("cinavault:profile-changed", onChange);
     return () => window.removeEventListener("cinavault:profile-changed", onChange);
   }, [enabled, reload]);
+
+  // Move focus to the PIN field when a restricted switch asks for it.
+  useEffect(() => {
+    if (pinFor) pinRef.current?.focus();
+  }, [pinFor]);
 
   useEffect(() => {
     if (!open) return;
@@ -153,7 +159,7 @@ export default function ProfileSwitcher() {
                     type="password"
                     inputMode="numeric"
                     autoComplete="off"
-                    autoFocus
+                    ref={pinRef}
                     value={pin}
                     onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 8))}
                   />

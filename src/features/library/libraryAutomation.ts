@@ -6,7 +6,7 @@
 export function parseLanguageList(text: string): string[] {
   const out: string[] = [];
   for (const raw of text.split(/[\s,;]+/)) {
-    const code = raw.trim().toLowerCase().replace(/_/g, "-");
+    const code = raw.trim().toLowerCase().replaceAll("_", "-");
     if (code && code.length <= 7 && /^[a-z-]+$/.test(code) && !out.includes(code)) out.push(code);
   }
   return out;

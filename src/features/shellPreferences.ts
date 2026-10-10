@@ -22,7 +22,7 @@ export function sanitizeCustomCss(css: unknown): string {
     .replace(/<\/?style/gi, "")
     .replace(/@import[^;]*;?/gi, "")
     .replace(/expression\s*\(/gi, "")
-    .replace(/url\(\s*(['"]?)\s*(https?:|javascript:)[^)]*\)/gi, "none");
+    .replace(/url\(['"\s]*(?:https?:|javascript:)[^)]*\)/gi, "none");
 }
 
 export function shellPreferences(settings: Record<string, string>, features: FeatureSettings): ShellPreferences {

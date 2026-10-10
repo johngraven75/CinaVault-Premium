@@ -32,6 +32,15 @@ export interface ProgressItemDto {
   progress: ProgressDto;
 }
 
+const TRAILING_PUNCTUATION = new Set([" ", "\t", "\n", "\r", ",", ".", ";", ":", "-"]);
+
+/** Drops trailing whitespace and , . ; : - so a cut preview ends cleanly. */
+function trimTrailingPunctuation(text: string): string {
+  let end = text.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(text[end - 1])) end -= 1;
+  return text.slice(0, end);
+}
+
 export function toShelfItems(entries: readonly DiscoveryEntryDto[]): ShelfItem[] {
   return entries.map((entry) => ({ item: unifiedEntryToMediaItem(entry), reason: entry.reason || undefined }));
 }
@@ -83,7 +92,7 @@ export function previewText(overview: string | undefined | null, max = 220): str
   if (text.length <= max) return text;
   const cut = text.slice(0, max);
   const space = cut.lastIndexOf(" ");
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.;:-]+$/, "")}…`;
+  return `${trimTrailingPunctuation(space > max * 0.6 ? cut.slice(0, space) : cut)}…`;
 }
 
 /** How far one carousel button press scrolls: most of a viewport, whole cards. */

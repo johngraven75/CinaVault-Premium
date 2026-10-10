@@ -11,6 +11,10 @@ import {
   directPlayMime,
   fadeSeconds,
   formatClock,
+  formatVttTime,
+  nextCaptionChoice,
+  parseVttTime,
+  shiftVtt,
   nextUpRemaining,
   nextUpStart,
   resumeDecision,
@@ -164,4 +168,28 @@ test("crossfade length and clock formatting", () => {
   assert.equal(formatClock(754.9), "12:34");
   assert.equal(formatClock(3725), "1:02:05");
   assert.equal(formatClock(Number.NaN), "0:00");
+});
+
+test("vtt times parse and format", () => {
+  assert.equal(parseVttTime("01:02:03.500"), 3723.5);
+  assert.equal(parseVttTime("02:03.250"), 123.25);
+  assert.ok(Number.isNaN(parseVttTime("bad")));
+  assert.equal(formatVttTime(3723.5), "01:02:03.500");
+  assert.equal(formatVttTime(-4), "00:00:00.000");
+});
+
+test("captions shift to a transcode's seek point", () => {
+  const vtt = "WEBVTT\n\n1\n00:00:05.000 --> 00:00:08.000\nGone\n\n2\n00:00:09.000 --> 00:00:12.000 align:start\nSplit\n\n3\n00:01:00.000 --> 00:01:02.000\nLater";
+  assert.equal(shiftVtt(vtt, 0), vtt);
+  assert.equal(
+    shiftVtt(vtt, 10),
+    "WEBVTT\n\n2\n00:00:00.000 --> 00:00:02.000 align:start\nSplit\n\n3\n00:00:50.000 --> 00:00:52.000\nLater",
+  );
+});
+
+test("the CC button cycles off, each track, then off", () => {
+  assert.equal(nextCaptionChoice(-1, 0), -1);
+  assert.equal(nextCaptionChoice(-1, 2), 0);
+  assert.equal(nextCaptionChoice(0, 2), 1);
+  assert.equal(nextCaptionChoice(1, 2), -1);
 });

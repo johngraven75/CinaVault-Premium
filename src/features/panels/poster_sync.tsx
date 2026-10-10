@@ -67,7 +67,7 @@ const PosterSyncPanel: FeaturePanel<PosterSyncConfig> = ({ enabled, config, setC
           checked={Boolean(config.includeAdult)}
           onChange={(event) => void setConfig({ includeAdult: event.target.checked })}
         />
-        Include adult titles
+        <span>Include adult titles</span>
       </label>
       <div className="flex items-center gap-2">
         <button

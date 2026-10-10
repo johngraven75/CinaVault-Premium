@@ -68,7 +68,7 @@ export default function ShelfRow({
     const track = trackRef.current;
     if (!track) return;
     const card = track.firstElementChild as HTMLElement | null;
-    const gap = parseFloat(getComputedStyle(track).columnGap) || 0;
+    const gap = Number.parseFloat(getComputedStyle(track).columnGap) || 0;
     track.scrollBy({ left: direction * carouselStep(track.clientWidth, card?.offsetWidth ?? 160, gap), behavior: "smooth" });
   };
 

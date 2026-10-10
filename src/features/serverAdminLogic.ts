@@ -78,7 +78,7 @@ export function permissionLabels(permissions: string[]): string {
 export function parseWebhookUrls(text: string): { urls: string[]; invalid: string[] } {
   const urls: string[] = [];
   const invalid: string[] = [];
-  for (const raw of text.split(/\s*[\n,]\s*/)) {
+  for (const raw of text.split(/[\n,]/)) {
     const line = raw.trim();
     if (!line) continue;
     let ok = false;

@@ -66,20 +66,13 @@ export default function DiscoveryCard({
 }): JSX.Element {
   const { item, reason, progress } = entry;
   const meta = [item.year, item.media_type].filter(Boolean).join(" · ");
+  const yearText = item.year ? ` (${item.year})` : "";
+  const openLabel = `${item.title}${yearText}${reason ? `. ${reason}` : ""}`;
   return (
-    <article
-      className={`cv-disc-card is-${skin} ${compact ? "is-compact" : ""}`}
-      tabIndex={0}
-      aria-label={`${item.title}${item.year ? ` (${item.year})` : ""}${reason ? `. ${reason}` : ""}`}
-      onClick={() => onSelect(item)}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect(item);
-        }
-      }}
-    >
+    <article className={`cv-disc-card is-${skin} ${compact ? "is-compact" : ""}`}>
+      {/* Covers the whole card so a click or Enter anywhere opens the title;
+          the Play and Watchlist buttons sit above it. */}
+      <button type="button" className="cv-disc-open" aria-label={openLabel} onClick={() => onSelect(item)} />
       <div className="cv-disc-poster">
         <DiscoveryPoster item={item} className="cv-disc-poster-img" />
         {typeof progress === "number" && (

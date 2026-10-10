@@ -78,10 +78,10 @@ export async function runPosterPass(deps: PosterPassDeps, limit = DEFAULT_PASS_L
 }
 
 /** Local poster files go through the existing authorized `get_poster_data_url`. */
-async function posterSourceFor(item: MediaItem): Promise<string | null> {
+function posterSourceFor(item: MediaItem): Promise<string | null> {
   const poster = item.poster_path?.trim();
-  if (!poster) return null;
-  if (/^https?:\/\//i.test(poster) || poster.startsWith("data:")) return poster;
+  if (!poster) return Promise.resolve(null);
+  if (/^https?:\/\//i.test(poster) || poster.startsWith("data:")) return Promise.resolve(poster);
   return invoke<string>("get_poster_data_url", { path: poster });
 }
 

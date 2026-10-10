@@ -98,12 +98,20 @@ const NON_POSTER_PROMPTS = NEGATIVE_PROMPTS.slice(1);
 
 const LEADING_ARTICLE = /^(the|a|an)\s+/;
 
+/** ", the" / ", a" / ", an" followed by optional spaces; see dropTrailingArticle. */
+const TRAILING_ARTICLE = /,[ \t]*(?:the|an?)\b([ \t]*)([([]|$)/;
+
+/** Removes a trailing article ("matrix, the (1999)") but keeps what follows it. */
+function dropTrailingArticle(_match: string, spaces: string, next: string): string {
+  return spaces + next;
+}
+
 export function normalizeTitle(raw: string): string {
   return raw
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replaceAll(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/,\s*(the|a|an)\b(?=\s*(\(|\[|$))/, "") // "Matrix, The (1999)"
+    .replace(TRAILING_ARTICLE, dropTrailingArticle) // "Matrix, The (1999)"
     .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, " ") // [1080p] (2019) {tags}
     .replace(/&/g, " and ")
     .replace(/[._]/g, " ")

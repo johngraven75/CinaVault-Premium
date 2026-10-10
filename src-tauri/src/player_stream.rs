@@ -357,6 +357,23 @@ pub async fn player_prepare(
     })
 }
 
+/// Text subtitles saved next to a library title, as WebVTT for the player.
+#[tauri::command]
+pub async fn player_subtitles(
+    state: TauriState<'_, AppState>,
+    media_id: i64,
+) -> Result<Vec<crate::subtitles::PlayerSubtitle>, String> {
+    let path = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        resolve_library_file(&db, Some(media_id), "")?.1
+    };
+    tokio::task::spawn_blocking(move || {
+        crate::subtitles::player_subtitles(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscodeStatus {

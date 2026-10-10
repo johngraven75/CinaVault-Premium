@@ -241,8 +241,8 @@ export default function HoloHead({ mood, mouthRef, className }: HoloHeadProps) {
 
   return (
     <>
-      <canvas ref={canvasRef} className={className} role="presentation" data-mood={mood} />
-      <canvas ref={fallbackRef} className={className} role="presentation" data-mood={mood} hidden />
+      <canvas ref={canvasRef} className={className} data-mood={mood} />
+      <canvas ref={fallbackRef} className={className} data-mood={mood} hidden />
     </>
   );
 }

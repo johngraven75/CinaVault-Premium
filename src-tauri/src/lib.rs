@@ -329,6 +329,7 @@ pub fn run() {
             // player switches
             player_stream::player_prepare,
             player_stream::player_transcode_status,
+            player_stream::player_subtitles,
             // media server, profiles and parental controls switches
             api_keys_server::api_keys_list,
             api_keys_server::api_key_issue,
