@@ -228,8 +228,7 @@ jobs:
         run: |
           $signing = @()
           if ($env:CINAVAULT_SIGNING_CONFIG) { $signing = @('--config', $env:CINAVAULT_SIGNING_CONFIG) }
-          # Call the Tauri CLI directly: PowerShell drops a bare `--` before it
-          # reaches npm.ps1, so npm would swallow the --target flag.
+          # Call the Tauri CLI directly so the arguments reach it unchanged.
           npx --no-install tauri build --target x86_64-pc-windows-msvc @signing 2>&1 | Tee-Object test-evidence/windows-build.log
           $buildExit = $LASTEXITCODE
           if ($buildExit -ne 0) {
@@ -239,7 +238,8 @@ jobs:
             exit $buildExit
           }
           "- Windows MSI and NSIS build: PASS" | Add-Content test-evidence/TEST-NOTES.md
-          if ($env:CINAVAULT_SIGNING_CONFIG) { "- Code signing: signed" } else { "- Code signing: NOT SIGNED (signing not configured)" } | Add-Content test-evidence/TEST-NOTES.md
+          $signingNote = if ($env:CINAVAULT_SIGNING_CONFIG) { "- Code signing: signed" } else { "- Code signing: NOT SIGNED (signing not configured)" }
+          $signingNote | Add-Content test-evidence/TEST-NOTES.md
 
       - name: Verify installer signatures
         if: steps.signing.outputs.enabled == 'true'
