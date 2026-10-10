@@ -11,6 +11,7 @@
 | [NATIVE_SERVER_INTEGRATION_TESTS.md](NATIVE_SERVER_INTEGRATION_TESTS.md) | How the embedded server is tested end to end |
 | [CODE_SIGNING.md](CODE_SIGNING.md) | Turning on Azure Artifact Signing for installers |
 | [ANDROID.md](ANDROID.md) | Building the shared project for Android |
+| [DOMAIN_LANGUAGE.md](DOMAIN_LANGUAGE.md) | Terms used for accounts, servers, clients and remote access |
 
 ## Process and quality gates
 

@@ -37,3 +37,4 @@ The first pre-beta of CinaVault Premium for Windows.
 
 - Docs are organized under `docs/`, with an index, and past build reports are moved to `docs/history/`.
 - A new README with architecture, scan, playback and release diagrams.
+- Old installers, build artifacts, test logs and one-off release workflows from builds 140 to 170 are removed; they remain in git history.
