@@ -21,8 +21,10 @@ test("SonarCloud analysis skips clearly unless all secret configuration exists",
   assert.match(workflow, /SONAR_TOKEN: \$\{\{ secrets\.SONAR_TOKEN \}\}/);
   assert.match(workflow, /SONAR_PROJECT_KEY: \$\{\{ vars\.SONAR_PROJECT_KEY \}\}/);
   assert.match(workflow, /SONAR_ORGANIZATION: \$\{\{ vars\.SONAR_ORGANIZATION \}\}/);
-  assert.match(workflow, /if: \$\{\{ !secrets\.SONAR_TOKEN \|\| !vars\.SONAR_PROJECT_KEY \|\| !vars\.SONAR_ORGANIZATION \}\}/);
-  assert.match(workflow, /if: \$\{\{ secrets\.SONAR_TOKEN && vars\.SONAR_PROJECT_KEY && vars\.SONAR_ORGANIZATION \}\}/);
+  // Step conditions cannot read secrets directly, so they test the job env copies.
+  assert.match(workflow, /if: \$\{\{ env\.SONAR_TOKEN == '' \|\| env\.SONAR_PROJECT_KEY == '' \|\| env\.SONAR_ORGANIZATION == '' \}\}/);
+  assert.match(workflow, /name: Analyze with SonarCloud\n\s+if: \$\{\{ env\.SONAR_TOKEN != '' && env\.SONAR_PROJECT_KEY != '' && env\.SONAR_ORGANIZATION != '' \}\}/);
+  assert.doesNotMatch(workflow, /if: \$\{\{[^}]*secrets\./);
   assert.match(workflow, /::notice title=SonarCloud skipped/);
   assert.doesNotMatch(workflow, /-Dsonar\.(?:projectKey|organization)=\s*$/m);
 });
