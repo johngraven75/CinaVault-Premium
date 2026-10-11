@@ -23,6 +23,9 @@ const WAIT_FOR_OTHER_TASK: Duration = Duration::from_secs(15 * 60);
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static PENDING: Mutex<BTreeSet<i64>> = Mutex::new(BTreeSet::new());
+/// Rows a rescan found again without saved metadata or artwork. They only go
+/// through the metadata lookup, not the new-title steps (subtitles, frames).
+static RETRY: Mutex<BTreeSet<i64>> = Mutex::new(BTreeSet::new());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Steps {
@@ -45,9 +48,11 @@ impl Steps {
         }
     }
 
-    /// Whether a scan that added `added` items has anything to do.
-    pub fn needed(&self, added: usize) -> bool {
+    /// Whether a scan that added `added` items, and found `retry` older items
+    /// still missing metadata, has anything to do.
+    pub fn needed(&self, added: usize, retry: usize) -> bool {
         self.collection_auto
+            || (retry > 0 && self.auto_metadata)
             || (added > 0
                 && (self.poster_sync
                     || self.auto_metadata
@@ -61,8 +66,9 @@ pub fn configure(app: AppHandle) {
     APP.set(app).ok();
 }
 
-/// Queues the items a scan added and starts the background run if idle.
-pub fn schedule(added: Vec<i64>) {
+/// Queues the items a scan added (and older items to look up again) and
+/// starts the background run if idle.
+pub fn schedule(added: Vec<i64>, retry: Vec<i64>) {
     let Some(app) = APP.get() else {
         return;
     };
@@ -72,13 +78,16 @@ pub fn schedule(added: Vec<i64>) {
             Ok(db) => db,
             Err(_) => return,
         };
-        Steps::read(&db).needed(added.len())
+        Steps::read(&db).needed(added.len(), retry.len())
     };
     if !needed {
         return;
     }
     if let Ok(mut pending) = PENDING.lock() {
         pending.extend(added);
+    }
+    if let Ok(mut queued) = RETRY.lock() {
+        queued.extend(retry);
     }
     start_worker(app.clone());
 }
@@ -89,23 +98,37 @@ fn start_worker(app: AppHandle) {
     }
     tauri::async_runtime::spawn(async move {
         loop {
-            let batch: Vec<i64> = PENDING
-                .lock()
-                .map(|mut pending| std::mem::take(&mut *pending).into_iter().collect())
-                .unwrap_or_default();
-            let summary = run(app.state::<AppState>(), batch).await;
+            let batch: Vec<i64> = take_queue(&PENDING);
+            let retry: Vec<i64> = take_queue(&RETRY)
+                .into_iter()
+                .filter(|id| !batch.contains(id))
+                .collect();
+            let summary = run(app.state::<AppState>(), batch, retry).await;
             log::info!("Post-scan work finished: {summary}");
-            let more = PENDING.lock().map(|p| !p.is_empty()).unwrap_or(false);
+            let more = queued_work();
             if !more {
                 RUNNING.store(false, Ordering::SeqCst);
                 // A scan may have queued items between the check and the store.
-                let raced = PENDING.lock().map(|p| !p.is_empty()).unwrap_or(false);
+                let raced = queued_work();
                 if !raced || RUNNING.swap(true, Ordering::SeqCst) {
                     break;
                 }
             }
         }
     });
+}
+
+fn take_queue(queue: &Mutex<BTreeSet<i64>>) -> Vec<i64> {
+    queue
+        .lock()
+        .map(|mut ids| std::mem::take(&mut *ids).into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn queued_work() -> bool {
+    [&PENDING, &RETRY]
+        .iter()
+        .any(|queue| queue.lock().map(|ids| !ids.is_empty()).unwrap_or(false))
 }
 
 async fn wait_for_other_tasks() {
@@ -117,6 +140,7 @@ async fn wait_for_other_tasks() {
     }
 }
 
+#[derive(Clone)]
 struct ItemKind {
     id: i64,
     file_path: String,
@@ -150,13 +174,23 @@ fn load_kinds(state: &AppState, ids: &[i64]) -> Vec<ItemKind> {
         .collect()
 }
 
-async fn run(state: State<'_, AppState>, ids: Vec<i64>) -> Value {
+async fn run(state: State<'_, AppState>, ids: Vec<i64>, retry: Vec<i64>) -> Value {
     wait_for_other_tasks().await;
     let steps = match state.db.lock() {
         Ok(db) => Steps::read(&db),
         Err(error) => return json!({ "error": error.to_string() }),
     };
     let items = load_kinds(state.inner(), &ids);
+    // New titles first, then older rows whose metadata or poster never saved.
+    let lookups: Vec<ItemKind> = if steps.auto_metadata {
+        items
+            .iter()
+            .cloned()
+            .chain(load_kinds(state.inner(), &retry))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let videos: Vec<&ItemKind> = items.iter().filter(|item| item.video).collect();
     let standard: Vec<i64> = items
         .iter()
@@ -166,7 +200,7 @@ async fn run(state: State<'_, AppState>, ids: Vec<i64>) -> Value {
 
     let total = [
         steps.poster_sync as usize * 2,
-        if steps.auto_metadata { items.len() } else { 0 },
+        lookups.len(),
         steps.subtitle_fetch as usize,
         if steps.chapter_thumbs {
             videos.len()
@@ -185,7 +219,11 @@ async fn run(state: State<'_, AppState>, ids: Vec<i64>) -> Value {
         format!("Preparing {} new title(s)", items.len()),
     );
     let mut done = 0usize;
-    let mut summary = json!({ "at": chrono::Utc::now().to_rfc3339(), "items": items.len() });
+    let mut summary = json!({
+        "at": chrono::Utc::now().to_rfc3339(),
+        "items": items.len(),
+        "retried": lookups.len().saturating_sub(items.len()),
+    });
 
     if steps.poster_sync && !items.is_empty() {
         guard.update(done, "Importing shared artwork");
@@ -202,10 +240,10 @@ async fn run(state: State<'_, AppState>, ids: Vec<i64>) -> Value {
         done += 1;
     }
 
-    if steps.auto_metadata && !items.is_empty() {
+    if !lookups.is_empty() {
         let mut updated = 0usize;
         let mut errors = Vec::new();
-        for item in &items {
+        for item in &lookups {
             if task_progress::stop_requested() {
                 break;
             }
@@ -226,7 +264,7 @@ async fn run(state: State<'_, AppState>, ids: Vec<i64>) -> Value {
             done += 1;
         }
         let detail = json!({
-            "items": items.len(),
+            "items": lookups.len(),
             "updated": updated,
             "errors": errors.iter().take(20).collect::<Vec<_>>(),
         });
@@ -322,7 +360,7 @@ mod tests {
         assert!(!defaults.subtitle_fetch && !defaults.chapter_thumbs);
         assert!(!defaults.poster_sync, "poster sync needs a folder");
         assert!(
-            defaults.needed(0),
+            defaults.needed(0, 0),
             "collections are rebuilt after every scan"
         );
 
@@ -331,7 +369,7 @@ mod tests {
         }
         let off = Steps::read(&db);
         assert!(
-            !off.needed(5),
+            !off.needed(5, 5),
             "scans only add files when every step is off"
         );
 
@@ -339,6 +377,17 @@ mod tests {
             .unwrap();
         let sync = Steps::read(&db);
         assert!(sync.poster_sync);
-        assert!(!sync.needed(0) && sync.needed(1));
+        assert!(!sync.needed(0, 0) && sync.needed(1, 0));
+        assert!(
+            !sync.needed(0, 3),
+            "older rows only come back for the metadata lookup"
+        );
+
+        db.set_feature_setting_data("auto_metadata", true, "{}")
+            .unwrap();
+        assert!(
+            Steps::read(&db).needed(0, 3),
+            "a rescan retries rows whose metadata never saved"
+        );
     }
 }

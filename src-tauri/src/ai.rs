@@ -465,19 +465,73 @@ pub(crate) async fn check_providers(
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let mut stmt = db
         .conn
-        .prepare("SELECT provider FROM api_keys")
+        .prepare("SELECT provider, api_key FROM api_keys")
         .map_err(|e| e.to_string())?;
-    let providers: Vec<String> = stmt
-        .query_map([], |row| row.get::<_, String>(0))
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
-
-    Ok(serde_json::json!({
-        "type": "provider_check",
-        "configured_providers": providers,
-        "total_configured": providers.len(),
+    drop(stmt);
+    drop(db);
+    Ok(provider_check_report(&rows, |provider, stored| {
+        crate::metadata_ext::resolve_stored_provider_key(provider, stored)
+            .ok()
+            .flatten()
+            .is_some()
     }))
+}
+
+/// Counts a provider as configured only when its key can actually be read
+/// (a keychain marker whose secret is missing does not count), and reports
+/// how many providers are ready, keyless ones included, so this check and the
+/// provider list agree.
+fn provider_check_report(
+    rows: &[(String, String)],
+    key_resolves: impl Fn(&str, &str) -> bool,
+) -> serde_json::Value {
+    let mut configured: Vec<String> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+    for (provider, stored) in rows {
+        let key = crate::metadata_ext::normalize_provider_key(provider);
+        if key_resolves(&key, stored) {
+            configured.push(key);
+        } else {
+            missing.push(key);
+        }
+    }
+    configured.sort();
+    configured.dedup();
+    let providers = crate::metadata_ext::get_metadata_providers();
+    let ready = providers
+        .iter()
+        .filter(|provider| !provider.requires_key || configured.contains(&provider.key))
+        .count();
+    let message = if missing.is_empty() {
+        format!(
+            "{ready} of {} metadata providers are ready; {} have a saved key.",
+            providers.len(),
+            configured.len()
+        )
+    } else {
+        format!(
+            "{ready} of {} metadata providers are ready; {} have a saved key. Re-enter the key for: {}.",
+            providers.len(),
+            configured.len(),
+            missing.join(", ")
+        )
+    };
+    serde_json::json!({
+        "type": "provider_check",
+        "configured_providers": configured,
+        "total_configured": configured.len(),
+        "ready_providers": ready,
+        "total_providers": providers.len(),
+        "keys_missing": missing,
+        "message": message,
+    })
 }
 
 #[allow(dead_code)]
@@ -1337,8 +1391,30 @@ mod tests {
     use super::{
         automation_tasks_from_prompt, classify_ai_query_prompt, is_adult_gather_candidate,
         is_adult_library_item, metadata_sidecar_path, normalize_adult_provider_key,
-        normalize_provider_key, should_prefer_remote_poster, AiQueryRoute,
+        normalize_provider_key, provider_check_report, should_prefer_remote_poster, AiQueryRoute,
     };
+
+    #[test]
+    fn provider_check_only_counts_keys_that_can_be_read() {
+        let rows = vec![
+            ("TMDB".to_string(), "__secure_store__".to_string()),
+            ("omdb".to_string(), "__secure_store__".to_string()),
+        ];
+        // The keychain lost the OMDb secret: it is not configured, and the
+        // report says which key to re-enter instead of claiming it works.
+        let report = provider_check_report(&rows, |provider, _| provider == "tmdb");
+        assert_eq!(report["total_configured"], 1);
+        assert_eq!(report["configured_providers"][0], "tmdb");
+        assert_eq!(report["keys_missing"][0], "omdb");
+        let ready = report["ready_providers"].as_u64().unwrap();
+        let total = report["total_providers"].as_u64().unwrap();
+        assert!(
+            ready >= 1 && ready <= total,
+            "keyless providers count as ready"
+        );
+        let message = report["message"].as_str().unwrap();
+        assert!(message.contains("Re-enter the key for: omdb"), "{message}");
+    }
 
     #[test]
     fn accepts_real_video_candidates_for_adult_gather() {

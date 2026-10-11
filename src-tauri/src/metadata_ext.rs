@@ -44,7 +44,7 @@ fn is_pgma_alias(provider: &str) -> bool {
     )
 }
 
-fn normalize_provider_key(provider: &str) -> String {
+pub(crate) fn normalize_provider_key(provider: &str) -> String {
     if is_pgma_alias(provider) {
         return PGMA_PROVIDER_KEY.to_string();
     }
@@ -451,8 +451,14 @@ pub fn initialize_metadata_providers(database: &Database) -> Result<serde_json::
             let (provider, stored) = row.map_err(|error| error.to_string())?;
             let normalized = normalize_provider_key(&provider);
             if stored != SECURE_STORE_MARKER && !stored.starts_with("http://") && !stored.starts_with("https://") && stored != "pgma_local_bridge" && stored != "iafd_scrape" && stored != "phoenixadult_manifest" {
-                secure_credentials::set(&normalized, &stored)?;
-                database.conn.execute("UPDATE api_keys SET api_key = ?1 WHERE provider = ?2", params![SECURE_STORE_MARKER, provider]).map_err(|error| error.to_string())?;
+                // Only swap the stored key for the keychain marker once the
+                // keychain has provably kept it; otherwise the key stays usable.
+                match secure_credentials::set(&normalized, &stored) {
+                    Ok(()) => {
+                        database.conn.execute("UPDATE api_keys SET api_key = ?1 WHERE provider = ?2", params![SECURE_STORE_MARKER, provider]).map_err(|error| error.to_string())?;
+                    }
+                    Err(error) => log::warn!("Kept the {normalized} key in the database: {error}"),
+                }
             }
             if resolve_stored_provider_key(&normalized, &stored)?.is_some() {
                 configured.insert(normalized);
@@ -470,7 +476,10 @@ pub fn initialize_metadata_providers(database: &Database) -> Result<serde_json::
             .find_map(|name| std::env::var(name).ok())
             .filter(|value| !value.trim().is_empty());
         if let Some(token) = token {
-            secure_credentials::set(provider, token.trim())?;
+            if let Err(error) = secure_credentials::set(provider, token.trim()) {
+                log::warn!("Could not import the {provider} key from the environment: {error}");
+                continue;
+            }
             database
                 .conn
                 .execute(
