@@ -1,194 +1,441 @@
-import React, { useState, useRef, useEffect } from "react";
+// CinaVault Premium — embedded Live TV player.
+//
+// HLS playlists play through hls.js, raw MPEG-TS (Xtream /live/…/id.ts)
+// through mpegts.js, and plain files through the <video> element. Every
+// stream goes through the loopback relay (iptv_relay.rs) because IPTV servers
+// rarely send CORS headers. Both libraries load on first use and run without
+// blob workers, which the app's CSP does not allow.
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import {
+  AlertTriangle,
+  Loader2,
+  Maximize,
+  Minimize,
+  Pause,
+  PictureInPicture2,
+  Play,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import { detectStreamKind, type StreamKind } from "../utils/iptvStream";
 
-const IPTVPlayer: React.FC<{ streamUrl: string }> = ({ streamUrl }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.5);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+type Status = "loading" | "playing" | "paused" | "error";
 
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
+interface Engine {
+  destroy: () => void;
+}
+
+const STREAM_KIND_LABELS: Record<StreamKind, string> = { hls: "HLS", mpegts: "MPEG-TS", native: "Direct" };
+
+interface IPTVPlayerProps {
+  streamUrl: string;
+  title?: string;
+  subtitle?: string | null;
+  /** Bumped by the parent to force a reconnect (e.g. channel re-selected). */
+  reloadKey?: number;
+}
+
+const MAX_NETWORK_RETRIES = 3;
+const VOLUME_KEY = "cinavault.livetv.volume";
+
+function readVolume(): number {
+  try {
+    const raw = localStorage.getItem(VOLUME_KEY);
+    const stored = raw === null ? Number.NaN : Number(raw);
+    return stored >= 0 && stored <= 1 ? stored : 0.8;
+  } catch {
+    return 0.8;
+  }
+}
+
+async function relayUrl(url: string): Promise<string> {
+  // Outside the desktop shell (vite dev in a browser) play directly.
+  if (!isTauri()) return url;
+  // In the app every stream goes through the relay: most IPTV servers send no
+  // CORS headers, so a direct fallback would only fail later with a vaguer error.
+  try {
+    return await invoke<string>("get_stream_relay_url", { url });
+  } catch (reason) {
+    throw new Error(`The stream relay could not start: ${reason instanceof Error ? reason.message : String(reason)}`);
+  }
+}
+
+async function attachHls(video: HTMLVideoElement, src: string, onFatal: (message: string) => void): Promise<Engine> {
+  const { default: Hls } = await import("hls.js");
+  if (!Hls.isSupported()) {
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = src;
+      return { destroy: () => video.removeAttribute("src") };
     }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const vol = parseFloat(e.target.value);
-    setVolume(vol);
-  };
-
-  const toggleFullscreen = () => {
-    if (!videoRef.current) return;
-
-    if (!isFullscreen) {
-      if (videoRef.current.requestFullscreen) {
-        videoRef.current.requestFullscreen();
-      } else if ((videoRef.current as any).webkitRequestFullscreen) {
-        // Safari
-        (videoRef.current as any).webkitRequestFullscreen();
-      } else if ((videoRef.current as any).msRequestFullscreen) {
-        // IE11
-        (videoRef.current as any).msRequestFullscreen();
-      }
-      setIsFullscreen(true);
+    throw new Error("This system cannot play HLS streams.");
+  }
+  const hls = new Hls({
+    enableWorker: false,
+    lowLatencyMode: true,
+    backBufferLength: 30,
+    liveDurationInfinity: true,
+  });
+  let networkRetries = 0;
+  let mediaRecoveries = 0;
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    networkRetries = 0;
+  });
+  hls.on(Hls.Events.ERROR, (_event, data) => {
+    if (!data.fatal) return;
+    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < MAX_NETWORK_RETRIES) {
+      networkRetries += 1;
+      window.setTimeout(() => hls.startLoad(), 1000 * networkRetries);
+    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
+      mediaRecoveries += 1;
+      hls.recoverMediaError();
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      } else if ((document as any).webkitExitFullscreen) {
-        (document as any).webkitExitFullscreen();
-      } else if ((document as any).msExitFullscreen) {
-        (document as any).msExitFullscreen();
-      }
-      setIsFullscreen(false);
+      onFatal(
+        data.type === Hls.ErrorTypes.NETWORK_ERROR
+          ? "The channel is not responding. It may be offline or your subscription may have expired."
+          : "This stream uses a format the player cannot decode.",
+      );
     }
+  });
+  hls.loadSource(src);
+  hls.attachMedia(video);
+  return { destroy: () => hls.destroy() };
+}
+
+async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (message: string) => void): Promise<Engine> {
+  const { default: mpegts } = await import("mpegts.js");
+  if (!mpegts.getFeatureList().mseLivePlayback) {
+    video.src = src;
+    return { destroy: () => video.removeAttribute("src") };
+  }
+  const player = mpegts.createPlayer(
+    { type: "mpegts", isLive: true, url: src },
+    {
+      enableWorker: false,
+      lazyLoad: false,
+      liveBufferLatencyChasing: true,
+      liveBufferLatencyMaxLatency: 6,
+      liveBufferLatencyMinRemain: 1.5,
+    },
+  );
+  // Live TS endpoints drop connections often; reconnect a few times before giving up.
+  let networkRetries = 0;
+  let retryTimer: number | undefined;
+  const onPlaying = () => {
+    networkRetries = 0;
   };
+  video.addEventListener("playing", onPlaying);
+  player.on(mpegts.Events.ERROR, (type: string) => {
+    if (type === mpegts.ErrorTypes.NETWORK_ERROR && networkRetries < MAX_NETWORK_RETRIES) {
+      networkRetries += 1;
+      retryTimer = window.setTimeout(() => {
+        player.unload();
+        player.load();
+        void Promise.resolve(player.play()).catch(() => undefined);
+      }, 1000 * networkRetries);
+      return;
+    }
+    onFatal(
+      type === mpegts.ErrorTypes.NETWORK_ERROR
+        ? "The channel is not responding. It may be offline or your subscription may have expired."
+        : "This stream uses a format the player cannot decode.",
+    );
+  });
+  player.attachMediaElement(video);
+  player.load();
+  return {
+    destroy: () => {
+      window.clearTimeout(retryTimer);
+      video.removeEventListener("playing", onPlaying);
+      try {
+        player.pause();
+        player.unload();
+        player.detachMediaElement();
+      } finally {
+        player.destroy();
+      }
+    },
+  };
+}
+
+export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }: Readonly<IPTVPlayerProps>) {
+  const shellRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const engineRef = useRef<Engine | null>(null);
+  const hideTimer = useRef<number | undefined>(undefined);
+  const [status, setStatus] = useState<Status>("loading");
+  const [error, setError] = useState<string | null>(null);
+  const [kind, setKind] = useState<StreamKind>(() => detectStreamKind(streamUrl));
+  const [volume, setVolume] = useState(readVolume);
+  const [muted, setMuted] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+
+  // (Re)connect whenever the channel, a retry or the parent asks for it.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (!streamUrl) {
+      setError("This channel has no stream address.");
+      setStatus("error");
+      return;
+    }
+    let cancelled = false;
+    const streamKind = detectStreamKind(streamUrl);
+    setKind(streamKind);
+    setStatus("loading");
+    setError(null);
+
+    const fail = (message: string) => {
+      if (cancelled) return;
+      setError(message);
+      setStatus("error");
+    };
+
+    void (async () => {
+      const src = await relayUrl(streamUrl);
+      if (cancelled) return;
+      try {
+        let engine: Engine;
+        if (streamKind === "hls") engine = await attachHls(video, src, fail);
+        else if (streamKind === "mpegts") engine = await attachMpegts(video, src, fail);
+        else {
+          video.src = src;
+          engine = { destroy: () => video.removeAttribute("src") };
+        }
+        if (cancelled) {
+          engine.destroy();
+          return;
+        }
+        engineRef.current = engine;
+        await video.play().catch(() => {
+          // Autoplay with sound can be refused; the play button still works.
+          if (!cancelled) setStatus("paused");
+        });
+      } catch (reason) {
+        fail(reason instanceof Error ? reason.message : String(reason));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      engineRef.current?.destroy();
+      engineRef.current = null;
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [streamUrl, attempt, reloadKey]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-
-    const updateTime = () => {
-      setCurrentTime(video.currentTime);
-      setDuration(video.duration);
+    const onPlaying = () => setStatus("playing");
+    const onPause = () => setStatus((current) => (current === "error" ? current : "paused"));
+    const onWaiting = () => setStatus((current) => (current === "error" ? current : "loading"));
+    const onError = () => {
+      if (kind === "native") {
+        setError("The stream could not be opened.");
+        setStatus("error");
+      }
     };
-
-    const handlePlay = () => setIsPlaying(true);
-    const handlePause = () => setIsPlaying(false);
-    const handleEnded = () => setIsPlaying(false);
-    const handleError = () => setError("Error loading video stream");
-
-    video.addEventListener("timeupdate", updateTime);
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-    video.addEventListener("ended", handleEnded);
-    video.addEventListener("error", handleError);
-
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("waiting", onWaiting);
+    video.addEventListener("error", onError);
     return () => {
-      video.removeEventListener("timeupdate", updateTime);
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
-      video.removeEventListener("ended", handleEnded);
-      video.removeEventListener("error", handleError);
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("waiting", onWaiting);
+      video.removeEventListener("error", onError);
     };
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.volume = volume;
+    const video = videoRef.current;
+    if (!video) return;
+    video.volume = volume;
+    video.muted = muted;
+    try {
+      localStorage.setItem(VOLUME_KEY, String(volume));
+    } catch {
+      // Storage can be unavailable; the volume still applies.
     }
-  }, [volume]);
+  }, [volume, muted]);
 
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === shellRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(hideTimer.current), []);
+
+  const revealControls = useCallback(() => {
+    setControlsVisible(true);
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 3000);
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      // Jump back to the live edge after a pause.
+      if (video.buffered.length) {
+        const liveEdge = video.buffered.end(video.buffered.length - 1);
+        if (liveEdge - video.currentTime > 10) video.currentTime = liveEdge - 2;
+      }
+      void video.play().catch(() => undefined);
+    } else {
+      video.pause();
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void shell.requestFullscreen().catch(() => undefined);
+  }, []);
+
+  const togglePip = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !document.pictureInPictureEnabled) return;
+    if (document.pictureInPictureElement) void document.exitPictureInPicture();
+    else void video.requestPictureInPicture().catch(() => undefined);
+  }, []);
+
+  const playButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Clicking the picture plays or pauses and moves focus into the controls so
+  // the keyboard shortcuts below work straight away.
+  const onVideoClick = () => {
+    togglePlay();
+    playButtonRef.current?.focus({ preventScroll: true });
   };
 
+  // Shortcuts while any player control has focus (keydown bubbles to the shell).
+  const onKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.target instanceof HTMLInputElement) return;
+    if (event.key === " " || event.key === "k") {
+      event.preventDefault();
+      togglePlay();
+    } else if (event.key === "f") {
+      toggleFullscreen();
+    } else if (event.key === "m") {
+      setMuted((value) => !value);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setVolume((value) => Math.min(1, Math.round((value + 0.05) * 100) / 100));
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setVolume((value) => Math.max(0, Math.round((value - 0.05) * 100) / 100));
+    }
+    revealControls();
+  }, [togglePlay, toggleFullscreen, revealControls]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    shell.addEventListener("keydown", onKeyDown);
+    return () => shell.removeEventListener("keydown", onKeyDown);
+  }, [onKeyDown]);
+
+  const showControls = controlsVisible || status !== "playing";
+
   return (
-    <div className="iptv-player" style={playerStyle}>
-      {error && (
-        <div className="error-message" style={errorStyle}>
-          {error}
+    <div
+      ref={shellRef}
+      role="region"
+      onMouseMove={revealControls}
+      onMouseLeave={() => status === "playing" && setControlsVisible(false)}
+      className={`group relative w-full overflow-hidden rounded-xl bg-black outline-none ring-cv-accent/60 focus-visible:ring-2 ${fullscreen ? "" : "aspect-video"}`}
+      style={{ cursor: showControls ? "default" : "none" }}
+      aria-label={title ? `Live player: ${title}` : "Live player"}
+    >
+      <video
+        ref={videoRef}
+        className="h-full w-full bg-black object-contain"
+        playsInline
+        onClick={onVideoClick}
+        onDoubleClick={toggleFullscreen}
+      >
+        {/* Live channels ship no caption files; the empty track keeps the element accessible-ready. */}
+        <track kind="captions" />
+      </video>
+
+      {status === "loading" && !error && (
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/80">
+          <Loader2 size={34} className="animate-spin text-cv-accent" />
+          <span className="text-xs tracking-wide">Tuning in…</span>
         </div>
       )}
-      <video ref={videoRef} src={streamUrl} style={videoStyle} />
-      <div className="controls" style={controlsStyle}>
-        <button onClick={togglePlay} style={buttonStyle}>
-          {isPlaying ? "❚❚" : "▶"}
+
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 px-6 text-center">
+          <AlertTriangle size={30} className="text-amber-400" />
+          <p className="max-w-md text-sm text-white/90">{error}</p>
+          <button onClick={() => setAttempt((value) => value + 1)} className="cv-btn cv-btn-primary text-xs">
+            <RotateCcw size={12} /> Try again
+          </button>
+        </div>
+      )}
+
+      {/* Top bar: channel and what's on */}
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 bg-gradient-to-b from-black/80 to-transparent px-4 pb-8 pt-3 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}
+      >
+        <div className="min-w-0">
+          {title && <div className="truncate text-sm font-bold text-white">{title}</div>}
+          {subtitle && <div className="truncate text-xs text-white/70">{subtitle}</div>}
+        </div>
+        <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+          <span className={`h-1.5 w-1.5 rounded-full bg-white ${status === "playing" ? "animate-pulse" : ""}`} />
+          <span>Live</span>
+        </span>
+      </div>
+
+      {/* Bottom controls */}
+      <div
+        className={`absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-10 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}
+      >
+        <button ref={playButtonRef} onClick={togglePlay} className="rounded-md p-2 text-white hover:bg-white/10" aria-label={status === "playing" ? "Pause" : "Play"}>
+          {status === "playing" ? <Pause size={18} /> : <Play size={18} />}
+        </button>
+        <button onClick={() => setMuted((value) => !value)} className="rounded-md p-2 text-white hover:bg-white/10" aria-label={muted ? "Unmute" : "Mute"}>
+          {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
         </button>
         <input
           type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={volume}
-          onChange={handleVolumeChange}
-          style={volumeStyle}
+          min={0}
+          max={1}
+          step={0.01}
+          value={muted ? 0 : volume}
+          onChange={(event) => {
+            setVolume(Number(event.target.value));
+            setMuted(false);
+          }}
+          className="w-24 accent-[var(--cv-accent)]"
+          aria-label="Volume"
         />
-        <button onClick={toggleFullscreen} style={buttonStyle}>
-          {isFullscreen ? "⛶" : "⛗"}
+        <span className="ml-1 text-[10px] uppercase tracking-wider text-white/50">
+          {STREAM_KIND_LABELS[kind]}
+        </span>
+        <div className="flex-1" />
+        <button onClick={() => setAttempt((value) => value + 1)} className="rounded-md p-2 text-white hover:bg-white/10" aria-label="Reconnect" title="Reconnect">
+          <RotateCcw size={16} />
         </button>
-        <div className="time-display" style={timeStyle}>
-          {formatTime(currentTime)} / {formatTime(duration)}
-        </div>
+        {typeof document !== "undefined" && document.pictureInPictureEnabled && (
+          <button onClick={togglePip} className="rounded-md p-2 text-white hover:bg-white/10" aria-label="Picture in picture" title="Picture in picture">
+            <PictureInPicture2 size={16} />
+          </button>
+        )}
+        <button onClick={toggleFullscreen} className="rounded-md p-2 text-white hover:bg-white/10" aria-label={fullscreen ? "Exit full screen" : "Full screen"}>
+          {fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+        </button>
       </div>
     </div>
   );
-};
-
-// Dark theme styles matching CineVault Premium
-const playerStyle: React.CSSProperties = {
-  position: "relative",
-  width: "100%",
-  maxWidth: "800px",
-  margin: "0 auto",
-  backgroundColor: "#1a1a1a",
-  borderRadius: "8px",
-  overflow: "hidden",
-  boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
-};
-
-const videoStyle: React.CSSProperties = {
-  width: "100%",
-  height: "auto",
-  display: "block",
-};
-
-const controlsStyle: React.CSSProperties = {
-  position: "absolute",
-  bottom: 0,
-  left: 0,
-  right: 0,
-  background: "linear-gradient(to top, rgba(0,0,0,0.8), transparent)",
-  padding: "12px",
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-};
-
-const buttonStyle: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  color: "#ffffff",
-  fontSize: "18px",
-  cursor: "pointer",
-  padding: "8px",
-  borderRadius: "4px",
-  transition: "background-color 0.2s",
-};
-
-const volumeStyle: React.CSSProperties = {
-  flexGrow: 1,
-  height: "4px",
-  background: "#333",
-  borderRadius: "2px",
-  outline: "none",
-};
-
-const timeStyle: React.CSSProperties = {
-  color: "#ffffff",
-  fontSize: "14px",
-  minWidth: "80px",
-  textAlign: "center",
-};
-
-const errorStyle: React.CSSProperties = {
-  position: "absolute",
-  top: "50%",
-  left: "50%",
-  transform: "translate(-50%, -50%)",
-  backgroundColor: "rgba(0,0,0,0.8)",
-  color: "#ff4444",
-  padding: "16px",
-  borderRadius: "8px",
-  textAlign: "center",
-};
-
-export default IPTVPlayer;
+}

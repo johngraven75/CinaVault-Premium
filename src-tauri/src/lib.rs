@@ -20,7 +20,9 @@ mod feature_flags;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
+mod epg;
 mod iptv;
+mod iptv_relay;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
@@ -224,6 +226,9 @@ pub fn run() {
             if let Err(error) = collections::ensure_tables(&database) {
                 log::warn!("Collection tables could not be prepared: {error}");
             }
+            if let Err(error) = epg::ensure_tables(&database) {
+                log::warn!("Programme guide tables could not be prepared: {error}");
+            }
 
             app.manage(AppState {
                 db: Mutex::new(database),
@@ -289,6 +294,15 @@ pub fn run() {
             iptv::sync_epg,
             iptv::get_live_channels,
             iptv::play_channel,
+            iptv::add_m3u_playlist,
+            iptv_relay::get_stream_relay_url,
+            epg::list_epg_sources,
+            epg::add_epg_source,
+            epg::remove_epg_source,
+            epg::sync_epg_source,
+            epg::sync_stale_epg_sources,
+            epg::get_channel_guide,
+            epg::get_now_playing,
             jellyfin::start_server,
             jellyfin::stop_server,
             jellyfin::get_server_status,
