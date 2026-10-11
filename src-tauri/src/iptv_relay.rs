@@ -25,6 +25,21 @@ use tokio::sync::OnceCell;
 /// Playlists larger than this are not rewritten (real ones are a few KB).
 const MAX_PLAYLIST_BYTES: usize = 8 * 1024 * 1024;
 
+/// Reads a response body, stopping as soon as it grows past `max` bytes.
+pub(crate) async fn read_body_capped(
+    mut response: reqwest::Response,
+    max: usize,
+) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        if body.len() + chunk.len() > max {
+            return Err(format!("larger than {} MB", max / (1024 * 1024)));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 const PLAYLIST_TYPES: [&str; 4] = [
     "application/vnd.apple.mpegurl",
     "application/x-mpegurl",
@@ -213,15 +228,14 @@ async fn relay(
         .map(str::to_string);
 
     if status.is_success() && looks_like_playlist(content_type.as_deref(), &final_url) {
-        let bytes = upstream_response.bytes().await.map_err(|error| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Playlist read failed: {error}"),
-            )
-        })?;
-        if bytes.len() > MAX_PLAYLIST_BYTES {
-            return Err((StatusCode::BAD_GATEWAY, "Playlist is too large".into()));
-        }
+        let bytes = read_body_capped(upstream_response, MAX_PLAYLIST_BYTES)
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Playlist read failed: {error}"),
+                )
+            })?;
         let text = String::from_utf8_lossy(&bytes);
         // Some servers label MPEG-TS as a playlist; only rewrite real ones.
         if text

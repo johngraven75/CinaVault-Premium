@@ -27,6 +27,34 @@ const KEEP_AHEAD_SECS: i64 = 4 * 86_400;
 const STALE_AFTER_SECS: i64 = 12 * 3600;
 /// Largest guide file accepted (compressed size on the wire).
 const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
+/// Largest guide accepted after decompression, so a gzip bomb cannot run away.
+const MAX_GUIDE_XML_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// Most programmes kept in memory from one guide (inside the rolling window).
+const MAX_PROGRAMMES: usize = 2_000_000;
+/// Most channels kept from one guide.
+const MAX_CHANNELS: usize = 200_000;
+
+/// Reader that fails, rather than truncating, once `remaining` bytes are used.
+struct CappedReader<R> {
+    inner: R,
+    remaining: u64,
+}
+
+impl<R: Read> Read for CappedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(std::io::Error::other(
+                "The guide is larger than 4 GB once unpacked",
+            ));
+        }
+        let max = buf
+            .len()
+            .min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+        let read = self.inner.read(&mut buf[..max])?;
+        self.remaining -= read as u64;
+        Ok(read)
+    }
+}
 
 pub fn ensure_tables(db: &Database) -> Result<(), String> {
     db.conn
@@ -378,6 +406,9 @@ pub fn mask_credentials(url: &str) -> String {
     if parsed.password().is_some() {
         let _ = parsed.set_password(Some("•••"));
     }
+    if !parsed.username().is_empty() {
+        let _ = parsed.set_username("•••");
+    }
     parsed.to_string()
 }
 
@@ -417,6 +448,15 @@ pub fn upsert_source(
         .optional()
         .map_err(|error| error.to_string())?
     {
+        // A guide added by hand first still links to the playlist that names it.
+        if profile_id.is_some() {
+            db.conn
+                .execute(
+                    "UPDATE epg_sources SET profile_id = COALESCE(profile_id, ?2) WHERE id = ?1",
+                    params![id, profile_id],
+                )
+                .map_err(|error| error.to_string())?;
+        }
         return Ok(id);
     }
     db.conn
@@ -488,22 +528,42 @@ pub fn read_guide_file(file: &mut std::fs::File, now: i64) -> Result<GuideData, 
     } else {
         Box::new(&mut *file)
     };
-    read_guide(BufReader::new(input), now)
+    let capped = CappedReader {
+        inner: input,
+        remaining: MAX_GUIDE_XML_BYTES,
+    };
+    read_guide(BufReader::new(capped), now)
 }
 
 pub fn read_guide<R: BufRead>(input: R, now: i64) -> Result<GuideData, String> {
     let mut data = GuideData::default();
     let earliest_stop = now - KEEP_PAST_SECS;
     let latest_start = now + KEEP_AHEAD_SECS;
+    let overflow = std::cell::Cell::new(false);
     parse_xmltv(
         input,
-        |channel| data.channels.push(channel),
+        |channel| {
+            if data.channels.len() < MAX_CHANNELS {
+                data.channels.push(channel);
+            } else {
+                overflow.set(true);
+            }
+        },
         |programme| {
             if programme.stop >= earliest_stop && programme.start <= latest_start {
-                data.programmes.push(programme);
+                if data.programmes.len() < MAX_PROGRAMMES {
+                    data.programmes.push(programme);
+                } else {
+                    overflow.set(true);
+                }
             }
         },
     )?;
+    if overflow.get() {
+        return Err(format!(
+            "The guide is too large (over {MAX_CHANNELS} channels or {MAX_PROGRAMMES} programmes in the next few days)."
+        ));
+    }
     if data.channels.is_empty() && data.programmes.is_empty() {
         return Err(
             "The guide had no channels or programmes. Check that the URL points to an XMLTV file."
@@ -519,6 +579,17 @@ pub fn store_guide(db: &Database, source_id: i64, data: &GuideData) -> Result<()
         .conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    // The source may have been removed while its download was running.
+    let exists: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM epg_sources WHERE id = ?1)",
+            params![source_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if !exists {
+        return Err("The guide source was removed while it was syncing.".into());
+    }
     tx.execute(
         "DELETE FROM epg_programmes WHERE source_id = ?1",
         params![source_id],
@@ -1048,6 +1119,50 @@ mod tests {
             mask_credentials("https://epg.example/guide.xml.gz"),
             "https://epg.example/guide.xml.gz"
         );
+    }
+
+    #[test]
+    fn existing_sources_link_to_the_playlist_that_names_them() {
+        let db = Database::new(":memory:").unwrap();
+        ensure_tables(&db).unwrap();
+        let id = upsert_source(&db, "Manual", "https://epg.example/b.xml", None).unwrap();
+        assert_eq!(
+            upsert_source(&db, "", "https://epg.example/b.xml", Some(4)).unwrap(),
+            id
+        );
+        let profile: Option<i64> = db
+            .conn
+            .query_row(
+                "SELECT profile_id FROM epg_sources WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(profile, Some(4));
+    }
+
+    #[test]
+    fn a_removed_source_stores_nothing() {
+        let (db, source) = guide_db();
+        delete_source(&db, source).unwrap();
+        let data = read_guide(SAMPLE.as_bytes(), ts("20261011133000")).unwrap();
+        assert!(store_guide(&db, source, &data).is_err());
+        let rows: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM epg_programmes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "no orphan programmes");
+    }
+
+    #[test]
+    fn capped_reader_fails_instead_of_truncating() {
+        let mut reader = CappedReader {
+            inner: &b"0123456789"[..],
+            remaining: 4,
+        };
+        let mut out = Vec::new();
+        assert!(reader.read_to_end(&mut out).is_err());
+        assert_eq!(out, b"0123");
     }
 
     #[test]

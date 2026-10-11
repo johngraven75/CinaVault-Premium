@@ -176,7 +176,12 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
   // (Re)connect whenever the channel, a retry or the parent asks for it.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !streamUrl) return;
+    if (!video) return;
+    if (!streamUrl) {
+      setError("This channel has no stream address.");
+      setStatus("error");
+      return;
+    }
     let cancelled = false;
     const streamKind = detectStreamKind(streamUrl);
     setKind(streamKind);

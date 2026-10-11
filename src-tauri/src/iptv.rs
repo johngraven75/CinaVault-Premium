@@ -357,6 +357,9 @@ pub fn parse_m3u(text: &str) -> (Vec<M3uEntry>, Vec<String>) {
     (entries, guides)
 }
 
+/// Largest M3U playlist accepted.
+const MAX_M3U_BYTES: usize = 256 * 1024 * 1024;
+
 async fn sync_m3u_playlist(
     state: &AppState,
     profile_id: i64,
@@ -376,7 +379,10 @@ async fn sync_m3u_playlist(
         return Err(format!("The playlist server answered {}", resp.status()));
     }
     let base = resp.url().clone();
-    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let body = crate::iptv_relay::read_body_capped(resp, MAX_M3U_BYTES)
+        .await
+        .map_err(|e| format!("Could not read the playlist: {e}"))?;
+    let text = String::from_utf8_lossy(&body);
     let (entries, guides) = parse_m3u(&text);
     if entries.is_empty() {
         return Err("No channels were found. Check that the URL is an M3U playlist.".into());
@@ -414,6 +420,10 @@ async fn sync_m3u_playlist(
                 .map_err(|e| e.to_string())?;
             count += 1;
         }
+    }
+    if count == 0 {
+        // Dropping the transaction rolls back the delete, keeping the old list.
+        return Err("The playlist has no http or https channel addresses.".into());
     }
     tx.execute(
         "UPDATE xtream_profiles SET last_synced = ?1 WHERE id = ?2",
