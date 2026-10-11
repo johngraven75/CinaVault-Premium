@@ -277,6 +277,7 @@ impl Database {
         self.ensure_column("remote_access_sessions", "token_lookup", "TEXT")?;
         // Certification for parental controls (see parental.rs / content_rating.rs).
         self.ensure_column("media_items", "content_rating", "TEXT")?;
+        self.ensure_column("xtream_profiles", "source_kind", "TEXT DEFAULT 'xtream'")?;
         // Existing sessions cannot be indexed safely because only their salted hashes are stored.
         // Revoking them forces one reauthentication and avoids a linear token scan on every request.
         self.conn.execute(
