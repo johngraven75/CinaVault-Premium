@@ -27,6 +27,8 @@ interface Engine {
   destroy: () => void;
 }
 
+const STREAM_KIND_LABELS: Record<StreamKind, string> = { hls: "HLS", mpegts: "MPEG-TS", native: "Direct" };
+
 interface IPTVPlayerProps {
   streamUrl: string;
   title?: string;
@@ -41,7 +43,7 @@ const VOLUME_KEY = "cinavault.livetv.volume";
 function readVolume(): number {
   try {
     const raw = localStorage.getItem(VOLUME_KEY);
-    const stored = raw === null ? NaN : Number(raw);
+    const stored = raw === null ? Number.NaN : Number(raw);
     return stored >= 0 && stored <= 1 ? stored : 0.8;
   } catch {
     return 0.8;
@@ -136,7 +138,7 @@ async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (mess
   };
 }
 
-export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }: IPTVPlayerProps) {
+export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }: Readonly<IPTVPlayerProps>) {
   const shellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -166,7 +168,7 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
       setStatus("error");
     };
 
-    (async () => {
+    void (async () => {
       const src = await relayUrl(streamUrl);
       if (cancelled) return;
       try {
@@ -279,7 +281,17 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
     else void video.requestPictureInPicture().catch(() => undefined);
   }, []);
 
-  const onKeyDown = (event: React.KeyboardEvent) => {
+  const playButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Clicking the picture plays or pauses and moves focus into the controls so
+  // the keyboard shortcuts below work straight away.
+  const onVideoClick = () => {
+    togglePlay();
+    playButtonRef.current?.focus({ preventScroll: true });
+  };
+
+  // Shortcuts while any player control has focus (keydown bubbles to the shell).
+  const onKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.target instanceof HTMLInputElement) return;
     if (event.key === " " || event.key === "k") {
       event.preventDefault();
@@ -296,15 +308,21 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
       setVolume((value) => Math.max(0, Math.round((value - 0.05) * 100) / 100));
     }
     revealControls();
-  };
+  }, [togglePlay, toggleFullscreen, revealControls]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    shell.addEventListener("keydown", onKeyDown);
+    return () => shell.removeEventListener("keydown", onKeyDown);
+  }, [onKeyDown]);
 
   const showControls = controlsVisible || status !== "playing";
 
   return (
     <div
       ref={shellRef}
-      tabIndex={0}
-      onKeyDown={onKeyDown}
+      role="region"
       onMouseMove={revealControls}
       onMouseLeave={() => status === "playing" && setControlsVisible(false)}
       className={`group relative w-full overflow-hidden rounded-xl bg-black outline-none ring-cv-accent/60 focus-visible:ring-2 ${fullscreen ? "" : "aspect-video"}`}
@@ -315,9 +333,12 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
         ref={videoRef}
         className="h-full w-full bg-black object-contain"
         playsInline
-        onClick={togglePlay}
+        onClick={onVideoClick}
         onDoubleClick={toggleFullscreen}
-      />
+      >
+        {/* Live channels ship no caption files; the empty track keeps the element accessible-ready. */}
+        <track kind="captions" />
+      </video>
 
       {status === "loading" && !error && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/80">
@@ -346,7 +367,7 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
         </div>
         <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-600/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
           <span className={`h-1.5 w-1.5 rounded-full bg-white ${status === "playing" ? "animate-pulse" : ""}`} />
-          Live
+          <span>Live</span>
         </span>
       </div>
 
@@ -354,7 +375,7 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
       <div
         className={`absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-3 pt-10 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}
       >
-        <button onClick={togglePlay} className="rounded-md p-2 text-white hover:bg-white/10" aria-label={status === "playing" ? "Pause" : "Play"}>
+        <button ref={playButtonRef} onClick={togglePlay} className="rounded-md p-2 text-white hover:bg-white/10" aria-label={status === "playing" ? "Pause" : "Play"}>
           {status === "playing" ? <Pause size={18} /> : <Play size={18} />}
         </button>
         <button onClick={() => setMuted((value) => !value)} className="rounded-md p-2 text-white hover:bg-white/10" aria-label={muted ? "Unmute" : "Mute"}>
@@ -374,7 +395,7 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
           aria-label="Volume"
         />
         <span className="ml-1 text-[10px] uppercase tracking-wider text-white/50">
-          {kind === "hls" ? "HLS" : kind === "mpegts" ? "MPEG-TS" : "Direct"}
+          {STREAM_KIND_LABELS[kind]}
         </span>
         <div className="flex-1" />
         <button onClick={() => setAttempt((value) => value + 1)} className="rounded-md p-2 text-white hover:bg-white/10" aria-label="Reconnect" title="Reconnect">

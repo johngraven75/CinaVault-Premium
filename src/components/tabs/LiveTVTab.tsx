@@ -84,6 +84,19 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** "Title · S01E02" for the player's top bar, or nothing when the guide is empty. */
+function programmeSubtitle(programme: GuideProgramme | null): string | null {
+  if (!programme) return null;
+  return programme.episode ? `${programme.title} · ${programme.episode}` : programme.title;
+}
+
+function epgSourceSummary(source: EpgSource): string {
+  if (source.last_error) return `Last sync failed: ${source.last_error}`;
+  if (!source.last_synced) return "Not synced yet";
+  const synced = new Date(source.last_synced).toLocaleString();
+  return `${source.programme_count.toLocaleString()} programmes · ${source.channel_count.toLocaleString()} channels · synced ${synced}`;
+}
+
 export default function LiveTVTab() {
   const { addStatusMessage } = useAppStore();
   const now = useClock();
@@ -184,7 +197,8 @@ export default function LiveTVTab() {
     addStatusMessage("Syncing channels...");
     try {
       const result = await invoke<{ channels_synced: number; guides_found?: number }>("sync_xtream_streams", { profileId: id });
-      const guides = result.guides_found ? `, found ${result.guides_found} guide source${result.guides_found === 1 ? "" : "s"}` : "";
+      const guideNoun = result.guides_found === 1 ? "guide source" : "guide sources";
+      const guides = result.guides_found ? `, found ${result.guides_found} ${guideNoun}` : "";
       addStatusMessage(`Synced ${result.channels_synced} channels${guides}`);
       await loadProfiles();
       await loadChannels(id);
@@ -317,7 +331,8 @@ export default function LiveTVTab() {
     () =>
       filteredChannels.reduce((acc: Record<string, LiveChannel[]>, ch) => {
         const group = ch.group_name || "Uncategorized";
-        (acc[group] ||= []).push(ch);
+        acc[group] ??= [];
+        acc[group].push(ch);
         return acc;
       }, {}),
     [filteredChannels],
@@ -377,7 +392,7 @@ export default function LiveTVTab() {
               <IPTVPlayer
                 streamUrl={watching.stream_url}
                 title={watching.name}
-                subtitle={current ? `${current.title}${current.episode ? ` · ${current.episode}` : ""}` : null}
+                subtitle={programmeSubtitle(current)}
               />
               {current && (
                 <div className="mt-3 rounded-lg bg-white/[0.03] p-3">
@@ -513,7 +528,7 @@ export default function LiveTVTab() {
                 </div>
                 <div>
                   <label className="section-label">Server URL</label>
-                  <input value={newProfile.server_url} onChange={(e) => setNewProfile({ ...newProfile, server_url: e.target.value })} className="cv-input" placeholder="http://provider.com:8080" />
+                  <input value={newProfile.server_url} onChange={(e) => setNewProfile({ ...newProfile, server_url: e.target.value })} className="cv-input" placeholder="https://provider.com:8080" />
                 </div>
                 <div>
                   <label className="section-label">Username</label>
@@ -527,12 +542,12 @@ export default function LiveTVTab() {
             ) : (
               <div className="grid grid-cols-[1fr_2fr] gap-3">
                 <div>
-                  <label className="section-label">Name</label>
-                  <input value={newPlaylist.name} onChange={(e) => setNewPlaylist({ ...newPlaylist, name: e.target.value })} className="cv-input" placeholder="My playlist" />
+                  <label htmlFor="m3u-playlist-name" className="section-label">Name</label>
+                  <input id="m3u-playlist-name" value={newPlaylist.name} onChange={(e) => setNewPlaylist({ ...newPlaylist, name: e.target.value })} className="cv-input" placeholder="My playlist" />
                 </div>
                 <div>
-                  <label className="section-label">Playlist URL (M3U / M3U8)</label>
-                  <input value={newPlaylist.url} onChange={(e) => setNewPlaylist({ ...newPlaylist, url: e.target.value })} className="cv-input" placeholder="http://provider.com/get.php?username=…&type=m3u_plus" />
+                  <label htmlFor="m3u-playlist-url" className="section-label">Playlist URL (M3U / M3U8)</label>
+                  <input id="m3u-playlist-url" value={newPlaylist.url} onChange={(e) => setNewPlaylist({ ...newPlaylist, url: e.target.value })} className="cv-input" placeholder="https://provider.com/get.php?username=…&type=m3u_plus" />
                 </div>
               </div>
             )}
@@ -640,11 +655,7 @@ export default function LiveTVTab() {
                         <div className="truncate text-xs font-semibold">{source.name}</div>
                         <div className="truncate text-[10px] text-cv-subtext">{source.url}</div>
                         <div className={`text-[10px] ${source.last_error ? "text-amber-400" : "text-cv-subtext"}`}>
-                          {source.last_error
-                            ? `Last sync failed: ${source.last_error}`
-                            : source.last_synced
-                              ? `${source.programme_count.toLocaleString()} programmes · ${source.channel_count.toLocaleString()} channels · synced ${new Date(source.last_synced).toLocaleString()}`
-                              : "Not synced yet"}
+                          {epgSourceSummary(source)}
                         </div>
                       </div>
                       <button onClick={() => syncEpgSource(source.id)} disabled={busy !== null} className="cv-btn cv-btn-secondary px-2 py-1 text-[10px]" title="Sync now">
