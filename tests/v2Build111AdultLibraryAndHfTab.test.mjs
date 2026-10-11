@@ -52,4 +52,5 @@ test("all Windows version sources are synchronized at v1.0.4 Pre-Beta Build 104"
   assert.equal(JSON.parse(read("package.json")).version, "1.0.4");
   assert.match(read("src-tauri/Cargo.toml"), /version = "1\.0\.4"/);
   assert.equal(JSON.parse(read("src-tauri/tauri.conf.json")).version, "1.0.4");
+  assert.equal(JSON.parse(read("src-tauri/tauri.msv1.conf.json")).version, "1.0.4");
 });

@@ -15,7 +15,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: cinavault-v1-0-3-pre-beta-release-${{ github.event_name }}-${{ github.ref }}
+  group: cinavault-v1-0-4-pre-beta-release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -298,7 +298,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ env.TAG_NAME }}
-          target_commitish: main
+          target_commitish: ${{ github.sha }}
           name: CinaVault Premium v1.0.4 Pre-Beta Build 104
           body_path: test-evidence/TEST-NOTES.md
           draft: false
