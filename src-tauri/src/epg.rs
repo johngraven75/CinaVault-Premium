@@ -70,6 +70,11 @@ pub fn ensure_tables(db: &Database) -> Result<(), String> {
                 channel_count INTEGER NOT NULL DEFAULT 0,
                 programme_count INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS epg_source_profiles (
+                source_id INTEGER NOT NULL,
+                profile_id INTEGER NOT NULL,
+                PRIMARY KEY (source_id, profile_id)
+            );
             CREATE TABLE IF NOT EXISTS epg_channels (
                 source_id INTEGER NOT NULL,
                 channel_id TEXT NOT NULL,
@@ -448,14 +453,16 @@ pub fn upsert_source(
         .optional()
         .map_err(|error| error.to_string())?
     {
-        // A guide added by hand first still links to the playlist that names it.
-        if profile_id.is_some() {
+        // A guide added by hand first, or named by several playlists, links to
+        // every playlist that names it.
+        if let Some(profile_id) = profile_id {
             db.conn
                 .execute(
                     "UPDATE epg_sources SET profile_id = COALESCE(profile_id, ?2) WHERE id = ?1",
                     params![id, profile_id],
                 )
                 .map_err(|error| error.to_string())?;
+            link_profile(db, id, profile_id)?;
         }
         return Ok(id);
     }
@@ -465,7 +472,68 @@ pub fn upsert_source(
             params![name, url, profile_id],
         )
         .map_err(|error| error.to_string())?;
-    Ok(db.conn.last_insert_rowid())
+    let id = db.conn.last_insert_rowid();
+    if let Some(profile_id) = profile_id {
+        link_profile(db, id, profile_id)?;
+    }
+    Ok(id)
+}
+
+fn link_profile(db: &Database, source_id: i64, profile_id: i64) -> Result<(), String> {
+    db.conn
+        .execute(
+            "INSERT OR IGNORE INTO epg_source_profiles (source_id, profile_id) VALUES (?1, ?2)",
+            params![source_id, profile_id],
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+/// Guide sources named by a playlist or Xtream profile.
+pub fn sources_for_profile(db: &Database, profile_id: i64) -> Result<Vec<i64>, String> {
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT source_id FROM epg_source_profiles WHERE profile_id = ?1 ORDER BY source_id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map(params![profile_id], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+/// Drops a removed profile's links, deleting guides no other profile names.
+pub fn unlink_profile(db: &Database, profile_id: i64) -> Result<(), String> {
+    let linked = sources_for_profile(db, profile_id)?;
+    db.conn
+        .execute(
+            "DELETE FROM epg_source_profiles WHERE profile_id = ?1",
+            params![profile_id],
+        )
+        .map_err(|error| error.to_string())?;
+    for source in linked {
+        let still_owned: bool = db
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM epg_source_profiles WHERE source_id = ?1)",
+                params![source],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if still_owned {
+            db.conn
+                .execute(
+                    "UPDATE epg_sources SET profile_id = (SELECT MIN(profile_id) FROM epg_source_profiles WHERE source_id = ?1) WHERE id = ?1",
+                    params![source],
+                )
+                .map_err(|error| error.to_string())?;
+        } else {
+            delete_source(db, source)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn list_sources(db: &Database) -> Result<Vec<EpgSource>, String> {
@@ -500,6 +568,7 @@ pub fn delete_source(db: &Database, id: i64) -> Result<(), String> {
     for sql in [
         "DELETE FROM epg_programmes WHERE source_id = ?1",
         "DELETE FROM epg_channels WHERE source_id = ?1",
+        "DELETE FROM epg_source_profiles WHERE source_id = ?1",
         "DELETE FROM epg_sources WHERE id = ?1",
     ] {
         db.conn
@@ -1139,6 +1208,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(profile, Some(4));
+    }
+
+    #[test]
+    fn a_guide_shared_by_two_playlists_survives_removing_one() {
+        let db = Database::new(":memory:").unwrap();
+        ensure_tables(&db).unwrap();
+        let id = upsert_source(&db, "", "https://epg.example/c.xml", Some(1)).unwrap();
+        assert_eq!(
+            upsert_source(&db, "", "https://epg.example/c.xml", Some(2)).unwrap(),
+            id
+        );
+        assert_eq!(sources_for_profile(&db, 2).unwrap(), vec![id]);
+        unlink_profile(&db, 1).unwrap();
+        assert_eq!(
+            sources_for_profile(&db, 2).unwrap(),
+            vec![id],
+            "still owned"
+        );
+        assert_eq!(list_sources(&db).unwrap().len(), 1);
+        unlink_profile(&db, 2).unwrap();
+        assert!(
+            list_sources(&db).unwrap().is_empty(),
+            "last owner removes it"
+        );
     }
 
     #[test]

@@ -100,21 +100,7 @@ pub fn remove_xtream_profile(state: State<AppState>, id: i64) -> Result<(), Stri
     db.conn
         .execute("DELETE FROM xtream_profiles WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
-    let linked: Vec<i64> = {
-        let mut stmt = db
-            .conn
-            .prepare("SELECT id FROM epg_sources WHERE profile_id = ?1")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(params![id], |row| row.get(0))
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
-    };
-    for source in linked {
-        crate::epg::delete_source(&db, source)?;
-    }
-    Ok(())
+    crate::epg::unlink_profile(&db, id)
 }
 
 #[tauri::command]
@@ -196,15 +182,7 @@ pub async fn sync_epg(
                 .map_err(|e| e.to_string())?;
             crate::epg::upsert_source(&db, &format!("{name} guide"), &url, Some(profile_id))?;
         }
-        let mut stmt = db
-            .conn
-            .prepare("SELECT id FROM epg_sources WHERE profile_id = ?1")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(params![profile_id], |row| row.get(0))
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
+        crate::epg::sources_for_profile(&db, profile_id)?
     };
     if source_ids.is_empty() {
         return Err("This playlist does not name a guide. Add an EPG source URL instead.".into());

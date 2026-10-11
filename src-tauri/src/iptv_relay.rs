@@ -14,7 +14,7 @@
 
 use axum::body::Body;
 use axum::extract::{Path, RawQuery, State};
-use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode, Uri};
 use axum::routing::get;
 use axum::Router;
 use std::net::Ipv4Addr;
@@ -83,7 +83,7 @@ pub fn from_relay_path(rest: &str, query: Option<&str>) -> Option<String> {
         Some((authority, path)) => (authority, path),
         None => (remainder, ""),
     };
-    if authority.is_empty() || authority.contains(['@', '\\']) {
+    if authority.is_empty() || authority.contains(['@', '\\', '%']) {
         return None;
     }
     let mut url = format!("{scheme}://{authority}/{path}");
@@ -197,14 +197,21 @@ async fn preflight() -> Response<Body> {
 
 async fn relay(
     State(state): State<Arc<RelayState>>,
-    Path((token, rest)): Path<(String, String)>,
+    Path((token, _)): Path<(String, String)>,
+    uri: Uri,
     RawQuery(query): RawQuery,
     request_headers: HeaderMap,
 ) -> Result<Response<Body>, HttpError> {
     if !same_token(&token, &state.token) {
         return Err((StatusCode::NOT_FOUND, "Not found".into()));
     }
-    let upstream = from_relay_path(&rest, query.as_deref())
+    // Use the raw path: the Path extractor percent-decodes, which would turn an
+    // encoded `/`, `?` or `#` inside Xtream credentials into real delimiters.
+    let rest = uri
+        .path()
+        .strip_prefix(&format!("/{token}/"))
+        .ok_or((StatusCode::NOT_FOUND, "Not found".to_string()))?;
+    let upstream = from_relay_path(rest, query.as_deref())
         .ok_or((StatusCode::BAD_REQUEST, "Not a stream address".to_string()))?;
 
     let mut request = state.client.get(&upstream);
@@ -285,6 +292,9 @@ async fn relay(
 fn relay_router(token: String, base: String) -> Router {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
+        // Some providers set a session cookie on the playlist that segment and
+        // key requests must send back.
+        .cookie_store(true)
         .user_agent(concat!(
             "CinaVault-Premium/",
             env!("CARGO_PKG_VERSION"),
@@ -448,6 +458,12 @@ mod tests {
                 .route(
                     "/hls/seg.ts",
                     get(|| async { ([(header::CONTENT_TYPE, "video/mp2t")], "TSDATA") }),
+                )
+                .route(
+                    "/live/{user}/1.ts",
+                    get(|axum::extract::Path(user): axum::extract::Path<String>| async move {
+                        user
+                    }),
                 ),
         )
         .await;
@@ -478,6 +494,12 @@ mod tests {
         let segment_response = client.get(&segment).send().await.unwrap();
         assert_eq!(segment_response.headers()["content-type"], "video/mp2t");
         assert_eq!(segment_response.text().await.unwrap(), "TSDATA");
+
+        // Encoded delimiters in credentials reach the provider still encoded.
+        let encoded = to_relay_url(&base, &format!("{upstream}/live/a%2Fb%3F/1.ts")).unwrap();
+        let echoed = client.get(&encoded).send().await.unwrap();
+        assert_eq!(echoed.status(), 200);
+        assert_eq!(echoed.text().await.unwrap(), "a/b?");
 
         let wrong = playlist_url.replace("/secret/", "/wrong!/");
         assert_eq!(client.get(&wrong).send().await.unwrap().status(), 404);
