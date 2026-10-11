@@ -6,7 +6,7 @@
 // rarely send CORS headers. Both libraries load on first use and run without
 // blob workers, which the app's CSP does not allow.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
   Loader2,
@@ -51,11 +51,14 @@ function readVolume(): number {
 }
 
 async function relayUrl(url: string): Promise<string> {
+  // Outside the desktop shell (vite dev in a browser) play directly.
+  if (!isTauri()) return url;
+  // In the app every stream goes through the relay: most IPTV servers send no
+  // CORS headers, so a direct fallback would only fail later with a vaguer error.
   try {
     return await invoke<string>("get_stream_relay_url", { url });
-  } catch {
-    // Outside the desktop shell (vite dev in a browser) play directly.
-    return url;
+  } catch (reason) {
+    throw new Error(`The stream relay could not start: ${reason instanceof Error ? reason.message : String(reason)}`);
   }
 }
 
@@ -116,7 +119,23 @@ async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (mess
       liveBufferLatencyMinRemain: 1.5,
     },
   );
+  // Live TS endpoints drop connections often; reconnect a few times before giving up.
+  let networkRetries = 0;
+  let retryTimer: number | undefined;
+  const onPlaying = () => {
+    networkRetries = 0;
+  };
+  video.addEventListener("playing", onPlaying);
   player.on(mpegts.Events.ERROR, (type: string) => {
+    if (type === mpegts.ErrorTypes.NETWORK_ERROR && networkRetries < MAX_NETWORK_RETRIES) {
+      networkRetries += 1;
+      retryTimer = window.setTimeout(() => {
+        player.unload();
+        player.load();
+        void Promise.resolve(player.play()).catch(() => undefined);
+      }, 1000 * networkRetries);
+      return;
+    }
     onFatal(
       type === mpegts.ErrorTypes.NETWORK_ERROR
         ? "The channel is not responding. It may be offline or your subscription may have expired."
@@ -127,6 +146,8 @@ async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (mess
   player.load();
   return {
     destroy: () => {
+      window.clearTimeout(retryTimer);
+      video.removeEventListener("playing", onPlaying);
       try {
         player.pause();
         player.unload();

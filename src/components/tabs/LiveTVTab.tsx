@@ -1,5 +1,5 @@
 // CinaVault Premium — Live TV Tab (Xtream Codes / M3U playlists / EPG)
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
@@ -270,14 +270,19 @@ export default function LiveTVTab() {
 
   // ── Channels and guide ─────────────────────────────────────────────────────
 
+  // Only the most recently selected profile may fill the channel list.
+  const channelRequest = useRef(0);
   const loadChannels = async (profileId: number) => {
+    const request = ++channelRequest.current;
     setSelectedProfile(profileId);
     setSelectedChannel(null);
+    let loaded: LiveChannel[];
     try {
-      setChannels(await invoke<LiveChannel[]>("get_live_channels", { profileId }));
+      loaded = await invoke<LiveChannel[]>("get_live_channels", { profileId });
     } catch {
-      setChannels(DEMO_CHANNELS);
+      loaded = DEMO_CHANNELS;
     }
+    if (request === channelRequest.current) setChannels(loaded);
   };
 
   // "On now" for the channel list, refreshed with the clock.

@@ -44,7 +44,7 @@ test("guide splits into now and next and measures progress", () => {
     { start: now + 3600, stop: now + 5400, title: "Last" },
   ];
   const { current, upcoming } = splitGuide(guide, now);
-  assert.equal(current.title, "Overlap from another guide");
+  assert.equal(current.title, "Now", "the most recently started overlap wins");
   assert.deepEqual(upcoming.map((item) => item.title), ["Later", "Last"]);
   assert.equal(programmeProgress({ start: now - 600, stop: now + 600 }, now), 0.5);
   assert.equal(programmeProgress({ start: now + 10, stop: now + 600 }, now), 0);

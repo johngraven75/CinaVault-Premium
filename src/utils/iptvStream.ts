@@ -55,7 +55,10 @@ export function programmeProgress(programme: Pick<GuideProgramme, "start" | "sto
 /** Splits a guide into what is on now and what comes next. */
 export function splitGuide(programmes: GuideProgramme[], nowSeconds: number) {
   const sorted = [...programmes].sort((a, b) => a.start - b.start);
-  const current = sorted.find((item) => item.start <= nowSeconds && item.stop > nowSeconds) ?? null;
+  // When guides overlap, the programme that started most recently is the
+  // current one; an earlier long block is usually a stale or coarser listing.
+  const active = sorted.filter((item) => item.start <= nowSeconds && item.stop > nowSeconds);
+  const current = active.length ? active[active.length - 1] : null;
   const after = current ? current.stop : nowSeconds;
   const upcoming = sorted.filter((item) => item !== current && item.start >= after);
   return { current, upcoming };
