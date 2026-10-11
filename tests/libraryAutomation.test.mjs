@@ -91,7 +91,9 @@ test("panels and services call commands the back end registers", () => {
 
 test("scans hand new titles to the post-scan worker and record scan.finished", () => {
   const scanner = read("src-tauri/src/scanner.rs");
-  assert.match(scanner, /crate::post_scan::schedule\(report\.added_ids\.clone\(\)\)/);
+  assert.match(scanner, /crate::post_scan::schedule\(report\.added_ids\.clone\(\), report\.retry_ids\.clone\(\)\)/);
+  // Rows a rescan finds without saved metadata or artwork go back to the lookup.
+  assert.match(scanner, /report\.retry_ids\.extend\(id\)/);
   assert.match(scanner, /"scan\.finished"/);
   assert.match(scanner, /feature_flags::is_enabled\(db, "smart_match"\)/);
   assert.match(scanner, /feature_flags::is_enabled\(db, "nfo_import"\)/);
@@ -100,8 +102,22 @@ test("scans hand new titles to the post-scan worker and record scan.finished", (
     assert.match(worker, new RegExp(`is_enabled\\(db, "${key}"\\)`), `post_scan reads ${key}`);
   }
   assert.match(worker, /"metadata\.updated"/);
+  assert.match(worker, /\.chain\(load_kinds\(state\.inner\(\), &retry\)\)/, "post_scan retries older rows only for the metadata lookup");
   assert.match(read("src-tauri/src/subtitles.rs"), /"subtitles\.downloaded"/);
   const sources = read("src/components/tabs/MediaSourcesTab.tsx");
   assert.match(sources, /useFeature\("auto_metadata"\)/);
   assert.match(sources, /followPostScan\(\)/);
+});
+
+test("provider keys are kept in a real system keychain, never keyring's in-memory mock", () => {
+  const cargo = read("src-tauri/Cargo.toml");
+  const keyring = cargo.match(/^keyring\s*=\s*(.+)$/m);
+  assert.ok(keyring, "keyring dependency is declared");
+  for (const feature of ["windows-native"]) {
+    assert.match(keyring[1], new RegExp(`"${feature}"`), `keyring enables ${feature}`);
+  }
+  const store = read("src-tauri/src/secure_credentials.rs");
+  assert.match(store, /did not keep the \{provider\} key/, "set() reads the key back before reporting success");
+  const ext = read("src-tauri/src/metadata_ext.rs");
+  assert.match(ext, /Kept the \{normalized\} key in the database/, "a key is only swapped for the keychain marker once the keychain kept it");
 });

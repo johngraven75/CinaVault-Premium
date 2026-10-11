@@ -340,6 +340,27 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
                 }
             }
         }
+    } else if let Some(remote_poster) = update
+        .poster_path
+        .clone()
+        .filter(|path| path.starts_with("https://"))
+    {
+        // TMDB/OMDb posters are saved into CinaVault's own artwork folder, the
+        // same place the keyless lookup uses, so the card keeps its poster
+        // offline and get_poster_data_url can serve it. If the download fails
+        // the remote URL is still posted so the card is not left blank.
+        match crate::metadata_keyless::cache_remote_artwork(
+            &client,
+            &state.app_data_dir,
+            item.id,
+            "poster",
+            &remote_poster,
+        )
+        .await
+        {
+            Ok(cached) => update.poster_path = Some(cached.path),
+            Err(error) => errors.push(format!("poster was not saved locally: {error}")),
+        }
     }
     let count = changed_fields(&update);
     if count > 0 {
