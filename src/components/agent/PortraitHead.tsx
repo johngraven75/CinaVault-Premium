@@ -8,6 +8,7 @@ import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { useReducedMotion } from "framer-motion";
 
+import { fitCanvas, linkHoloProgram, startHoloLoop, useRedrawOnMood } from "./holoGl";
 import { MOOD_COLORS, type AgentMood } from "../../services/holoAgent";
 import {
   PORTRAIT_BROW_LIFT,
@@ -105,36 +106,6 @@ void main() {
   outColor = vec4(color * alpha, alpha);
 }`;
 
-function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
-  const shader = gl.createShader(type);
-  if (!shader) return null;
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.warn("PortraitHead shader failed to compile:", gl.getShaderInfoLog(shader));
-    gl.deleteShader(shader);
-    return null;
-  }
-  return shader;
-}
-
-function linkProgram(gl: WebGL2RenderingContext): WebGLProgram | null {
-  const vs = compile(gl, gl.VERTEX_SHADER, VERTEX);
-  const fs = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT);
-  if (!vs || !fs) return null;
-  const program = gl.createProgram();
-  if (!program) return null;
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-  gl.deleteShader(vs);
-  gl.deleteShader(fs);
-  if (gl.getProgramParameter(program, gl.LINK_STATUS)) return program;
-  console.warn("PortraitHead program failed to link:", gl.getProgramInfoLog(program));
-  gl.deleteProgram(program);
-  return null;
-}
-
 export default function PortraitHead({ mood, src, calibration, mouthRef, className }: PortraitHeadProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fallbackRef = useRef<HTMLCanvasElement | null>(null);
@@ -148,17 +119,11 @@ export default function PortraitHead({ mood, src, calibration, mouthRef, classNa
     if (!glCanvas || !fallbackCanvas) return;
     let canvas = glCanvas;
     let disposed = false;
-    let frame = 0;
     let draw: (seconds: number) => void = () => {};
     let cleanup = () => {};
+    let stop = () => {};
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const start = performance.now();
     const image = new Image();
-
-    const resize = () => {
-      canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
-      canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
-    };
 
     const setup = () => {
       if (disposed) return;
@@ -166,7 +131,7 @@ export default function PortraitHead({ mood, src, calibration, mouthRef, classNa
       const frameInfo = faceFrame(calibration, aspect);
       const view = portraitView(calibration, aspect);
       const gl = glCanvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true });
-      const program = gl && linkProgram(gl);
+      const program = gl && linkHoloProgram(gl, VERTEX, FRAGMENT, "PortraitHead");
 
       if (gl && program) {
         const mesh = buildPortraitMesh(calibration, 96, 96, aspect);
@@ -273,26 +238,9 @@ export default function PortraitHead({ mood, src, calibration, mouthRef, classNa
         };
       }
 
-      resize();
-      if (reduceMotion) draw(0);
-      else {
-        const loop = (now: number) => {
-          if (disposed) return;
-          draw((now - start) / 1000);
-          frame = requestAnimationFrame(loop);
-        };
-        frame = requestAnimationFrame(loop);
-      }
+      stop = startHoloLoop(glCanvas, [canvas], reduceMotion, () => fitCanvas(canvas, dpr), draw);
     };
 
-    const observer = new ResizeObserver(() => {
-      resize();
-      if (reduceMotion) draw(0);
-    });
-    observer.observe(glCanvas);
-    observer.observe(fallbackCanvas);
-    const redraw = () => draw(0);
-    glCanvas.addEventListener("holo-redraw", redraw);
     image.onload = setup;
     image.onerror = () => console.warn("PortraitHead could not load the portrait photo.");
     image.src = src;
@@ -300,18 +248,12 @@ export default function PortraitHead({ mood, src, calibration, mouthRef, classNa
     return () => {
       disposed = true;
       image.onload = null;
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      glCanvas.removeEventListener("holo-redraw", redraw);
+      stop();
       cleanup();
     };
   }, [src, calibration, reduceMotion, mouthRef]);
 
-  // Under reduced motion the frame is redrawn only when the mood changes.
-  useEffect(() => {
-    if (!reduceMotion) return;
-    canvasRef.current?.dispatchEvent(new Event("holo-redraw"));
-  }, [mood, reduceMotion]);
+  useRedrawOnMood(canvasRef, mood, reduceMotion);
 
   return (
     <>
