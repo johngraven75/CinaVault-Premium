@@ -99,6 +99,7 @@ fn official_engine(_path: &std::path::Path) -> bool {
     false
 }
 
+#[allow(dead_code)]
 #[cfg(target_os = "windows")]
 fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut command = Command::new(program);
@@ -138,28 +139,177 @@ fn service_is_running(profile_name: &str) -> bool {
     }
 }
 
+/// Quotes a value as a PowerShell single-quoted literal.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn ps_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+/// Encodes a script for `powershell.exe -EncodedCommand` (UTF-16LE, base64).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn encode_powershell(script: &str) -> String {
+    use base64::Engine;
+    let bytes: Vec<u8> = script
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const SCRIPT_PRELUDE: &str = r#"$ErrorActionPreference = 'Stop'
+function Test-TunnelRunning([string]$tunnel) {
+    $service = Get-Service -Name ('WireGuardTunnel$' + $tunnel) -ErrorAction SilentlyContinue
+    return ($null -ne $service -and $service.Status -eq 'Running')
+}
+function Invoke-WireGuard([string[]]$arguments) {
+    $process = Start-Process -FilePath $exe -ArgumentList $arguments -Wait -PassThru -NoNewWindow
+    return $process.ExitCode
+}
+"#;
+
+/// Exit codes the elevated tunnel script reports back to the app.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const EXIT_INSTALL_FAILED: i32 = 10;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const EXIT_SERVICE_NOT_RUNNING: i32 = 11;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const EXIT_NO_HANDSHAKE: i32 = 12;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const EXIT_UAC_DECLINED: i32 = 1223;
+
+/// Builds the script that installs a tunnel service, waits for it to run and
+/// waits for a handshake logged after the install. Creating services and
+/// reading the WireGuard log both need administrator rights, so the whole
+/// sequence runs in one elevated process (one UAC prompt per connect).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn connect_script(executable: &str, profile_path: &str, profile: &str) -> String {
+    format!(
+        r#"$exe = {exe}
+$conf = {conf}
+$name = {name}
+{prelude}$since = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+if (-not (Test-TunnelRunning $name)) {{
+    if ((Invoke-WireGuard @('/installtunnelservice', ('"' + $conf + '"'))) -ne 0) {{ exit {install_failed} }}
+}}
+$deadline = (Get-Date).AddSeconds(20)
+while (-not (Test-TunnelRunning $name)) {{
+    if ((Get-Date) -gt $deadline) {{
+        Invoke-WireGuard @('/uninstalltunnelservice', $name) | Out-Null
+        exit {not_running}
+    }}
+    Start-Sleep -Milliseconds 500
+}}
+$log = Join-Path ([IO.Path]::GetTempPath()) ('cinavault-wireguard-' + [guid]::NewGuid().ToString() + '.log')
+$deadline = (Get-Date).AddSeconds(25)
+$verified = $false
+while (-not $verified) {{
+    Start-Process -FilePath $exe -ArgumentList '/dumplog' -RedirectStandardOutput $log -Wait -NoNewWindow
+    $lines = @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)
+    $verified = @($lines | Where-Object {{
+        $_.Length -ge 19 -and $_.Substring(0, 19) -ge $since -and $_.Contains('[' + $name + ']') -and $_ -match 'handshake response'
+    }}).Count -gt 0
+    if (-not $verified) {{
+        if ((Get-Date) -gt $deadline) {{ break }}
+        Start-Sleep -Seconds 1
+    }}
+}}
+Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
+if (-not $verified) {{
+    Invoke-WireGuard @('/uninstalltunnelservice', $name) | Out-Null
+    exit {no_handshake}
+}}
+exit 0
+"#,
+        exe = ps_literal(executable),
+        conf = ps_literal(profile_path),
+        name = ps_literal(profile),
+        prelude = SCRIPT_PRELUDE,
+        install_failed = EXIT_INSTALL_FAILED,
+        not_running = EXIT_SERVICE_NOT_RUNNING,
+        no_handshake = EXIT_NO_HANDSHAKE,
+    )
+}
+
+/// Builds the script that removes every listed tunnel service in one
+/// elevated process.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn disconnect_script(executable: &str, profiles: &[String]) -> String {
+    let names = profiles
+        .iter()
+        .map(|profile| ps_literal(profile))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        r#"$exe = {exe}
+{prelude}$failed = $false
+foreach ($name in @({names})) {{
+    if (Test-TunnelRunning $name) {{
+        Invoke-WireGuard @('/uninstalltunnelservice', $name) | Out-Null
+        if (Test-TunnelRunning $name) {{ $failed = $true }}
+    }}
+}}
+if ($failed) {{ exit {install_failed} }}
+exit 0
+"#,
+        exe = ps_literal(executable),
+        prelude = SCRIPT_PRELUDE,
+        names = names,
+        install_failed = EXIT_INSTALL_FAILED,
+    )
+}
+
+/// Wraps a script so it runs elevated: directly when the app already has
+/// administrator rights, otherwise through a UAC prompt. The elevated exit
+/// code is passed back; a declined prompt reports ERROR_CANCELLED (1223).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn elevation_wrapper(inner: &str) -> String {
+    format!(
+        r#"$commandLine = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {encoded}'
+$identity = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+$isAdmin = $identity.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+try {{
+    if ($isAdmin) {{
+        $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $commandLine -Wait -PassThru -WindowStyle Hidden
+    }} else {{
+        $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $commandLine -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+    }}
+    exit $process.ExitCode
+}} catch {{
+    exit {uac}
+}}
+"#,
+        encoded = encode_powershell(inner),
+        uac = EXIT_UAC_DECLINED,
+    )
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn tunnel_error(code: Option<i32>, profile: &str) -> String {
+    match code {
+        Some(EXIT_INSTALL_FAILED) => format!("WireGuard could not create the tunnel service for '{profile}'. Check that the profile is valid and that no other VPN is using the same tunnel"),
+        Some(EXIT_SERVICE_NOT_RUNNING) => format!("WireGuard tunnel '{profile}' did not start; the tunnel service was removed"),
+        Some(EXIT_NO_HANDSHAKE) => format!("WireGuard tunnel '{profile}' started but the server never answered the handshake; the tunnel was removed. Check the endpoint, keys and that UDP traffic is allowed"),
+        Some(EXIT_UAC_DECLINED) => "Administrator approval was declined. Windows requires it for WireGuard to create or remove a tunnel".into(),
+        Some(other) => format!("WireGuard tunnel '{profile}' failed with exit code {other}"),
+        None => format!("WireGuard tunnel '{profile}' was interrupted"),
+    }
+}
+
 #[cfg(target_os = "windows")]
-fn handshake_is_verified(executable: &std::path::Path, profile: &str) -> bool {
-    hidden_command(executable)
-        .arg("/dumplog")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| log_confirms_handshake(&String::from_utf8_lossy(&output.stdout), profile))
-        .unwrap_or(false)
-}
-
-#[allow(dead_code)]
-#[cfg(not(target_os = "windows"))]
-fn handshake_is_verified(_executable: &std::path::Path, _profile: &str) -> bool {
-    false
-}
-
-#[allow(dead_code)]
-fn log_confirms_handshake(log: &str, profile: &str) -> bool {
-    let log = log.to_ascii_lowercase();
-    log.contains(&profile.to_ascii_lowercase())
-        && (log.contains("handshake response") || log.contains("latest handshake"))
+fn run_elevated(inner: &str) -> Result<Option<i32>, String> {
+    hidden_command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-EncodedCommand",
+            &encode_powershell(&elevation_wrapper(inner)),
+        ])
+        .status()
+        .map(|status| status.code())
+        .map_err(|error| format!("failed to start the WireGuard helper: {error}"))
 }
 
 #[tauri::command]
@@ -190,26 +340,17 @@ pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::
     {
         let executable = wireguard_executable(&app)?;
         let profile_path = vpn_profile_store::profile_path(&app, &profile)?;
-        let output = hidden_command(&executable)
-            .arg("/installtunnelservice")
-            .arg(&profile_path)
-            .output()
-            .map_err(|error| format!("failed to start bundled WireGuard engine: {error}"))?;
-        if !output.status.success() && !service_is_running(&profile) {
-            return Err(format!(
-                "WireGuard tunnel failed to start: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
+        let script = connect_script(
+            &executable.to_string_lossy(),
+            &profile_path.to_string_lossy(),
+            &profile,
+        );
+        let code = run_elevated(&script)?;
+        if code != Some(0) {
+            return Err(tunnel_error(code, &profile));
         }
         if !service_is_running(&profile) {
-            return Err("WireGuard service installation completed but verification did not report a running tunnel".into());
-        }
-        if !handshake_is_verified(&executable, &profile) {
-            let _ = hidden_command(&executable)
-                .arg("/uninstalltunnelservice")
-                .arg(&profile)
-                .output();
-            return Err("WireGuard tunnel started but no active handshake was verified; the partial tunnel service was removed".into());
+            return Err("WireGuard reported success but the tunnel service is not running".into());
         }
         vpn_profile_store::record_verified_connection(&app, &profile)?;
         Ok(serde_json::json!({
@@ -237,17 +378,10 @@ pub async fn vpn_disconnect(app: AppHandle) -> Result<serde_json::Value, String>
             .filter(|profile| service_is_running(&profile.name))
             .map(|profile| profile.name)
             .collect();
-        for profile in &active {
-            let output = hidden_command(&executable)
-                .arg("/uninstalltunnelservice")
-                .arg(profile)
-                .output()
-                .map_err(|error| format!("failed to stop WireGuard tunnel '{profile}': {error}"))?;
-            if !output.status.success() && service_is_running(profile) {
-                return Err(format!(
-                    "WireGuard tunnel '{profile}' failed to stop: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ));
+        if !active.is_empty() {
+            let code = run_elevated(&disconnect_script(&executable.to_string_lossy(), &active))?;
+            if code != Some(0) {
+                return Err(tunnel_error(code, &active.join(", ")));
             }
         }
         Ok(serde_json::json!({
@@ -452,7 +586,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{engine_metadata_is_official, log_confirms_handshake, run_autoconnect_attempt};
+    use super::{
+        connect_script, disconnect_script, elevation_wrapper, encode_powershell,
+        engine_metadata_is_official, ps_literal, run_autoconnect_attempt, tunnel_error,
+        EXIT_NO_HANDSHAKE, EXIT_UAC_DECLINED,
+    };
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -522,18 +660,60 @@ mod tests {
     }
 
     #[test]
-    fn manual_verification_requires_a_profile_specific_handshake() {
-        assert!(log_confirms_handshake(
-            "home: Receiving handshake response from peer",
-            "home"
+    fn powershell_literals_escape_single_quotes() {
+        assert_eq!(
+            ps_literal(r"C:\Users\O'Neil\home.conf"),
+            r"'C:\Users\O''Neil\home.conf'"
+        );
+    }
+
+    #[test]
+    fn encoded_commands_are_utf16le_base64() {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encode_powershell("exit 0"))
+            .unwrap();
+        assert_eq!(bytes, b"e\x00x\x00i\x00t\x00 \x000\x00");
+    }
+
+    #[test]
+    fn connect_installs_the_stored_profile_and_waits_for_a_fresh_handshake() {
+        let script = connect_script(
+            r"C:\Program Files\WireGuard\wireguard.exe",
+            r"C:\Users\O'Neil\AppData\Roaming\CinaVault\vpn\profiles\home.conf",
+            "home",
+        );
+        assert!(script.contains(
+            r"$conf = 'C:\Users\O''Neil\AppData\Roaming\CinaVault\vpn\profiles\home.conf'"
         ));
-        assert!(!log_confirms_handshake(
-            "work: Receiving handshake response from peer",
-            "home"
-        ));
-        assert!(!log_confirms_handshake(
-            "home: tunnel service started",
-            "home"
-        ));
+        assert!(script.contains("'/installtunnelservice'"));
+        // The service starts asynchronously, so the script must poll for it
+        // rather than checking once right after the install returns.
+        assert!(script.contains("while (-not (Test-TunnelRunning $name))"));
+        // Only handshakes logged after this attempt count, not old log lines.
+        assert!(script.contains("$_.Substring(0, 19) -ge $since"));
+        assert!(script.contains("$_.Contains('[' + $name + ']')"));
+        assert!(script.contains(&format!("exit {EXIT_NO_HANDSHAKE}")));
+    }
+
+    #[test]
+    fn disconnect_removes_all_tunnels_in_one_elevated_run() {
+        let script = disconnect_script("wireguard.exe", &["home".into(), "work".into()]);
+        assert!(script.contains("foreach ($name in @('home', 'work'))"));
+        assert!(script.contains("'/uninstalltunnelservice'"));
+    }
+
+    #[test]
+    fn tunnel_changes_request_administrator_rights() {
+        let wrapper = elevation_wrapper("exit 0");
+        assert!(wrapper.contains("-Verb RunAs"));
+        assert!(wrapper.contains(&encode_powershell("exit 0")));
+        assert!(wrapper.contains(&format!("exit {EXIT_UAC_DECLINED}")));
+    }
+
+    #[test]
+    fn tunnel_errors_explain_what_failed() {
+        assert!(tunnel_error(Some(EXIT_UAC_DECLINED), "home").contains("Administrator approval"));
+        assert!(tunnel_error(Some(EXIT_NO_HANDSHAKE), "home").contains("handshake"));
     }
 }

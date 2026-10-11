@@ -339,8 +339,22 @@ pub fn profile_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 
 fn sanitize_profile_name(name: &str) -> Result<String, String> {
     let name = name.trim();
-    if name.is_empty() || name.len() > 64 {
-        return Err("WireGuard profile name must contain 1 to 64 characters".into());
+    // WireGuard for Windows rejects tunnel names over 32 characters and the
+    // reserved DOS device names, so catch them at import instead of connect.
+    if name.is_empty() || name.len() > 32 {
+        return Err("WireGuard profile name must contain 1 to 32 characters; rename the .conf file and import it again".into());
+    }
+    const RESERVED: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
+        return Err(format!(
+            "WireGuard profile name '{name}' is reserved by Windows"
+        ));
     }
     if !name
         .chars()
@@ -354,12 +368,34 @@ fn sanitize_profile_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
+/// icacls arguments that limit a profile to the signed-in user, SYSTEM and
+/// Administrators. The WireGuard tunnel service runs as SYSTEM and reads the
+/// profile from this path, so SYSTEM must keep read access.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn restrict_acl_args(path: &Path, user: &str, directory: bool) -> Vec<std::ffi::OsString> {
+    let rights = if directory { "(OI)(CI)(F)" } else { "(F)" };
+    vec![
+        path.as_os_str().to_owned(),
+        "/inheritance:r".into(),
+        "/grant:r".into(),
+        format!("{user}:{rights}").into(),
+        format!("*S-1-5-18:{rights}").into(),
+        format!("*S-1-5-32-544:{rights}").into(),
+    ]
+}
+
 #[cfg(target_os = "windows")]
 fn restrict_to_current_user(path: &Path) -> Result<(), String> {
+    // Command does not expand %USERNAME%, so resolve the account here.
+    let user = std::env::var("USERNAME")
+        .map_err(|_| "unable to secure VPN profile permissions: USERNAME is not set".to_string())?;
+    let user = match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user}"),
+        _ => user,
+    };
     let mut command = Command::new("icacls");
     command
-        .arg(path)
-        .args(["/inheritance:r", "/grant:r", "%USERNAME%:(F)"])
+        .args(restrict_acl_args(path, &user, path.is_dir()))
         .creation_flags(CREATE_NO_WINDOW);
     let output = command
         .output()
@@ -368,7 +404,8 @@ fn restrict_to_current_user(path: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "unable to secure VPN profile permissions: {}",
+            "unable to secure VPN profile permissions: {} {}",
+            String::from_utf8_lossy(&output.stdout).trim(),
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
@@ -381,7 +418,10 @@ fn restrict_to_current_user(_path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{sanitize_profile_name, select_default_state, validate_profile, ProfileState};
+    use super::{
+        restrict_acl_args, sanitize_profile_name, select_default_state, validate_profile,
+        ProfileState,
+    };
 
     #[test]
     fn validates_complete_wireguard_profile() {
@@ -423,6 +463,23 @@ mod tests {
         assert_eq!(sanitize_profile_name("Home_VPN").unwrap(), "Home_VPN");
         assert!(sanitize_profile_name("Home VPN").is_err());
         assert!(sanitize_profile_name("...").is_err());
+        assert!(sanitize_profile_name(&"a".repeat(32)).is_ok());
+        assert!(sanitize_profile_name(&"a".repeat(33)).is_err());
+        assert!(sanitize_profile_name("con").is_err());
+    }
+
+    #[test]
+    fn profile_acl_names_the_real_user_and_keeps_system_access() {
+        let args = restrict_acl_args(std::path::Path::new("home.conf"), "PC\\john", false);
+        let args: Vec<String> = args
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert!(!args.iter().any(|value| value.contains("%USERNAME%")));
+        assert!(args.contains(&"PC\\john:(F)".to_string()));
+        assert!(args.contains(&"*S-1-5-18:(F)".to_string()));
+        let directory = restrict_acl_args(std::path::Path::new("profiles"), "john", true);
+        assert!(directory.contains(&"*S-1-5-18:(OI)(CI)(F)".into()));
     }
 
     #[test]
