@@ -2,6 +2,7 @@
 // Build identity is sourced from build-version.json through build_identity.
 
 mod adult_site_provider;
+mod agent_avatar;
 mod ai;
 mod ai_agent;
 mod ai_automation;
@@ -402,6 +403,10 @@ pub fn run() {
             vpn::update_av_signatures,
             vpn::install_security_tools,
             ai::ai_query,
+            agent_avatar::agent_avatar_get,
+            agent_avatar::agent_avatar_save,
+            agent_avatar::agent_avatar_set_calibration,
+            agent_avatar::agent_avatar_clear,
             ai_agent::agent_status,
             ai_agent::agent_set_api_key,
             ai_agent::agent_clear_api_key,

@@ -114,7 +114,8 @@ test("agent is mounted behind its Advanced switch and lazy-loaded", () => {
   assert.match(read("src/components/agent/HoloAgent.tsx"), /invoke<unknown>\("ai_query", \{ prompt: clean \}\)/);
   assert.match(read("src-tauri/src/lib.rs"), /ai::ai_query/);
   const head = read("src/components/agent/HoloHead.tsx");
-  assert.match(head, /if \(reduceMotion\) draw\(0\);\s*else frame = requestAnimationFrame\(loop\);/);
+  assert.match(head, /startHoloLoop\(glCanvas, \[canvas\], reduceMotion,/);
+  assert.match(read("src/components/agent/holoGl.ts"), /if \(reduceMotion\) draw\(0\);\s*else frame = requestAnimationFrame\(loop\);/);
   assert.match(head, /canvas\.getContext\("2d"\)/, "2D fallback when WebGL2 is unavailable");
 });
 

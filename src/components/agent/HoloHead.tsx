@@ -6,6 +6,8 @@ import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { useReducedMotion } from "framer-motion";
 
+import { fitCanvas, linkHoloProgram, startHoloLoop, useRedrawOnMood } from "./holoGl";
+
 import {
   HEAD_CAMERA_DISTANCE,
   JAW_DROP,
@@ -70,19 +72,6 @@ void main() {
   outColor = vec4(uColor * alpha, alpha);
 }`;
 
-function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
-  const shader = gl.createShader(type);
-  if (!shader) return null;
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.warn("HoloHead shader failed to compile:", gl.getShaderInfoLog(shader));
-    gl.deleteShader(shader);
-    return null;
-  }
-  return shader;
-}
-
 function yawAt(time: number, mood: AgentMood): number {
   const speed = mood === "thinking" ? 1.6 : 0.45;
   return Math.sin(time * speed) * (mood === "thinking" ? 0.55 : 0.32);
@@ -104,35 +93,11 @@ export default function HoloHead({ mood, mouthRef, className }: HoloHeadProps) {
     let canvas = glCanvas;
     const cloud = buildHeadCloud();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    let frame = 0;
-    let disposed = false;
-    const start = performance.now();
-
-    const resize = () => {
-      const { clientWidth, clientHeight } = canvas;
-      canvas.width = Math.max(1, Math.round(clientWidth * dpr));
-      canvas.height = Math.max(1, Math.round(clientHeight * dpr));
-    };
     const gl = glCanvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true });
     let draw: (seconds: number) => void;
     let cleanup = () => {};
 
-    const program = gl && (() => {
-      const vs = compile(gl, gl.VERTEX_SHADER, VERTEX);
-      const fs = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT);
-      if (!vs || !fs) return null;
-      const p = gl.createProgram();
-      if (!p) return null;
-      gl.attachShader(p, vs);
-      gl.attachShader(p, fs);
-      gl.linkProgram(p);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
-      if (gl.getProgramParameter(p, gl.LINK_STATUS)) return p;
-      console.warn("HoloHead program failed to link:", gl.getProgramInfoLog(p));
-      gl.deleteProgram(p);
-      return null;
-    })();
+    const program = gl && linkHoloProgram(gl, VERTEX, FRAGMENT, "HoloHead");
 
     if (gl && program) {
       const vao = gl.createVertexArray();
@@ -208,36 +173,14 @@ export default function HoloHead({ mood, mouthRef, className }: HoloHeadProps) {
       };
     }
 
-    resize();
-    const loop = (now: number) => {
-      if (disposed) return;
-      draw((now - start) / 1000);
-      frame = requestAnimationFrame(loop);
-    };
-    const observer = new ResizeObserver(() => {
-      resize();
-      if (reduceMotion) draw(0);
-    });
-    observer.observe(canvas);
-    const redraw = () => draw(0);
-    glCanvas.addEventListener("holo-redraw", redraw);
-    if (reduceMotion) draw(0);
-    else frame = requestAnimationFrame(loop);
-
+    const stop = startHoloLoop(glCanvas, [canvas], reduceMotion, () => fitCanvas(canvas, dpr), draw);
     return () => {
-      disposed = true;
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      glCanvas.removeEventListener("holo-redraw", redraw);
+      stop();
       cleanup();
     };
   }, [reduceMotion, mouthRef]);
 
-  // Under reduced motion the frame is redrawn only when the mood changes.
-  useEffect(() => {
-    if (!reduceMotion) return;
-    canvasRef.current?.dispatchEvent(new Event("holo-redraw"));
-  }, [mood, reduceMotion]);
+  useRedrawOnMood(canvasRef, mood, reduceMotion);
 
   return (
     <>

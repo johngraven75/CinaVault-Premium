@@ -5,7 +5,8 @@
 // changes the library. Without a key, prompts go to the ai_query command,
 // which routes them to diagnostics, source checks, library automation or the
 // configured local model. Answers are typed out while the head speaks, and
-// can be read aloud with the system voice.
+// can be read aloud with the system voice. When the user has given the agent
+// their own photo (PortraitSetup), the head is that photo, animated locally.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ClipboardEvent, FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,6 +14,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, Paperclip, RotateCcw, Send, Settings, Sparkles, Volume2, VolumeX, X } from "lucide-react";
 
 import HoloHead from "./HoloHead";
+import PortraitHead from "./PortraitHead";
+import PortraitSetup from "./PortraitSetup";
 import {
   AGENT_IMAGE_TYPES,
   AGENT_QUICK_PROMPTS,
@@ -36,6 +39,7 @@ import {
   setAgentModel,
 } from "../../services/agentBrain";
 import type { AgentAction, AgentImageInput, AgentStatus } from "../../services/agentBrain";
+import { getAgentAvatar, type AgentAvatar } from "../../services/agentAvatarStore";
 
 type ActionState = "ready" | "running" | "done" | "failed";
 
@@ -87,6 +91,7 @@ export default function HoloAgent() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
+  const [avatar, setAvatar] = useState<AgentAvatar | null>(null);
   const mouthRef = useRef(0);
   const nextId = useRef(1);
   const timer = useRef<number | null>(null);
@@ -137,6 +142,9 @@ export default function HoloAgent() {
     getAgentStatus()
       .then((next) => live && setStatus(next))
       .catch(() => live && setStatus(null));
+    getAgentAvatar()
+      .then((next) => live && setAvatar(next))
+      .catch(() => live && setAvatar(null));
     return () => {
       live = false;
     };
@@ -420,11 +428,23 @@ export default function HoloAgent() {
                   )}
                 </div>
                 {settingsError && <p className="text-xs text-red-300" role="alert">{settingsError}</p>}
+                <div className="text-xs font-bold text-white">Agent face</div>
+                <PortraitSetup avatar={avatar} onChange={setAvatar} />
               </div>
             ) : (
               <div className={`holo-agent-stage is-${state.mood}`}>
                 <span className="holo-agent-ring" aria-hidden="true" />
-                <HoloHead mood={state.mood} mouthRef={mouthRef} className="holo-agent-canvas" />
+                {avatar ? (
+                  <PortraitHead
+                    mood={state.mood}
+                    src={avatar.dataUrl}
+                    calibration={avatar.calibration}
+                    mouthRef={mouthRef}
+                    className="holo-agent-canvas"
+                  />
+                ) : (
+                  <HoloHead mood={state.mood} mouthRef={mouthRef} className="holo-agent-canvas" />
+                )}
               </div>
             )}
             <div ref={logRef} className="holo-agent-log" aria-live="polite">
