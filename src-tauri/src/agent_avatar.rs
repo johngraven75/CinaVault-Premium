@@ -44,6 +44,23 @@ pub struct AgentAvatar {
     pub calibration: PortraitCalibration,
 }
 
+impl PortraitCalibration {
+    /// The same markers with the eyes in viewer order, like `orderEyes` in
+    /// src/services/portraitAvatar.ts: someone marking their own left eye
+    /// puts it on the right of the photo.
+    pub fn with_ordered_eyes(self) -> Self {
+        if self.left_eye.x <= self.right_eye.x {
+            self
+        } else {
+            Self {
+                left_eye: self.right_eye,
+                right_eye: self.left_eye,
+                ..self
+            }
+        }
+    }
+}
+
 /// Mirrors `calibrationError` in src/services/portraitAvatar.ts, measured in
 /// square units so a portrait or landscape photo is judged the same way.
 pub fn validate_calibration(cal: &PortraitCalibration, aspect: f64) -> Result<(), String> {
@@ -184,6 +201,7 @@ pub fn agent_avatar_save(
         .decode(photo.trim())
         .map_err(|_| "That photo could not be read.".to_string())?;
     let (jpeg, aspect) = normalize_photo(&bytes)?;
+    let calibration = calibration.with_ordered_eyes();
     validate_calibration(&calibration, aspect)?;
     let dir = directory(&app)?;
     crate::atomic_file::write_verified_atomic(&dir.join(PHOTO_FILE), &jpeg)?;
@@ -202,6 +220,7 @@ pub fn agent_avatar_set_calibration(
     if !photo.is_file() {
         return Err("Choose a photo first.".into());
     }
+    let calibration = calibration.with_ordered_eyes();
     validate_calibration(&calibration, photo_aspect(&photo)?)?;
     write_calibration(&dir, &calibration)?;
     read_avatar(&dir)?.ok_or_else(|| "The portrait could not be saved.".to_string())
@@ -285,6 +304,16 @@ mod tests {
                 .contains("on the photo")
         );
         assert!(validate_calibration(&cal((f64::NAN, 0.4), (0.6, 0.4), (0.5, 0.6)), 1.0).is_err());
+    }
+
+    #[test]
+    fn swaps_eye_markers_placed_the_other_way_round() {
+        let swapped = cal((0.62, 0.41), (0.38, 0.39), (0.5, 0.6));
+        let ordered = swapped.with_ordered_eyes();
+        assert_eq!(ordered, cal((0.38, 0.39), (0.62, 0.41), (0.5, 0.6)));
+        assert!(validate_calibration(&ordered, 1.0).is_ok());
+        let typical = cal((0.4, 0.4), (0.6, 0.4), (0.5, 0.6));
+        assert_eq!(typical.with_ordered_eyes(), typical);
     }
 
     #[test]
