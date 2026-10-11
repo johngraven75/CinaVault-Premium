@@ -10,6 +10,7 @@ import {
   defaultCalibration,
   deformPortraitPoint,
   faceFrame,
+  orderEyes,
   portraitImageError,
   portraitPose,
   portraitView,
@@ -43,6 +44,16 @@ test("misplaced markers are explained", () => {
   assert.match(with_({ leftEye: { x: 0.4, y: 0.1 }, rightEye: { x: 0.6, y: 0.1 }, mouth: { x: 0.5, y: 0.95 } }), /too far/);
   assert.match(with_({ mouth: { x: 1.4, y: 0.6 } }), /on the photo/);
   assert.match(with_({ mouth: { x: Number.NaN, y: 0.6 } }), /on the photo/);
+});
+
+test("eye markers placed the other way round are swapped, not rejected", () => {
+  const swapped = { ...cal, leftEye: { x: 0.62, y: 0.41 }, rightEye: { x: 0.38, y: 0.39 } };
+  const ordered = orderEyes(swapped);
+  assert.deepEqual(ordered.leftEye, { x: 0.38, y: 0.39 });
+  assert.deepEqual(ordered.rightEye, { x: 0.62, y: 0.41 });
+  assert.deepEqual(ordered.mouth, cal.mouth);
+  assert.equal(calibrationError(ordered), null);
+  assert.equal(orderEyes(cal), cal);
 });
 
 test("only JPEG, PNG and WebP photos under 12 MB are accepted", () => {
