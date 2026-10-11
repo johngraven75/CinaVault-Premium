@@ -2,8 +2,8 @@
 // Build identity is sourced from build-version.json through build_identity.
 
 mod adult_site_provider;
-mod ai;
 mod agent_avatar;
+mod ai;
 mod ai_agent;
 mod ai_automation;
 mod atomic_file;

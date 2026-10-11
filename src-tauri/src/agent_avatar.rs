@@ -48,10 +48,12 @@ pub struct AgentAvatar {
 /// square units so a portrait or landscape photo is judged the same way.
 pub fn validate_calibration(cal: &PortraitCalibration, aspect: f64) -> Result<(), String> {
     let points = [cal.left_eye, cal.right_eye, cal.mouth];
-    if points
-        .iter()
-        .any(|p| !p.x.is_finite() || !p.y.is_finite() || !(0.0..=1.0).contains(&p.x) || !(0.0..=1.0).contains(&p.y))
-    {
+    if points.iter().any(|p| {
+        !p.x.is_finite()
+            || !p.y.is_finite()
+            || !(0.0..=1.0).contains(&p.x)
+            || !(0.0..=1.0).contains(&p.y)
+    }) {
         return Err("Keep the markers on the photo.".into());
     }
     if cal.left_eye.x >= cal.right_eye.x {
@@ -85,8 +87,12 @@ pub fn normalize_photo(bytes: &[u8]) -> Result<(Vec<u8>, f64), String> {
     if bytes.len() > MAX_UPLOAD_BYTES {
         return Err("Photos must be under 12 MB.".into());
     }
-    let format = image::guess_format(bytes).map_err(|_| "Choose a JPEG, PNG or WebP photo.".to_string())?;
-    if !matches!(format, image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP) {
+    let format =
+        image::guess_format(bytes).map_err(|_| "Choose a JPEG, PNG or WebP photo.".to_string())?;
+    if !matches!(
+        format,
+        image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::WebP
+    ) {
         return Err("Choose a JPEG, PNG or WebP photo.".into());
     }
     let decoded = image::load_from_memory_with_format(bytes, format)
@@ -114,12 +120,14 @@ fn directory(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|error| format!("unable to resolve app data directory: {error}"))?
         .join(DIRECTORY);
-    std::fs::create_dir_all(&dir).map_err(|error| format!("unable to create the portrait folder: {error}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("unable to create the portrait folder: {error}"))?;
     Ok(dir)
 }
 
 fn photo_aspect(path: &Path) -> Result<f64, String> {
-    let (width, height) = image::image_dimensions(path).map_err(|error| format!("unable to read the portrait: {error}"))?;
+    let (width, height) = image::image_dimensions(path)
+        .map_err(|error| format!("unable to read the portrait: {error}"))?;
     Ok(f64::from(width) / f64::from(height.max(1)))
 }
 
@@ -129,12 +137,17 @@ fn read_avatar(dir: &Path) -> Result<Option<AgentAvatar>, String> {
     if !photo.is_file() || !calibration.is_file() {
         return Ok(None);
     }
-    let bytes = std::fs::read(&photo).map_err(|error| format!("unable to read the portrait: {error}"))?;
-    let text = std::fs::read_to_string(&calibration).map_err(|error| format!("unable to read the portrait markers: {error}"))?;
-    let calibration: PortraitCalibration =
-        serde_json::from_str(&text).map_err(|error| format!("the portrait markers are damaged: {error}"))?;
+    let bytes =
+        std::fs::read(&photo).map_err(|error| format!("unable to read the portrait: {error}"))?;
+    let text = std::fs::read_to_string(&calibration)
+        .map_err(|error| format!("unable to read the portrait markers: {error}"))?;
+    let calibration: PortraitCalibration = serde_json::from_str(&text)
+        .map_err(|error| format!("the portrait markers are damaged: {error}"))?;
     Ok(Some(AgentAvatar {
-        data_url: format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)),
+        data_url: format!(
+            "data:image/jpeg;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ),
         calibration,
     }))
 }
@@ -152,7 +165,11 @@ pub fn agent_avatar_get(app: AppHandle) -> Result<Option<AgentAvatar>, String> {
 
 /// Stores a new photo (base64, without the `data:` prefix) and its markers.
 #[tauri::command]
-pub fn agent_avatar_save(app: AppHandle, photo: String, calibration: PortraitCalibration) -> Result<AgentAvatar, String> {
+pub fn agent_avatar_save(
+    app: AppHandle,
+    photo: String,
+    calibration: PortraitCalibration,
+) -> Result<AgentAvatar, String> {
     // Base64 is a third larger than the bytes it carries.
     if photo.len() > MAX_UPLOAD_BYTES / 3 * 4 + 4 {
         return Err("Photos must be under 12 MB.".into());
@@ -170,7 +187,10 @@ pub fn agent_avatar_save(app: AppHandle, photo: String, calibration: PortraitCal
 
 /// Moves the eye and mouth markers on the photo already saved.
 #[tauri::command]
-pub fn agent_avatar_set_calibration(app: AppHandle, calibration: PortraitCalibration) -> Result<AgentAvatar, String> {
+pub fn agent_avatar_set_calibration(
+    app: AppHandle,
+    calibration: PortraitCalibration,
+) -> Result<AgentAvatar, String> {
     let dir = directory(&app)?;
     let photo = dir.join(PHOTO_FILE);
     if !photo.is_file() {
@@ -188,7 +208,8 @@ pub fn agent_avatar_clear(app: AppHandle) -> Result<(), String> {
     for name in [PHOTO_FILE, CALIBRATION_FILE] {
         let path = dir.join(name);
         if path.exists() {
-            std::fs::remove_file(&path).map_err(|error| format!("unable to remove the portrait: {error}"))?;
+            std::fs::remove_file(&path)
+                .map_err(|error| format!("unable to remove the portrait: {error}"))?;
         }
     }
     Ok(())
@@ -211,7 +232,9 @@ mod tests {
     }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
-        let image = image::RgbImage::from_fn(width, height, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 128]));
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
         bytes.into_inner()
@@ -221,23 +244,50 @@ mod tests {
     fn accepts_a_typical_portrait() {
         assert!(validate_calibration(&cal((0.4, 0.4), (0.6, 0.4), (0.5, 0.6)), 1.0).is_ok());
         // A tall full-body photo: eyes close together in x, scaled by the aspect.
-        assert!(validate_calibration(&cal((0.425, 0.252), (0.575, 0.252), (0.5, 0.345)), 1000.0 / 1500.0).is_ok());
+        assert!(validate_calibration(
+            &cal((0.425, 0.252), (0.575, 0.252), (0.5, 0.345)),
+            1000.0 / 1500.0
+        )
+        .is_ok());
     }
 
     #[test]
     fn rejects_swapped_crowded_or_misplaced_markers() {
-        assert!(validate_calibration(&cal((0.6, 0.4), (0.4, 0.4), (0.5, 0.6)), 1.0).unwrap_err().contains("left of"));
-        assert!(validate_calibration(&cal((0.49, 0.4), (0.51, 0.4), (0.5, 0.6)), 1.0).unwrap_err().contains("apart"));
-        assert!(validate_calibration(&cal((0.4, 0.4), (0.6, 0.4), (0.5, 0.41)), 1.0).unwrap_err().contains("down onto"));
-        assert!(validate_calibration(&cal((0.4, 0.1), (0.6, 0.1), (0.5, 0.95)), 1.0).unwrap_err().contains("too far"));
-        assert!(validate_calibration(&cal((0.4, 0.4), (1.2, 0.4), (0.5, 0.6)), 1.0).unwrap_err().contains("on the photo"));
+        assert!(
+            validate_calibration(&cal((0.6, 0.4), (0.4, 0.4), (0.5, 0.6)), 1.0)
+                .unwrap_err()
+                .contains("left of")
+        );
+        assert!(
+            validate_calibration(&cal((0.49, 0.4), (0.51, 0.4), (0.5, 0.6)), 1.0)
+                .unwrap_err()
+                .contains("apart")
+        );
+        assert!(
+            validate_calibration(&cal((0.4, 0.4), (0.6, 0.4), (0.5, 0.41)), 1.0)
+                .unwrap_err()
+                .contains("down onto")
+        );
+        assert!(
+            validate_calibration(&cal((0.4, 0.1), (0.6, 0.1), (0.5, 0.95)), 1.0)
+                .unwrap_err()
+                .contains("too far")
+        );
+        assert!(
+            validate_calibration(&cal((0.4, 0.4), (1.2, 0.4), (0.5, 0.6)), 1.0)
+                .unwrap_err()
+                .contains("on the photo")
+        );
         assert!(validate_calibration(&cal((f64::NAN, 0.4), (0.6, 0.4), (0.5, 0.6)), 1.0).is_err());
     }
 
     #[test]
     fn normalizes_large_photos_to_a_bounded_jpeg() {
         let (jpeg, aspect) = normalize_photo(&png(2000, 3000)).unwrap();
-        assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+        assert_eq!(
+            image::guess_format(&jpeg).unwrap(),
+            image::ImageFormat::Jpeg
+        );
         let decoded = image::load_from_memory(&jpeg).unwrap();
         assert_eq!(decoded.height(), MAX_EDGE);
         assert!((aspect - 2.0 / 3.0).abs() < 0.01);
@@ -250,7 +300,9 @@ mod tests {
         assert_eq!((decoded.width(), decoded.height()), (320, 400));
         assert!(normalize_photo(&[]).is_err());
         assert!(normalize_photo(b"not an image at all").is_err());
-        assert!(normalize_photo(&png(32, 32)).unwrap_err().contains("too small"));
+        assert!(normalize_photo(&png(32, 32))
+            .unwrap_err()
+            .contains("too small"));
     }
 
     #[test]
