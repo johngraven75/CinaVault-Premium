@@ -569,6 +569,7 @@ dependencies = [
  "chrono",
  "dirs",
  "env_logger",
+ "flate2",
  "futures-core",
  "igd-next",
  "image",
