@@ -67,6 +67,7 @@ mod player;
 mod player_stream;
 mod plugin_configs;
 mod plugins;
+mod remote_agent;
 mod remote_connectivity;
 mod scanner;
 mod secure_credentials;
