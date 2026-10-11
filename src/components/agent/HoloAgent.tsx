@@ -429,7 +429,14 @@ export default function HoloAgent() {
                 </div>
                 {settingsError && <p className="text-xs text-red-300" role="alert">{settingsError}</p>}
                 <div className="text-xs font-bold text-white">Agent face</div>
-                <PortraitSetup avatar={avatar} onChange={setAvatar} />
+                <PortraitSetup
+                  avatar={avatar}
+                  onChange={(next) => {
+                    setAvatar(next);
+                    // Show the new face straight away instead of leaving it behind the settings.
+                    if (next) setSettingsOpen(false);
+                  }}
+                />
               </div>
             ) : (
               <div className={`holo-agent-stage is-${state.mood}`}>

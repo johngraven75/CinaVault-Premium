@@ -68,6 +68,16 @@ export function defaultCalibration(): PortraitCalibration {
   };
 }
 
+/**
+ * The same markers with the eyes in viewer order. Someone marking their own
+ * left eye puts it on the right of the photo, so the two are swapped here
+ * rather than rejected.
+ */
+export function orderEyes(cal: PortraitCalibration): PortraitCalibration {
+  if (cal.leftEye.x <= cal.rightEye.x) return cal;
+  return { ...cal, leftEye: cal.rightEye, rightEye: cal.leftEye };
+}
+
 /** Why a picked file can't be used as the portrait, or null when it can. */
 export function portraitImageError(type: string, size: number): string | null {
   if (!PORTRAIT_IMAGE_TYPES.includes(type)) return "Choose a JPEG, PNG or WebP photo.";

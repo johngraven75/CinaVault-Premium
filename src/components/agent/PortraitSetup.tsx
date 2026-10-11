@@ -1,14 +1,16 @@
 // CinaVault Premium — lets the user give the AI agent their own face.
 // They pick a photo, drag three markers onto their eyes and mouth, and save;
 // the photo goes to app data through agent_avatar.rs. Removing it brings the
-// hologram head back.
-import { useRef, useState } from "react";
+// hologram head back. Markers left in place when the settings close are saved
+// too, so a face that was marked out is never silently dropped.
+import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import {
   PORTRAIT_IMAGE_TYPES,
   calibrationError,
   defaultCalibration,
+  orderEyes,
   type PortraitCalibration,
 } from "../../services/portraitAvatar";
 import {
@@ -49,6 +51,27 @@ export default function PortraitSetup({ avatar, onChange }: PortraitSetupProps) 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef<MarkerKey | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  /** What is on screen now, for saving the markers when the setup closes. */
+  const latest = useRef({ draft, aspect, saving, onChange });
+  latest.current = { draft, aspect, saving, onChange };
+
+  // The marking view is taller than the settings box; bring its buttons into sight.
+  const drafting = draft !== null;
+  useEffect(() => {
+    if (drafting) rootRef.current?.scrollIntoView({ block: "nearest" });
+  }, [drafting]);
+
+  useEffect(
+    () => () => {
+      const { draft: pending, aspect: ratio, saving: busy, onChange: report } = latest.current;
+      if (!pending || busy) return;
+      const calibration = orderEyes(pending.calibration);
+      if (calibrationError(calibration, ratio)) return;
+      void persist(pending.photo, calibration).then(report, () => undefined);
+    },
+    [],
+  );
 
   const pick = async (file: File | undefined) => {
     if (!file) return;
@@ -73,7 +96,8 @@ export default function PortraitSetup({ avatar, onChange }: PortraitSetupProps) 
 
   const save = async () => {
     if (!draft) return;
-    const problem = calibrationError(draft.calibration, aspect);
+    const calibration = orderEyes(draft.calibration);
+    const problem = calibrationError(calibration, aspect);
     if (problem) {
       setError(problem);
       return;
@@ -81,11 +105,9 @@ export default function PortraitSetup({ avatar, onChange }: PortraitSetupProps) 
     setSaving(true);
     setError(null);
     try {
-      const saved = draft.photo
-        ? await saveAgentAvatar(draft.photo, draft.calibration)
-        : await setAgentAvatarCalibration(draft.calibration);
-      onChange(saved);
+      const saved = await persist(draft.photo, calibration);
       setDraft(null);
+      onChange(saved);
     } catch (problem) {
       setError(errorText(problem));
     } finally {
@@ -118,8 +140,19 @@ export default function PortraitSetup({ avatar, onChange }: PortraitSetupProps) 
 
   if (draft) {
     return (
-      <div className="holo-portrait-setup">
-        <p className="text-xs text-cv-subtext">Drag each marker onto the centre of your eyes and mouth.</p>
+      <div ref={rootRef} className="holo-portrait-setup">
+        <p className="text-xs text-cv-subtext">
+          Drag the two cyan markers onto your eyes and the purple one onto your mouth, then save.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="holo-agent-chip" disabled={saving} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save face"}
+          </button>
+          <button type="button" className="holo-agent-chip" disabled={saving} onClick={() => setDraft(null)}>
+            Cancel
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-300" role="alert">{error}</p>}
         <div
           ref={frameRef}
           className="holo-portrait-frame"
@@ -148,15 +181,6 @@ export default function PortraitSetup({ avatar, onChange }: PortraitSetupProps) 
             />
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="holo-agent-chip" disabled={saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save face"}
-          </button>
-          <button type="button" className="holo-agent-chip" disabled={saving} onClick={() => setDraft(null)}>
-            Cancel
-          </button>
-        </div>
-        {error && <p className="text-xs text-red-300" role="alert">{error}</p>}
       </div>
     );
   }
@@ -194,4 +218,9 @@ export default function PortraitSetup({ avatar, onChange }: PortraitSetupProps) 
       {error && <p className="text-xs text-red-300" role="alert">{error}</p>}
     </div>
   );
+}
+
+/** A new photo with its markers, or new markers for the photo already saved. */
+function persist(photo: string | null, calibration: PortraitCalibration): Promise<AgentAvatar> {
+  return photo ? saveAgentAvatar(photo, calibration) : setAgentAvatarCalibration(calibration);
 }
