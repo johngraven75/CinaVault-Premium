@@ -604,9 +604,17 @@ struct AgentChatRequest {
     message: String,
 }
 
-/// Each signed-in account (or API key) keeps its own phone conversation.
-fn agent_account(principal: &RemoteAccessPrincipal) -> String {
-    format!("{}:{}", principal.auth_method, principal.id)
+/// The agent runs on the owner's paid Anthropic key, so only people signed in
+/// with a remote-access account may use it; integration API keys may not.
+/// Each account gets one conversation and quota, however it signed in.
+fn agent_account(principal: &RemoteAccessPrincipal) -> Result<String, (StatusCode, String)> {
+    if principal.auth_method == "api_key" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "The agent is only available to signed-in CinaVault accounts".into(),
+        ));
+    }
+    Ok(format!("user:{}", principal.id))
 }
 
 fn agent_error(error: remote_agent::RemoteAgentError) -> (StatusCode, String) {
@@ -647,7 +655,7 @@ async fn agent_chat(
     let reply = remote_agent::chat(
         &state.database_path,
         switches.library_filter.as_deref(),
-        &agent_account(&principal),
+        &agent_account(&principal)?,
         &request.message,
     )
     .await
@@ -660,7 +668,7 @@ async fn agent_reset(
     headers: HeaderMap,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let principal = authenticated_principal(&state, &headers, "library:read").await?;
-    remote_agent::reset(&agent_account(&principal));
+    remote_agent::reset(&agent_account(&principal)?);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -669,12 +677,10 @@ async fn agent_face(
     State(state): State<Arc<HttpState>>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, (StatusCode, String)> {
-    authenticated_principal(&state, &headers, "library:read").await?;
-    let app_data = FilePath::new(&state.database_path)
-        .parent()
-        .ok_or((StatusCode::NOT_FOUND, "No agent face is set".into()))?;
-    let avatar = crate::agent_avatar::avatar_in_app_data(app_data)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+    let principal = authenticated_principal(&state, &headers, "library:read").await?;
+    agent_account(&principal)?;
+    let avatar = remote_agent::face(&state.database_path)
+        .map_err(agent_error)?
         .ok_or((StatusCode::NOT_FOUND, "No agent face is set".into()))?;
     Ok(no_store_json(&avatar))
 }
@@ -1159,6 +1165,10 @@ mod integration_tests {
                 Some("Phone"),
             )
             .expect("provision remote user");
+        let integration_key =
+            api_keys_server::issue(&database, "Dashboard", &["library:read".into()])
+                .expect("issue integration key")
+                .key;
         drop(database);
 
         let client = reqwest::Client::new();
@@ -1238,6 +1248,22 @@ mod integration_tests {
             .starts_with("data:image/jpeg;base64,"));
         assert_eq!(face["calibration"]["mouth"]["y"], 0.65);
 
+        // Integration API keys can read the library but not use the paid agent or see the face.
+        for (method, path) in [("POST", "chat"), ("GET", "face"), ("POST", "reset")] {
+            let request = match method {
+                "POST" => client
+                    .post(format!("{base_url}/api/agent/{path}"))
+                    .json(&serde_json::json!({ "message": "hi" })),
+                _ => client.get(format!("{base_url}/api/agent/{path}")),
+            };
+            let refused = request
+                .header("x-api-key", &integration_key)
+                .send()
+                .await
+                .expect("call agent with an integration key");
+            assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{path}");
+        }
+
         let empty = client
             .post(format!("{base_url}/api/agent/chat"))
             .bearer_auth(token)
@@ -1259,6 +1285,13 @@ mod integration_tests {
             .await
             .expect("chat while disabled");
         assert_eq!(disabled.status(), StatusCode::FORBIDDEN);
+        let hidden_face = client
+            .get(format!("{base_url}/api/agent/face"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request face while disabled");
+        assert_eq!(hidden_face.status(), StatusCode::FORBIDDEN);
 
         let reset = client
             .post(format!("{base_url}/api/agent/reset"))

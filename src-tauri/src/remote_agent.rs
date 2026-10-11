@@ -102,9 +102,20 @@ pub(crate) fn enabled(db: &Database) -> bool {
 #[derive(Default)]
 struct Session {
     messages: Vec<Value>,
+    /// The library filter the history was built under; a change starts over.
+    filter: String,
+    /// Bumped by a reset, so an answer still in flight can't restore old history.
+    generation: u64,
     last_used: Option<Instant>,
     sent: VecDeque<Instant>,
     busy: bool,
+}
+
+/// One claimed message: the history to continue from, and which conversation it belongs to.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Turn {
+    pub messages: Vec<Value>,
+    pub generation: u64,
 }
 
 #[derive(Default)]
@@ -115,12 +126,14 @@ pub(crate) struct Sessions {
 impl Sessions {
     /// Claims the account's conversation for one message: refuses a second
     /// message in flight and anything past the hourly cap, then returns the
-    /// history to continue from.
+    /// history to continue from. History built under a different library
+    /// filter (say, before parental controls switched on) is dropped.
     pub(crate) fn begin(
         &mut self,
         account: &str,
+        filter: &str,
         now: Instant,
-    ) -> Result<Vec<Value>, RemoteAgentError> {
+    ) -> Result<Turn, RemoteAgentError> {
         let session = self.by_account.entry(account.to_string()).or_default();
         if session.busy {
             return Err(RemoteAgentError::Busy);
@@ -141,17 +154,31 @@ impl Sessions {
         {
             session.messages.clear();
         }
+        if session.filter != filter {
+            session.messages.clear();
+            session.filter = filter.to_string();
+        }
         session.sent.push_back(now);
         session.busy = true;
-        Ok(session.messages.clone())
+        Ok(Turn {
+            messages: session.messages.clone(),
+            generation: session.generation,
+        })
     }
 
-    /// Releases the account; `messages` replaces the history when the exchange finished.
-    pub(crate) fn finish(&mut self, account: &str, messages: Option<Vec<Value>>, now: Instant) {
+    /// Releases the account; `messages` replaces the history when the exchange
+    /// finished, unless the conversation was reset in the meantime.
+    pub(crate) fn finish(
+        &mut self,
+        account: &str,
+        generation: u64,
+        messages: Option<Vec<Value>>,
+        now: Instant,
+    ) {
         if let Some(session) = self.by_account.get_mut(account) {
             session.busy = false;
             session.last_used = Some(now);
-            if let Some(mut messages) = messages {
+            if let Some(mut messages) = messages.filter(|_| session.generation == generation) {
                 ai_agent::trim_history(&mut messages, MAX_HISTORY_MESSAGES);
                 session.messages = messages;
             }
@@ -161,6 +188,7 @@ impl Sessions {
     pub(crate) fn reset(&mut self, account: &str) {
         if let Some(session) = self.by_account.get_mut(account) {
             session.messages.clear();
+            session.generation += 1;
         }
     }
 }
@@ -179,12 +207,18 @@ fn lock_sessions() -> std::sync::MutexGuard<'static, Sessions> {
 /// Frees the account even when the phone hangs up mid-answer and the request is dropped.
 struct Claim {
     account: String,
+    generation: u64,
     history: Option<Vec<Value>>,
 }
 
 impl Drop for Claim {
     fn drop(&mut self) {
-        lock_sessions().finish(&self.account, self.history.take(), Instant::now());
+        lock_sessions().finish(
+            &self.account,
+            self.generation,
+            self.history.take(),
+            Instant::now(),
+        );
     }
 }
 
@@ -272,6 +306,22 @@ pub(crate) fn status(database_path: &str) -> Result<RemoteStatus, RemoteAgentErr
     })
 }
 
+/// The owner's agent face for phones, or None when no face is set. Refused
+/// while the owner has the phone agent switched off.
+pub(crate) fn face(
+    database_path: &str,
+) -> Result<Option<crate::agent_avatar::AgentAvatar>, RemoteAgentError> {
+    if !enabled(&open(database_path)?) {
+        return Err(RemoteAgentError::Disabled);
+    }
+    match std::path::Path::new(database_path).parent() {
+        Some(app_data) => {
+            crate::agent_avatar::avatar_in_app_data(app_data).map_err(RemoteAgentError::Failed)
+        }
+        None => Ok(None),
+    }
+}
+
 /// Answers one phone message. `filter` is the server's library filter.
 pub(crate) async fn chat(
     database_path: &str,
@@ -297,9 +347,13 @@ pub(crate) async fn chat(
         .map_err(RemoteAgentError::Failed)?
         .ok_or(RemoteAgentError::NotConfigured)?;
 
-    let mut messages = lock_sessions().begin(account, Instant::now())?;
+    let Turn {
+        mut messages,
+        generation,
+    } = lock_sessions().begin(account, &filter, Instant::now())?;
     let mut claim = Claim {
         account: account.to_string(),
+        generation,
         history: None,
     };
     let committed_len = messages.len();
@@ -370,12 +424,15 @@ mod tests {
     fn one_message_at_a_time_per_account() {
         let mut sessions = Sessions::default();
         let now = Instant::now();
-        sessions.begin("a", now).unwrap();
-        assert_eq!(sessions.begin("a", now), Err(RemoteAgentError::Busy));
+        sessions.begin("a", "1 = 1", now).unwrap();
+        assert_eq!(
+            sessions.begin("a", "1 = 1", now),
+            Err(RemoteAgentError::Busy)
+        );
         // Another account is unaffected.
-        sessions.begin("b", now).unwrap();
-        sessions.finish("a", None, now);
-        sessions.begin("a", now).unwrap();
+        sessions.begin("b", "1 = 1", now).unwrap();
+        sessions.finish("a", 0, None, now);
+        sessions.begin("a", "1 = 1", now).unwrap();
     }
 
     #[test]
@@ -383,33 +440,73 @@ mod tests {
         let mut sessions = Sessions::default();
         let start = Instant::now();
         for _ in 0..MAX_MESSAGES_PER_HOUR {
-            sessions.begin("a", start).unwrap();
-            sessions.finish("a", None, start);
+            sessions.begin("a", "1 = 1", start).unwrap();
+            sessions.finish("a", 0, None, start);
         }
         assert_eq!(
-            sessions.begin("a", start),
+            sessions.begin("a", "1 = 1", start),
             Err(RemoteAgentError::RateLimited)
         );
         let later = start + RATE_WINDOW;
-        sessions.begin("a", later).unwrap();
+        sessions.begin("a", "1 = 1", later).unwrap();
+    }
+
+    fn sample_history() -> Vec<Value> {
+        vec![
+            json!({"role": "user", "content": [{"type": "text", "text": "hi"}]}),
+            json!({"role": "assistant", "content": [{"type": "text", "text": "hello"}]}),
+        ]
     }
 
     #[test]
     fn keeps_history_and_forgets_it_when_idle_or_reset() {
         let mut sessions = Sessions::default();
         let start = Instant::now();
-        sessions.begin("a", start).unwrap();
-        let history = vec![
-            json!({"role": "user", "content": [{"type": "text", "text": "hi"}]}),
-            json!({"role": "assistant", "content": [{"type": "text", "text": "hello"}]}),
-        ];
-        sessions.finish("a", Some(history.clone()), start);
-        assert_eq!(sessions.begin("a", start).unwrap(), history);
-        sessions.finish("a", None, start);
-        assert!(sessions.begin("a", start + IDLE_RESET).unwrap().is_empty());
-        sessions.finish("a", Some(history), start);
+        let history = sample_history();
+        let turn = sessions.begin("a", "1 = 1", start).unwrap();
+        sessions.finish("a", turn.generation, Some(history.clone()), start);
+        let turn = sessions.begin("a", "1 = 1", start).unwrap();
+        assert_eq!(turn.messages, history);
+        sessions.finish("a", turn.generation, None, start);
+        let turn = sessions.begin("a", "1 = 1", start + IDLE_RESET).unwrap();
+        assert!(turn.messages.is_empty());
+        sessions.finish("a", turn.generation, Some(history), start);
         sessions.reset("a");
-        assert!(sessions.begin("a", start).unwrap().is_empty());
+        assert!(sessions
+            .begin("a", "1 = 1", start)
+            .unwrap()
+            .messages
+            .is_empty());
+    }
+
+    #[test]
+    fn a_reset_during_an_answer_is_not_undone() {
+        let mut sessions = Sessions::default();
+        let now = Instant::now();
+        let turn = sessions.begin("a", "1 = 1", now).unwrap();
+        sessions.reset("a");
+        sessions.finish("a", turn.generation, Some(sample_history()), now);
+        assert!(sessions
+            .begin("a", "1 = 1", now)
+            .unwrap()
+            .messages
+            .is_empty());
+    }
+
+    #[test]
+    fn a_new_library_filter_starts_a_new_conversation() {
+        let mut sessions = Sessions::default();
+        let now = Instant::now();
+        let turn = sessions.begin("a", "1 = 1", now).unwrap();
+        sessions.finish("a", turn.generation, Some(sample_history()), now);
+        let restricted = "media_items.adult = 0";
+        let turn = sessions.begin("a", restricted, now).unwrap();
+        assert!(turn.messages.is_empty());
+        sessions.finish("a", turn.generation, Some(sample_history()), now);
+        assert_eq!(
+            sessions.begin("a", restricted, now).unwrap().messages,
+            sample_history()
+        );
     }
 
     #[test]
