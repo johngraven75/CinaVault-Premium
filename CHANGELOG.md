@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.3 Pre-Beta · Build 103
+
+### New
+
+- **The holographic agent can wear your face.** In the agent panel, open the gear icon and choose **Use my photo** under "Agent face", then drag the three markers onto your eyes and mouth. The agent's head becomes your photo, animated on your computer: it blinks, turns slightly, raises its brows while listening, looks up while thinking and moves its jaw as it answers. The photo is saved in the app's data folder with location data removed and is never uploaded. **Remove photo** brings back the hologram head.
+
 ## v1.0.2 Pre-Beta · Build 102
 
 ### New

@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 1.0.2 Pre-Beta (Build 102) | Yes |
+| 1.0.3 Pre-Beta (Build 103) | Yes |
+| 1.0.2 Pre-Beta (Build 102) | No |
 | 1.0.1 Pre-Beta (Build 101) | No |
 | Earlier builds | No |
 
