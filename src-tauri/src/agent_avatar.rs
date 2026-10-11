@@ -157,12 +157,6 @@ fn write_calibration(dir: &Path, calibration: &PortraitCalibration) -> Result<()
     crate::atomic_file::write_verified_atomic(&dir.join(CALIBRATION_FILE), &json)
 }
 
-/// The portrait stored beside the database in `app_data`, for the embedded
-/// server to hand to signed-in phones. Never creates the folder.
-pub(crate) fn avatar_in_app_data(app_data: &Path) -> Result<Option<AgentAvatar>, String> {
-    read_avatar(&app_data.join(DIRECTORY))
-}
-
 /// The saved portrait, or `None` when the user hasn't set one up.
 #[tauri::command]
 pub fn agent_avatar_get(app: AppHandle) -> Result<Option<AgentAvatar>, String> {

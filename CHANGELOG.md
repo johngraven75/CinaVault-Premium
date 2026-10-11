@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-### New
-
-- **Your phone can talk to the agent.** The CinaVault Android and iOS apps can now chat with the agent through your server once they're signed in. From a phone the agent can search and describe what's in the library, but it can't play, rename or change anything. It uses the API key on your computer, which never leaves it. Each account gets 40 messages an hour, and phones also get your agent face, if you've set one up.
-
 ## v1.0.3 Pre-Beta · Build 103
 
 ### New
