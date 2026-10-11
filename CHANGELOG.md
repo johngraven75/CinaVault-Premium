@@ -6,6 +6,11 @@
 
 - **Your phone can talk to the agent.** The CinaVault Android and iOS apps can now chat with the agent through your server once they're signed in. From a phone the agent can search and describe what's in the library, but it can't play, rename or change anything. It uses the API key on your computer, which never leaves it. Each account gets 40 messages an hour, and phones also get your agent face, if you've set one up.
 
+### Fixed
+
+- **API keys you enter now stay saved.** Every pre-beta build accepted TMDB, OMDb, ThePornDB, StashDB and other provider keys, and the agent's Anthropic key, but never actually stored them in the Windows Credential Manager, so they were gone right away. That is why the provider check said 0 providers were configured and why lookups that need a key found nothing. Keys are now saved in the Credential Manager and checked after saving. **Please enter your provider keys once more** after updating, since keys saved in earlier builds were not kept. The provider check now also says how many providers are ready, including the ones that need no key, and names any key that has to be re-entered.
+- **Scanned titles now keep their metadata and posters.** A title whose lookup never finished, for example because the app was closed while it ran in the background or the provider was offline, was never looked up again, so it stayed without a poster or details however many times you rescanned. Every scan now retries those titles. Posters from TMDB and OMDb are saved in CinaVault's own artwork folder instead of being kept as web links, and when a poster can't be written next to the video (a read-only drive, a NAS share or a protected Windows folder) it is saved in that artwork folder instead of being dropped.
+
 ## v1.0.3 Pre-Beta · Build 103
 
 ### New

@@ -47,7 +47,9 @@ regex = "1"
 quick-xml = "0.41"
 percent-encoding = "2"
 dirs = "6"
-keyring = "3"
+# keyring 3 has no platform store by default and silently falls back to an
+# in-memory mock, which loses every saved key. Use the Windows Credential Manager.
+keyring = { version = "3", features = ["windows-native"] }
 env_logger = "0.11"
 open = "5"
 log = "0.4"

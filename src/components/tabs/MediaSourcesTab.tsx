@@ -9,7 +9,7 @@ import { IS_STORE_SAFE } from "../../config/edition";
 import { useFeature } from "../../features/featureFlags";
 import { followPostScan } from "../../services/postScan";
 
-type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; nfo_applied?: number; post_scan?: { new_items: number; follow_up: string }; errors?: string[] };
+type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; nfo_applied?: number; post_scan?: { new_items: number; retry_items?: number; follow_up: string }; errors?: string[] };
 type SourceLike = { id?: number; path: string; source_type: string; name: string; enabled: boolean; last_scanned?: string; item_count: number };
 
 function safeNumber(value: unknown): number {
@@ -99,7 +99,9 @@ export default function MediaSourcesTab() {
   const pullMetadataAfterScan = async (result: ScanResult) => {
     if (!shouldPullMetadataAfterScan(result)) {
       const added = result.post_scan?.new_items ?? 0;
+      const retried = result.post_scan?.retry_items ?? 0;
       if (autoMetadata.enabled && added > 0) addStatusMessage(`Looking up metadata for ${added} new title(s) in the background`);
+      if (autoMetadata.enabled && retried > 0) addStatusMessage(`Retrying metadata and posters for ${retried} title(s) that were never saved`);
       else if (!autoMetadata.enabled) addStatusMessage("Metadata lookup skipped: Auto Metadata Fetch is off");
       return;
     }

@@ -41,6 +41,9 @@ struct ScanDirectoryReport {
     updated: u64,
     nfo_applied: u64,
     added_ids: Vec<i64>,
+    /// Rows already in the library that still have no poster or no provider
+    /// match, so the post-scan lookup tries them again.
+    retry_ids: Vec<i64>,
     errors: Vec<String>,
 }
 
@@ -69,6 +72,19 @@ struct ExistingRow {
     /// Verified by the user, or filled by a metadata lookup: a rescan keeps
     /// its title instead of resetting it to the file name.
     curated: bool,
+}
+
+/// Whether a row that a rescan found again should go back through the
+/// post-scan metadata lookup: it has no artwork (even after this scan's
+/// sidecar check) or no provider match yet. Without this, a lookup that never
+/// finished (app closed, provider offline) was never retried.
+fn needs_metadata_retry(row: &ExistingRow, sidecar_attached: bool) -> bool {
+    let has_poster = sidecar_attached
+        || row
+            .poster_path
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+    !has_poster || !row.curated
 }
 
 /// smart_match: cleaned title, "episode" for SxxEyy names, and the year.
@@ -479,6 +495,9 @@ fn scan_directory(
         } else {
             sidecar
         };
+        let retry_metadata = existing
+            .as_ref()
+            .is_some_and(|row| needs_metadata_retry(row, poster_path.is_some()));
 
         let mut item = MediaItem {
             id: None,
@@ -535,7 +554,11 @@ fn scan_directory(
             }
             Ok(false) => {
                 report.updated += 1;
-                existing.as_ref().map(|row| row.id)
+                let id = existing.as_ref().map(|row| row.id);
+                if retry_metadata {
+                    report.retry_ids.extend(id);
+                }
+                id
             }
             Err(error) => {
                 report
@@ -601,9 +624,13 @@ fn finish_scan(
         );
     }
     if follow_up == "scheduled" {
-        crate::post_scan::schedule(report.added_ids.clone());
+        crate::post_scan::schedule(report.added_ids.clone(), report.retry_ids.clone());
     }
-    serde_json::json!({ "new_items": report.added_ids.len(), "follow_up": follow_up })
+    serde_json::json!({
+        "new_items": report.added_ids.len(),
+        "retry_items": report.retry_ids.len(),
+        "follow_up": follow_up
+    })
 }
 
 #[tauri::command]
@@ -658,6 +685,7 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
                 totals.updated += report.updated;
                 totals.nfo_applied += report.nfo_applied;
                 totals.added_ids.extend(report.added_ids.iter().copied());
+                totals.retry_ids.extend(report.retry_ids.iter().copied());
                 totals.errors.extend(
                     report
                         .errors
@@ -822,8 +850,8 @@ pub async fn apply_embedded_titles(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_media_files, discover_and_add_sources, scanned_identity, scanned_media_type,
-        should_index_path, title_from_filename,
+        collect_media_files, discover_and_add_sources, needs_metadata_retry, scanned_identity,
+        scanned_media_type, should_index_path, title_from_filename, ExistingRow,
     };
     use crate::db::{Database, MediaSource};
     use std::path::{Path, PathBuf};
@@ -855,6 +883,29 @@ mod tests {
             scanned_identity(Path::new("/x/Scene.S01E01.mkv"), "adult").1,
             "adult"
         );
+    }
+
+    #[test]
+    fn rescans_retry_rows_that_never_got_metadata() {
+        let row = |poster: Option<&str>, curated: bool| ExistingRow {
+            id: 1,
+            title: "Heat".to_string(),
+            poster_path: poster.map(str::to_string),
+            curated,
+        };
+        // A lookup that never ran (or failed) leaves no poster and no match.
+        assert!(needs_metadata_retry(&row(None, false), false));
+        assert!(needs_metadata_retry(&row(Some("  "), true), false));
+        // Matched but the poster never saved: try again for the artwork.
+        assert!(needs_metadata_retry(&row(None, true), false));
+        // A local sidecar poster with no provider match still needs the lookup.
+        assert!(needs_metadata_retry(&row(None, false), true));
+        // Fully saved rows are left alone, so rescans stay cheap.
+        assert!(!needs_metadata_retry(
+            &row(Some(r"C:\art\1\poster.jpg"), true),
+            false
+        ));
+        assert!(!needs_metadata_retry(&row(None, true), true));
     }
 
     #[test]

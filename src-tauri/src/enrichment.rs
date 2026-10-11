@@ -490,7 +490,15 @@ pub async fn run_library_enrichment(
         });
         if let Some(remote_url) = poster_candidate {
             if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
-                match download_poster_to_sidecar(&client, &remote_url, &item.file_path).await {
+                match save_remote_poster(
+                    &client,
+                    &remote_url,
+                    &item.file_path,
+                    &state.app_data_dir,
+                    item.id,
+                )
+                .await
+                {
                     Ok(local_path) => {
                         if update.poster_path.is_none() {
                             update.changed_fields += 1;
@@ -1246,6 +1254,28 @@ pub(crate) async fn download_poster_to_sidecar(
         return Err("poster response was not a supported image".to_string());
     }
     write_poster_sidecar_bytes(video_path, extension, &bytes)
+}
+
+/// Saves a provider poster next to the video, or, when that folder cannot be
+/// written (a read-only drive, a NAS share, a protected Windows folder), into
+/// CinaVault's own artwork cache so the poster is still saved locally.
+async fn save_remote_poster(
+    client: &reqwest::Client,
+    url: &str,
+    video_path: &str,
+    app_data_dir: &Path,
+    media_id: i64,
+) -> Result<String, String> {
+    let sidecar_error = match download_poster_to_sidecar(client, url, video_path).await {
+        Ok(path) => return Ok(path),
+        Err(error) => error,
+    };
+    crate::metadata_keyless::cache_remote_artwork(client, app_data_dir, media_id, "poster", url)
+        .await
+        .map(|cached| cached.path)
+        .map_err(|cache_error| {
+            format!("{sidecar_error}; app artwork cache also failed: {cache_error}")
+        })
 }
 
 /// Writes a Kodi-compatible NFO sidecar XML file next to the video file.
