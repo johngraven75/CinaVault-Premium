@@ -50,7 +50,11 @@ pub fn add_xtream_profile(
 pub fn add_m3u_playlist(state: State<AppState>, name: String, url: String) -> Result<i64, String> {
     let url = crate::epg::validate_source_url(&url)
         .map_err(|_| "Enter the full playlist URL starting with http:// or https://".to_string())?;
-    let name = if name.trim().is_empty() { "M3U playlist".to_string() } else { name.trim().to_string() };
+    let name = if name.trim().is_empty() {
+        "M3U playlist".to_string()
+    } else {
+        name.trim().to_string()
+    };
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.conn
         .execute(
@@ -104,7 +108,8 @@ pub fn remove_xtream_profile(state: State<AppState>, id: i64) -> Result<(), Stri
         let rows = stmt
             .query_map(params![id], |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
     for source in linked {
         crate::epg::delete_source(&db, source)?;
@@ -183,7 +188,11 @@ pub async fn sync_epg(
             let url = build_epg_url(&server_url, &username, &password);
             let name: String = db
                 .conn
-                .query_row("SELECT name FROM xtream_profiles WHERE id = ?1", params![profile_id], |row| row.get(0))
+                .query_row(
+                    "SELECT name FROM xtream_profiles WHERE id = ?1",
+                    params![profile_id],
+                    |row| row.get(0),
+                )
                 .map_err(|e| e.to_string())?;
             crate::epg::upsert_source(&db, &format!("{name} guide"), &url, Some(profile_id))?;
         }
@@ -194,7 +203,8 @@ pub async fn sync_epg(
         let rows = stmt
             .query_map(params![profile_id], |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
     if source_ids.is_empty() {
         return Err("This playlist does not name a guide. Add an EPG source URL instead.".into());
@@ -238,7 +248,10 @@ pub async fn play_channel(stream_url: String) -> Result<(), String> {
     open::that(&stream_url).map_err(|e| e.to_string())
 }
 
-fn load_profile(state: &AppState, profile_id: i64) -> Result<(String, String, String, String), String> {
+fn load_profile(
+    state: &AppState,
+    profile_id: i64,
+) -> Result<(String, String, String, String), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     db.conn
         .query_row(
@@ -509,7 +522,6 @@ http://stream.example/3
         assert_eq!(entries[2].name, "Named Only");
         assert_eq!(entries.len(), 3);
     }
-
 
     #[test]
     fn xtream_api_url_encodes_credentials_and_trims_server_slashes() {

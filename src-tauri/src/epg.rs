@@ -101,7 +101,11 @@ pub fn parse_xmltv_time(value: &str) -> Option<i64> {
     }
     let field = |range: std::ops::Range<usize>| digits.get(range)?.parse::<u32>().ok();
     let date = chrono::NaiveDate::from_ymd_opt(field(0..4)? as i32, field(4..6)?, field(6..8)?)?;
-    let seconds = if digits.len() >= 14 { field(12..14)? } else { 0 };
+    let seconds = if digits.len() >= 14 {
+        field(12..14)?
+    } else {
+        0
+    };
     let time = chrono::NaiveTime::from_hms_opt(field(8..10)?, field(10..12)?, seconds)?;
     let local = date.and_time(time).and_utc().timestamp();
 
@@ -137,7 +141,9 @@ pub fn channel_name_key(name: &str) -> String {
             text = rest.trim();
         }
     }
-    const QUALITY: [&str; 9] = ["hd", "fhd", "uhd", "sd", "4k", "hevc", "h265", "1080p", "720p"];
+    const QUALITY: [&str; 9] = [
+        "hd", "fhd", "uhd", "sd", "4k", "hevc", "h265", "1080p", "720p",
+    ];
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty() && !QUALITY.contains(word))
         .collect::<Vec<_>>()
@@ -149,7 +155,11 @@ fn attribute(start: &BytesStart, key: &[u8]) -> Option<String> {
         .attributes()
         .flatten()
         .find(|attr| attr.key.local_name().as_ref() == key)
-        .and_then(|attr| attr.unescape_value().ok().map(|value| value.trim().to_string()))
+        .and_then(|attr| {
+            attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .ok()
+                .map(|value| value.trim().to_string())
+        })
         .filter(|value| !value.is_empty())
 }
 
@@ -167,7 +177,6 @@ pub fn parse_xmltv<R: BufRead>(
 ) -> Result<(), String> {
     let mut reader = Reader::from_reader(input);
     reader.config_mut().check_end_names = false;
-    reader.config_mut().trim_text(true);
 
     let mut buf = Vec::new();
     let mut text = String::new();
@@ -188,8 +197,12 @@ pub fn parse_xmltv<R: BufRead>(
                     }
                     b"programme" => {
                         let times = (
-                            attribute(&start, b"start").as_deref().and_then(parse_xmltv_time),
-                            attribute(&start, b"stop").as_deref().and_then(parse_xmltv_time),
+                            attribute(&start, b"start")
+                                .as_deref()
+                                .and_then(parse_xmltv_time),
+                            attribute(&start, b"stop")
+                                .as_deref()
+                                .and_then(parse_xmltv_time),
                             attribute(&start, b"channel"),
                         );
                         programme = match times {
@@ -345,8 +358,18 @@ pub fn mask_credentials(url: &str) -> String {
     let pairs: Vec<(String, String)> = parsed
         .query_pairs()
         .map(|(key, value)| {
-            let hidden = matches!(key.to_ascii_lowercase().as_str(), "password" | "username" | "pass" | "user" | "token");
-            (key.into_owned(), if hidden { "•••".to_string() } else { value.into_owned() })
+            let hidden = matches!(
+                key.to_ascii_lowercase().as_str(),
+                "password" | "username" | "pass" | "user" | "token"
+            );
+            (
+                key.into_owned(),
+                if hidden {
+                    "•••".to_string()
+                } else {
+                    value.into_owned()
+                },
+            )
         })
         .collect();
     if !pairs.is_empty() {
@@ -386,7 +409,11 @@ pub fn upsert_source(
     };
     if let Some(id) = db
         .conn
-        .query_row("SELECT id FROM epg_sources WHERE url = ?1", params![url], |row| row.get(0))
+        .query_row(
+            "SELECT id FROM epg_sources WHERE url = ?1",
+            params![url],
+            |row| row.get(0),
+        )
         .optional()
         .map_err(|error| error.to_string())?
     {
@@ -435,7 +462,9 @@ pub fn delete_source(db: &Database, id: i64) -> Result<(), String> {
         "DELETE FROM epg_channels WHERE source_id = ?1",
         "DELETE FROM epg_sources WHERE id = ?1",
     ] {
-        db.conn.execute(sql, params![id]).map_err(|error| error.to_string())?;
+        db.conn
+            .execute(sql, params![id])
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -452,7 +481,8 @@ pub struct GuideData {
 pub fn read_guide_file(file: &mut std::fs::File, now: i64) -> Result<GuideData, String> {
     let mut magic = [0u8; 2];
     let read = file.read(&mut magic).map_err(|error| error.to_string())?;
-    file.seek(SeekFrom::Start(0)).map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
     let input: Box<dyn Read + '_> = if read == 2 && magic == [0x1f, 0x8b] {
         Box::new(GzDecoder::new(&mut *file))
     } else {
@@ -475,18 +505,30 @@ pub fn read_guide<R: BufRead>(input: R, now: i64) -> Result<GuideData, String> {
         },
     )?;
     if data.channels.is_empty() && data.programmes.is_empty() {
-        return Err("The guide had no channels or programmes. Check that the URL points to an XMLTV file.".into());
+        return Err(
+            "The guide had no channels or programmes. Check that the URL points to an XMLTV file."
+                .into(),
+        );
     }
     Ok(data)
 }
 
 /// Replaces a source's channels and programmes in one transaction.
 pub fn store_guide(db: &Database, source_id: i64, data: &GuideData) -> Result<(), String> {
-    let tx = db.conn.unchecked_transaction().map_err(|error| error.to_string())?;
-    tx.execute("DELETE FROM epg_programmes WHERE source_id = ?1", params![source_id])
+    let tx = db
+        .conn
+        .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    tx.execute("DELETE FROM epg_channels WHERE source_id = ?1", params![source_id])
-        .map_err(|error| error.to_string())?;
+    tx.execute(
+        "DELETE FROM epg_programmes WHERE source_id = ?1",
+        params![source_id],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.execute(
+        "DELETE FROM epg_channels WHERE source_id = ?1",
+        params![source_id],
+    )
+    .map_err(|error| error.to_string())?;
     {
         let mut insert_channel = tx
             .prepare(
@@ -571,7 +613,11 @@ pub struct GuideProgramme {
 
 /// Guide channel ids for a live channel: its own EPG id when the guide knows
 /// it, otherwise every guide channel whose display name matches.
-fn resolve_channel_keys(db: &Database, epg_id: Option<&str>, name: &str) -> Result<Vec<String>, String> {
+fn resolve_channel_keys(
+    db: &Database,
+    epg_id: Option<&str>,
+    name: &str,
+) -> Result<Vec<String>, String> {
     if let Some(id) = epg_id.map(str::trim).filter(|id| !id.is_empty()) {
         let id = id.to_lowercase();
         let known: bool = db
@@ -673,7 +719,11 @@ async fn download_to_temp(url: &str) -> Result<TempGuide, String> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(20))
         .timeout(Duration::from_secs(600))
-        .user_agent(concat!("CinaVault-Premium/", env!("CARGO_PKG_VERSION"), " (Live TV guide)"))
+        .user_agent(concat!(
+            "CinaVault-Premium/",
+            env!("CARGO_PKG_VERSION"),
+            " (Live TV guide)"
+        ))
         .build()
         .map_err(|error| error.to_string())?;
     let mut response = client
@@ -684,14 +734,20 @@ async fn download_to_temp(url: &str) -> Result<TempGuide, String> {
     if !response.status().is_success() {
         return Err(format!("The guide server answered {}", response.status()));
     }
-    let path = std::env::temp_dir().join(format!("cinavault-epg-{}.xml", uuid::Uuid::new_v4().simple()));
+    let path = std::env::temp_dir().join(format!(
+        "cinavault-epg-{}.xml",
+        uuid::Uuid::new_v4().simple()
+    ));
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create_new(true)
         .open(&path)
         .map_err(|error| format!("Could not create a temp file for the guide: {error}"))?;
-    let mut guide = TempGuide { file: Some(file), path };
+    let mut guide = TempGuide {
+        file: Some(file),
+        path,
+    };
     let file = guide.file.as_mut().expect("file is set above");
     let mut total: u64 = 0;
     while let Some(chunk) = response
@@ -706,7 +762,8 @@ async fn download_to_temp(url: &str) -> Result<TempGuide, String> {
         file.write_all(&chunk).map_err(|error| error.to_string())?;
     }
     file.flush().map_err(|error| error.to_string())?;
-    file.seek(SeekFrom::Start(0)).map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
     Ok(guide)
 }
 
@@ -721,7 +778,11 @@ pub async fn sync_source_by_id(state: &AppState, source_id: i64) -> Result<SyncR
     let url: String = {
         let db = state.db.lock().map_err(|error| error.to_string())?;
         db.conn
-            .query_row("SELECT url FROM epg_sources WHERE id = ?1", params![source_id], |row| row.get(0))
+            .query_row(
+                "SELECT url FROM epg_sources WHERE id = ?1",
+                params![source_id],
+                |row| row.get(0),
+            )
             .map_err(|_| "Guide source not found".to_string())?
     };
     let outcome = async {
@@ -731,8 +792,8 @@ pub async fn sync_source_by_id(state: &AppState, source_id: i64) -> Result<SyncR
             let file = guide.file.as_mut().ok_or("Guide download was lost")?;
             read_guide_file(file, now)
         })
-            .await
-            .map_err(|error| error.to_string())?
+        .await
+        .map_err(|error| error.to_string())?
     }
     .await;
     let db = state.db.lock().map_err(|error| error.to_string())?;
@@ -779,10 +840,13 @@ pub async fn sync_epg_source(state: State<'_, AppState>, id: i64) -> Result<Sync
 
 /// Refreshes enabled sources never synced or older than 12 hours.
 #[tauri::command]
-pub async fn sync_stale_epg_sources(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn sync_stale_epg_sources(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
     let stale: Vec<i64> = {
         let db = state.db.lock().map_err(|error| error.to_string())?;
-        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(STALE_AFTER_SECS)).to_rfc3339();
+        let cutoff =
+            (chrono::Utc::now() - chrono::Duration::seconds(STALE_AFTER_SECS)).to_rfc3339();
         let mut stmt = db
             .conn
             .prepare("SELECT id FROM epg_sources WHERE enabled = 1 AND (last_synced IS NULL OR last_synced < ?1)")
@@ -790,7 +854,8 @@ pub async fn sync_stale_epg_sources(state: State<'_, AppState>) -> Result<serde_
         let rows = stmt
             .query_map(params![cutoff], |row| row.get(0))
             .map_err(|error| error.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
     };
     let mut synced = 0;
     let mut failed = Vec::new();
@@ -812,7 +877,13 @@ pub fn get_channel_guide(
 ) -> Result<Vec<GuideProgramme>, String> {
     let db = state.db.lock().map_err(|error| error.to_string())?;
     let now = chrono::Utc::now().timestamp();
-    channel_guide(&db, epg_id.as_deref(), &name, now, limit.unwrap_or(24).clamp(1, 200))
+    channel_guide(
+        &db,
+        epg_id.as_deref(),
+        &name,
+        now,
+        limit.unwrap_or(24).clamp(1, 200),
+    )
 }
 
 /// What is on now for many channels at once (the channel list).
@@ -894,7 +965,10 @@ mod tests {
         assert_eq!(channel_name_key("[DE] ZDF FHD"), "zdf");
         assert_eq!(channel_name_key("US | ESPN 2"), "espn2");
         assert_eq!(channel_name_key("FR - TF1 4K"), "tf1");
-        assert_eq!(channel_name_key("Sky Sports: Main Event"), "skysportsmainevent");
+        assert_eq!(
+            channel_name_key("Sky Sports: Main Event"),
+            "skysportsmainevent"
+        );
     }
 
     #[test]
@@ -903,18 +977,34 @@ mod tests {
         assert_eq!(
             data.channels,
             vec![
-                XmltvChannel { id: "bbc1.uk".into(), display_name: "BBC One HD".into() },
-                XmltvChannel { id: "news.example".into(), display_name: "World News".into() },
+                XmltvChannel {
+                    id: "bbc1.uk".into(),
+                    display_name: "BBC One HD".into()
+                },
+                XmltvChannel {
+                    id: "news.example".into(),
+                    display_name: "World News".into()
+                },
             ]
         );
-        assert_eq!(data.programmes.len(), 3, "the programme with a bad start is skipped");
+        assert_eq!(
+            data.programmes.len(),
+            3,
+            "the programme with a bad start is skipped"
+        );
         let first = &data.programmes[0];
         assert_eq!(first.title, "Bargain Hunt");
-        assert_eq!(first.description.as_deref(), Some("Teams & experts compete."));
+        assert_eq!(
+            first.description.as_deref(),
+            Some("Teams & experts compete.")
+        );
         assert_eq!(first.category.as_deref(), Some("Game show"));
         assert_eq!(first.episode.as_deref(), Some("S4 E12"));
         assert_eq!(data.programmes[1].title, "News at One");
-        assert_eq!(data.programmes[1].sub_title.as_deref(), Some("Lunchtime edition"));
+        assert_eq!(
+            data.programmes[1].sub_title.as_deref(),
+            Some("Lunchtime edition")
+        );
     }
 
     #[test]
@@ -937,7 +1027,8 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(SAMPLE.as_bytes()).unwrap();
         let compressed = encoder.finish().unwrap();
-        let path = std::env::temp_dir().join(format!("epg-test-{}.gz", uuid::Uuid::new_v4().simple()));
+        let path =
+            std::env::temp_dir().join(format!("epg-test-{}.gz", uuid::Uuid::new_v4().simple()));
         std::fs::write(&path, compressed).unwrap();
         let mut file = std::fs::File::open(&path).unwrap();
         let data = read_guide_file(&mut file, ts("20261011133000")).unwrap();
@@ -948,11 +1039,15 @@ mod tests {
 
     #[test]
     fn credentials_are_masked_in_listed_urls() {
-        let masked = mask_credentials("http://tv.example:8080/xmltv.php?username=me&password=s3cret");
+        let masked =
+            mask_credentials("http://tv.example:8080/xmltv.php?username=me&password=s3cret");
         assert!(!masked.contains("s3cret"), "{masked}");
         assert!(!masked.contains("=me"), "{masked}");
         assert!(masked.starts_with("http://tv.example:8080/xmltv.php?"));
-        assert_eq!(mask_credentials("https://epg.example/guide.xml.gz"), "https://epg.example/guide.xml.gz");
+        assert_eq!(
+            mask_credentials("https://epg.example/guide.xml.gz"),
+            "https://epg.example/guide.xml.gz"
+        );
     }
 
     #[test]
@@ -966,7 +1061,10 @@ mod tests {
         let db = Database::new(":memory:").unwrap();
         ensure_tables(&db).unwrap();
         let source = upsert_source(&db, "Test", "https://epg.example/a.xml", None).unwrap();
-        assert_eq!(upsert_source(&db, "Again", "https://epg.example/a.xml", None).unwrap(), source);
+        assert_eq!(
+            upsert_source(&db, "Again", "https://epg.example/a.xml", None).unwrap(),
+            source
+        );
         let data = read_guide(SAMPLE.as_bytes(), ts("20261011133000")).unwrap();
         store_guide(&db, source, &data).unwrap();
         (db, source)
@@ -984,7 +1082,9 @@ mod tests {
         );
         let by_name = channel_guide(&db, Some("unknown.id"), "UK | BBC One", now, 10).unwrap();
         assert_eq!(by_name, by_id);
-        assert!(channel_guide(&db, None, "Nothing Here", now, 10).unwrap().is_empty());
+        assert!(channel_guide(&db, None, "Nothing Here", now, 10)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -992,12 +1092,23 @@ mod tests {
         let (db, _) = guide_db();
         let now = ts("20261011133000");
         let refs = vec![
-            GuideChannelRef { key: "7".into(), epg_id: Some("bbc1.uk".into()), name: "BBC One".into() },
-            GuideChannelRef { key: "8".into(), epg_id: None, name: "World News".into() },
+            GuideChannelRef {
+                key: "7".into(),
+                epg_id: Some("bbc1.uk".into()),
+                name: "BBC One".into(),
+            },
+            GuideChannelRef {
+                key: "8".into(),
+                epg_id: None,
+                name: "World News".into(),
+            },
         ];
         let map = now_playing(&db, &refs, now).unwrap();
         assert_eq!(map.get("7").map(|p| p.title.as_str()), Some("News at One"));
-        assert!(!map.contains_key("8"), "a channel with no programmes has nothing on now");
+        assert!(
+            !map.contains_key("8"),
+            "a channel with no programmes has nothing on now"
+        );
     }
 
     #[test]
@@ -1010,7 +1121,10 @@ mod tests {
         assert!(listed[0].last_synced.is_some());
         delete_source(&db, source).unwrap();
         assert!(list_sources(&db).unwrap().is_empty());
-        let left: i64 = db.conn.query_row("SELECT COUNT(*) FROM epg_programmes", [], |r| r.get(0)).unwrap();
+        let left: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM epg_programmes", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(left, 0);
     }
 }
