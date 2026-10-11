@@ -2,6 +2,7 @@ use crate::api_keys_server;
 use crate::build_identity;
 use crate::db::{Database, MediaItem, RemoteAccessPrincipal};
 use crate::metadata_provider_config;
+use crate::remote_agent;
 use crate::server_access::{self, ClientOrigin, ServerSwitches};
 use crate::server_cache::{self, ArtworkLru, CachedArtwork};
 use crate::shared_contracts::{
@@ -597,6 +598,87 @@ async fn library_item(
     library_json(&item, &headers, switches.cache.as_ref())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentChatRequest {
+    message: String,
+}
+
+/// Each signed-in account (or API key) keeps its own phone conversation.
+fn agent_account(principal: &RemoteAccessPrincipal) -> String {
+    format!("{}:{}", principal.auth_method, principal.id)
+}
+
+fn agent_error(error: remote_agent::RemoteAgentError) -> (StatusCode, String) {
+    use remote_agent::RemoteAgentError as E;
+    let status = match &error {
+        E::Disabled => StatusCode::FORBIDDEN,
+        E::NotConfigured => StatusCode::SERVICE_UNAVAILABLE,
+        E::Busy => StatusCode::CONFLICT,
+        E::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+        E::BadRequest(_) => StatusCode::BAD_REQUEST,
+        E::Failed(_) => StatusCode::BAD_GATEWAY,
+    };
+    (status, error.message())
+}
+
+fn no_store_json<T: Serialize>(value: &T) -> Response<Body> {
+    let mut response = Json(value).into_response();
+    hardened_response_headers(&mut response);
+    response
+}
+
+async fn agent_status(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "library:read").await?;
+    let status = remote_agent::status(&state.database_path).map_err(agent_error)?;
+    Ok(no_store_json(&status))
+}
+
+async fn agent_chat(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+    Json(request): Json<AgentChatRequest>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let principal = authenticated_principal(&state, &headers, "library:read").await?;
+    let switches = state.switches();
+    let reply = remote_agent::chat(
+        &state.database_path,
+        switches.library_filter.as_deref(),
+        &agent_account(&principal),
+        &request.message,
+    )
+    .await
+    .map_err(agent_error)?;
+    Ok(no_store_json(&reply))
+}
+
+async fn agent_reset(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let principal = authenticated_principal(&state, &headers, "library:read").await?;
+    remote_agent::reset(&agent_account(&principal));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The owner's agent face (photo plus eye and mouth markers), so phones show the same head.
+async fn agent_face(
+    State(state): State<Arc<HttpState>>,
+    headers: HeaderMap,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    authenticated_principal(&state, &headers, "library:read").await?;
+    let app_data = FilePath::new(&state.database_path)
+        .parent()
+        .ok_or((StatusCode::NOT_FOUND, "No agent face is set".into()))?;
+    let avatar = crate::agent_avatar::avatar_in_app_data(app_data)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+        .ok_or((StatusCode::NOT_FOUND, "No agent face is set".into()))?;
+    Ok(no_store_json(&avatar))
+}
+
 fn content_type(path: &FilePath) -> &'static str {
     match path
         .extension()
@@ -984,7 +1066,11 @@ pub(crate) fn router(database_path: String) -> Router {
         .route("/api/artwork/{media_key}", get(artwork_media))
         .route("/api/artwork/{media_key}/{kind}", get(artwork_media_kind))
         .route("/api/transcode/{media_key}", get(transcode_media))
-        .route("/api/stream/{media_key}", get(stream_media));
+        .route("/api/stream/{media_key}", get(stream_media))
+        .route("/api/agent/status", get(agent_status))
+        .route("/api/agent/chat", post(agent_chat))
+        .route("/api/agent/reset", post(agent_reset))
+        .route("/api/agent/face", get(agent_face));
     with_access_rules(routes, state)
 }
 
@@ -1057,6 +1143,133 @@ mod integration_tests {
             imdb_id: None,
             source_id: None,
         }
+    }
+
+    #[tokio::test]
+    async fn phones_reach_the_agent_and_its_face_only_when_signed_in() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-agent-http-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create temporary app data");
+        let database_path = dir.join("cinavault.db").to_string_lossy().into_owned();
+        let database = Database::new(&database_path).expect("create temporary database");
+        let provision = database
+            .create_remote_access_user(
+                "phone@example.com",
+                &format!("Pw-{}!", uuid::Uuid::new_v4().simple()),
+                Some("Phone"),
+            )
+            .expect("provision remote user");
+        drop(database);
+
+        let client = reqwest::Client::new();
+        let (base_url, shutdown) = spawn_test_server(database_path.clone()).await;
+        let anonymous = client
+            .get(format!("{base_url}/api/agent/status"))
+            .send()
+            .await
+            .expect("request status anonymously");
+        assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+        let anonymous_chat = client
+            .post(format!("{base_url}/api/agent/chat"))
+            .json(&serde_json::json!({ "message": "hi" }))
+            .send()
+            .await
+            .expect("chat anonymously");
+        assert_eq!(anonymous_chat.status(), StatusCode::UNAUTHORIZED);
+
+        let login: Value = client
+            .post(format!("{base_url}/api/auth/access-key"))
+            .json(&serde_json::json!({ "accessKey": provision.access_key }))
+            .send()
+            .await
+            .expect("log in")
+            .json()
+            .await
+            .expect("decode login");
+        let token = login["session_token"].as_str().expect("session token");
+
+        let status: Value = client
+            .get(format!("{base_url}/api/agent/status"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request status")
+            .error_for_status()
+            .expect("authorized status")
+            .json()
+            .await
+            .expect("decode status");
+        assert_eq!(status["enabled"], true);
+        assert_eq!(status["hasFace"], false);
+
+        let no_face = client
+            .get(format!("{base_url}/api/agent/face"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request missing face");
+        assert_eq!(no_face.status(), StatusCode::NOT_FOUND);
+
+        let avatar_dir = dir.join("agent-avatar");
+        std::fs::create_dir_all(&avatar_dir).expect("create avatar folder");
+        image::RgbImage::from_pixel(64, 80, image::Rgb([180, 140, 120]))
+            .save(avatar_dir.join("portrait.jpg"))
+            .expect("write portrait");
+        std::fs::write(
+            avatar_dir.join("calibration.json"),
+            r#"{"leftEye":{"x":0.4,"y":0.4},"rightEye":{"x":0.6,"y":0.4},"mouth":{"x":0.5,"y":0.65}}"#,
+        )
+        .expect("write markers");
+        let face = client
+            .get(format!("{base_url}/api/agent/face"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("request face");
+        assert_eq!(face.status(), StatusCode::OK);
+        assert_eq!(
+            face.headers()[header::CACHE_CONTROL],
+            "private, no-store, max-age=0"
+        );
+        let face: Value = face.json().await.expect("decode face");
+        assert!(face["dataUrl"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/jpeg;base64,"));
+        assert_eq!(face["calibration"]["mouth"]["y"], 0.65);
+
+        let empty = client
+            .post(format!("{base_url}/api/agent/chat"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "message": "   " }))
+            .send()
+            .await
+            .expect("send empty message");
+        assert_eq!(empty.status(), StatusCode::BAD_REQUEST);
+
+        Database::new(&database_path)
+            .expect("reopen database")
+            .set_setting_data(remote_agent::ENABLED_SETTING, "false")
+            .expect("turn phone agent off");
+        let disabled = client
+            .post(format!("{base_url}/api/agent/chat"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "message": "what's new?" }))
+            .send()
+            .await
+            .expect("chat while disabled");
+        assert_eq!(disabled.status(), StatusCode::FORBIDDEN);
+
+        let reset = client
+            .post(format!("{base_url}/api/agent/reset"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .expect("reset conversation");
+        assert_eq!(reset.status(), StatusCode::NO_CONTENT);
+
+        let _ = shutdown.send(());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

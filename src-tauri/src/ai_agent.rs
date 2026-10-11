@@ -30,19 +30,19 @@ const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
 const KEY_ENV: &str = "ANTHROPIC_API_KEY";
 const KEYCHAIN_ID: &str = "anthropic";
-const MODEL_SETTING: &str = "ai_agent_model";
+pub(crate) const MODEL_SETTING: &str = "ai_agent_model";
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 pub const DEFAULT_MODEL: &str = "claude-opus-5-5";
 pub const ALLOWED_MODELS: [&str; 3] = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
 const MAX_TOKENS: u32 = 16_000;
-const MAX_TOOL_ROUNDS: usize = 8;
+pub(crate) const MAX_TOOL_ROUNDS: usize = 8;
 /// Past this size the conversation starts over from the newest exchange.
 const MAX_HISTORY_MESSAGES: usize = 60;
-const MAX_MESSAGE_CHARS: usize = 8_000;
+pub(crate) const MAX_MESSAGE_CHARS: usize = 8_000;
 /// The Messages API rejects images whose base64 data exceeds 5 MB; uploads are checked before sending.
 const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 const POSTER_MAX_SIDE: u32 = 1024;
-const MAX_SEARCH_RESULTS: usize = 25;
+pub(crate) const MAX_SEARCH_RESULTS: usize = 25;
 
 const SYSTEM_PROMPT: &str = "You are the CinaVault agent, the holographic assistant built into \
 CinaVault Premium, a desktop media server and player. You help the user find things in their \
@@ -208,7 +208,7 @@ impl Drop for BusyGuard {
 
 // ── Key and model ──
 
-fn resolve_api_key() -> Result<Option<(String, &'static str)>, String> {
+pub(crate) fn resolve_api_key() -> Result<Option<(String, &'static str)>, String> {
     if let Ok(key) = std::env::var(KEY_ENV) {
         if !key.trim().is_empty() {
             return Ok(Some((key.trim().to_string(), "env")));
@@ -246,6 +246,22 @@ fn selected_model(state: &AppState) -> String {
 }
 
 // ── Request building ──
+
+/// The read-only tools a phone may use: nothing that acts, and no posters.
+pub(crate) const REMOTE_TOOLS: [&str; 3] = ["search_library", "library_overview", "get_media_item"];
+
+pub(crate) fn remote_tool_definitions() -> Value {
+    let tools = tool_definitions();
+    Value::Array(
+        tools
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|tool| REMOTE_TOOLS.contains(&tool["name"].as_str().unwrap_or_default()))
+            .cloned()
+            .collect(),
+    )
+}
 
 fn tool_definitions() -> Value {
     json!([
@@ -399,15 +415,24 @@ fn supports_fallback(model: &str) -> bool {
 }
 
 pub fn build_request_body(model: &str, messages: &[Value]) -> Value {
+    build_request_body_with(model, SYSTEM_PROMPT, tool_definitions(), messages)
+}
+
+pub(crate) fn build_request_body_with(
+    model: &str,
+    system: &str,
+    tools: Value,
+    messages: &[Value],
+) -> Value {
     let mut body = json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
         "system": [{
             "type": "text",
-            "text": SYSTEM_PROMPT,
+            "text": system,
             "cache_control": {"type": "ephemeral"}
         }],
-        "tools": tool_definitions(),
+        "tools": tools,
         "messages": messages,
     });
     // Set explicitly: Opus 5.5 and Haiku 5.5 default to medium, Sonnet 5.5 to high.
@@ -477,7 +502,7 @@ pub fn trim_history(messages: &mut Vec<Value>, limit: usize) {
     }
 }
 
-fn final_text(content: &[Value]) -> String {
+pub(crate) fn final_text(content: &[Value]) -> String {
     content
         .iter()
         .filter(|b| b["type"] == "text")
@@ -496,11 +521,20 @@ fn visible_sql(db: &Database) -> String {
 }
 
 fn load_media_item(db: &Database, id: i64) -> Result<Option<MediaItem>, String> {
+    load_media_item_in(db, &visible_sql(db), id)
+}
+
+/// Same, with the visibility rule supplied by the caller (the remote agent
+/// uses the server's library filter rather than the desktop's active profile).
+pub(crate) fn load_media_item_in(
+    db: &Database,
+    filter: &str,
+    id: i64,
+) -> Result<Option<MediaItem>, String> {
     let mut stmt = db
         .conn
         .prepare(&format!(
-            "SELECT * FROM media_items WHERE id = ?1 AND {}",
-            visible_sql(db)
+            "SELECT * FROM media_items WHERE id = ?1 AND {filter}"
         ))
         .map_err(|e| e.to_string())?;
     let mut rows = stmt
@@ -529,7 +563,7 @@ fn summarize(item: &MediaItem) -> Value {
     })
 }
 
-fn details(item: &MediaItem) -> Value {
+pub(crate) fn details(item: &MediaItem) -> Value {
     let mut value = summarize(item);
     let overview: String = item
         .overview
@@ -552,13 +586,21 @@ fn details(item: &MediaItem) -> Value {
 }
 
 fn search_library(db: &Database, query: &str, limit: usize) -> Result<Value, String> {
+    search_library_in(db, &visible_sql(db), query, limit)
+}
+
+pub(crate) fn search_library_in(
+    db: &Database,
+    filter: &str,
+    query: &str,
+    limit: usize,
+) -> Result<Value, String> {
     let query = query.trim();
     if query.is_empty() {
         return Err("query must not be empty".into());
     }
-    let visible_clause = visible_sql(db);
     let items = db
-        .search_media_visible(query, Some(&visible_clause))
+        .search_media_visible(query, Some(filter))
         .map_err(|e| e.to_string())?;
     let visible: Vec<&MediaItem> = items.iter().filter(|i| visible_in_edition(i)).collect();
     let results: Vec<Value> = visible.iter().take(limit).map(|i| summarize(i)).collect();
@@ -566,12 +608,15 @@ fn search_library(db: &Database, query: &str, limit: usize) -> Result<Value, Str
 }
 
 fn library_overview(db: &Database) -> Result<Value, String> {
+    library_overview_in(db, &visible_sql(db))
+}
+
+pub(crate) fn library_overview_in(db: &Database, filter: &str) -> Result<Value, String> {
     let mut counts: HashMap<String, i64> = HashMap::new();
     let mut stmt = db
         .conn
         .prepare(&format!(
-            "SELECT media_type, COUNT(*) FROM media_items WHERE {} GROUP BY media_type",
-            visible_sql(db)
+            "SELECT media_type, COUNT(*) FROM media_items WHERE {filter} GROUP BY media_type"
         ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -588,7 +633,7 @@ fn library_overview(db: &Database) -> Result<Value, String> {
         *counts.entry(group).or_default() += count;
     }
     let recent: Vec<Value> = db
-        .get_recent_media_visible(30, Some(&visible_sql(db)))
+        .get_recent_media_visible(30, Some(filter))
         .map_err(|e| e.to_string())?
         .iter()
         .filter(|i| visible_in_edition(i))
@@ -816,7 +861,7 @@ fn http_client() -> Result<reqwest::Client, String> {
     Ok(CLIENT.get_or_init(|| client).clone())
 }
 
-async fn call_messages_api(api_key: &str, body: &Value) -> Result<Value, String> {
+pub(crate) async fn call_messages_api(api_key: &str, body: &Value) -> Result<Value, String> {
     let mut request = http_client()?
         .post(API_URL)
         .header("x-api-key", api_key)
