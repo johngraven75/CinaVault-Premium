@@ -1,6 +1,6 @@
 // CinaVault Premium — Live TV Tab (Xtream Codes / M3U playlists / EPG)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import { useAppStore } from "../../store/appStore";
 import {
@@ -16,12 +16,11 @@ import {
   Radio,
   RefreshCw,
   Search,
+  Settings,
   Trash2,
   Tv,
 } from "lucide-react";
-import { buildAddXtreamProfileArgs } from "../../utils/xtreamProfile";
 import {
-  buildAddM3uArgs,
   dayLabel,
   formatGuideTime,
   isPlayableUrl,
@@ -31,6 +30,9 @@ import {
   type GuideProgramme,
 } from "../../utils/iptvStream";
 import IPTVPlayer from "../IPTVPlayer";
+import IPTVSettingsPanel, { IptvSourceFields, type SettingsTab } from "../IPTVSettingsPanel";
+import { readPlayerSettings, savePlayerSettings, type PlayerSettings } from "../../utils/iptvPlayerSettings";
+import { EMPTY_SOURCE_FORM, LOGIN_TYPES, buildIptvSourceArgs, type IptvSourceForm } from "../../utils/iptvSource";
 import TabBanner from "../experience/TabBanner";
 
 interface LiveProfile {
@@ -41,7 +43,10 @@ interface LiveProfile {
   password: string;
   enabled: boolean;
   last_synced: string | null;
-  source_kind?: "xtream" | "m3u";
+  source_kind?: "xtream" | "m3u" | "stalker";
+  user_agent?: string | null;
+  referrer?: string | null;
+  has_secret?: boolean;
 }
 
 interface LiveChannel {
@@ -52,6 +57,15 @@ interface LiveChannel {
   logo_url: string | null;
   group_name: string | null;
   epg_id: string | null;
+  user_agent?: string | null;
+  referrer?: string | null;
+}
+
+/** What the player opens: resolve_live_stream's answer for saved channels. */
+interface Playback {
+  url: string;
+  user_agent: string | null;
+  referrer: string | null;
 }
 
 interface EpgSource {
@@ -66,7 +80,6 @@ interface EpgSource {
   programme_count: number;
 }
 
-type SourceType = "xtream" | "m3u";
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -97,6 +110,91 @@ function epgSourceSummary(source: EpgSource): string {
   return `${source.programme_count.toLocaleString()} programmes · ${source.channel_count.toLocaleString()} channels · synced ${synced}`;
 }
 
+function findProfile(profiles: LiveProfile[], id: number | null | undefined): LiveProfile | null {
+  return id == null ? null : profiles.find((p) => p.id === id) ?? null;
+}
+
+function sourceSummary(profile: LiveProfile): string {
+  const labels: Record<string, string> = {
+    m3u: "M3U playlist",
+    stalker: `Stalker portal · ${profile.server_url}`,
+  };
+  const base = labels[profile.source_kind ?? ""] ?? profile.server_url;
+  return profile.user_agent || profile.referrer ? `${base} · custom headers` : base;
+}
+
+interface PlayerStageProps {
+  playback: Playback | null;
+  error: string | null;
+  title: string;
+  subtitle: string | null;
+  reloadKey: number;
+  settings: PlayerSettings;
+  onSettingsChange: (settings: PlayerSettings) => void;
+  source: LiveProfile | null;
+  /** Open tab of the in-player settings overlay, or null when closed. */
+  settingsTab: SettingsTab | null;
+  onSettingsTabChange: (tab: SettingsTab) => void;
+  onSaveSource: (id: number, form: IptvSourceForm) => Promise<void>;
+  onCloseSettings: () => void;
+  onRetry: () => void;
+  onOpenSourceSettings: (id: number) => void;
+}
+
+/** The player, or why it cannot start yet (resolving the link, or an error). */
+function PlayerStage(props: Readonly<PlayerStageProps>) {
+  const { playback, error, source, settingsTab } = props;
+  if (error) {
+    return (
+      <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl bg-black px-6 text-center">
+        <p className="max-w-md text-sm text-white/90">{error}</p>
+        <div className="flex gap-2">
+          <button onClick={props.onRetry} className="cv-btn cv-btn-primary text-xs">
+            <RefreshCw size={12} /> Try again
+          </button>
+          {source && (
+            <button onClick={() => props.onOpenSourceSettings(source.id)} className="cv-btn cv-btn-secondary text-xs">
+              <Settings size={12} /> Source settings
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (!playback) {
+    return (
+      <div className="flex aspect-video items-center justify-center rounded-xl bg-black text-xs tracking-wide text-white/70">
+        Connecting to the source…
+      </div>
+    );
+  }
+  const overlay = settingsTab && (
+    <IPTVSettingsPanel
+      tab={settingsTab}
+      onTabChange={props.onSettingsTabChange}
+      settings={props.settings}
+      onSettingsChange={props.onSettingsChange}
+      source={source}
+      channelHeaders={{ userAgent: playback.user_agent, referrer: playback.referrer }}
+      onSaveSource={props.onSaveSource}
+      onClose={props.onCloseSettings}
+    />
+  );
+  return (
+    <IPTVPlayer
+      streamUrl={playback.url}
+      title={props.title}
+      subtitle={props.subtitle}
+      reloadKey={props.reloadKey}
+      userAgent={playback.user_agent}
+      referrer={playback.referrer}
+      settings={props.settings}
+      onOpenSettings={() => props.onSettingsTabChange("player")}
+      settingsOverlay={overlay}
+    />
+  );
+}
+
 export default function LiveTVTab() {
   const { addStatusMessage } = useAppStore();
   const now = useClock();
@@ -105,10 +203,15 @@ export default function LiveTVTab() {
   const [selectedProfile, setSelectedProfile] = useState<number | null>(null);
   const [channelSearch, setChannelSearch] = useState("");
   const [showAddProfile, setShowAddProfile] = useState(false);
-  const [sourceType, setSourceType] = useState<SourceType>("xtream");
-  const [newProfile, setNewProfile] = useState({ name: "", server_url: "", username: "", password: "" });
-  const [newPlaylist, setNewPlaylist] = useState({ name: "", url: "" });
+  const [newSource, setNewSource] = useState<IptvSourceForm>({ ...EMPTY_SOURCE_FORM });
   const [selectedChannel, setSelectedChannel] = useState<LiveChannel | null>(null);
+  const [playback, setPlayback] = useState<Playback | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [playerSettings, setPlayerSettings] = useState<PlayerSettings>(readPlayerSettings);
+  // Gear on the player (overlay) or on a source card (modal).
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const [settingsSourceId, setSettingsSourceId] = useState<number | null>(null);
   const [directUrl, setDirectUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -155,25 +258,30 @@ export default function LiveTVTab() {
 
   const addProfile = async () => {
     try {
-      if (sourceType === "m3u") {
-        const args = buildAddM3uArgs(newPlaylist);
-        const id = await invoke<number>("add_m3u_playlist", args);
-        addStatusMessage(`Playlist added: ${args.name}`);
-        setNewPlaylist({ name: "", url: "" });
-        setShowAddProfile(false);
-        await loadProfiles();
-        await syncStreams(id);
-      } else {
-        const profileArgs = buildAddXtreamProfileArgs(newProfile);
-        await invoke("add_xtream_profile", profileArgs);
-        addStatusMessage(`IPTV profile added: ${profileArgs.name}`);
-        setNewProfile({ name: "", server_url: "", username: "", password: "" });
-        setShowAddProfile(false);
-        await loadProfiles();
-      }
+      const args = buildIptvSourceArgs(newSource);
+      const id = await invoke<number>("add_iptv_source", args);
+      addStatusMessage(`Source added: ${args.source.name || LOGIN_TYPES.find((type) => type.id === newSource.kind)?.label}`);
+      setNewSource({ ...EMPTY_SOURCE_FORM, kind: newSource.kind });
+      setShowAddProfile(false);
+      await loadProfiles();
+      await syncStreams(id);
     } catch (e) {
       addStatusMessage(`Failed: ${errorText(e)}`);
     }
+  };
+
+  const saveSource = async (id: number, form: IptvSourceForm) => {
+    const args = buildIptvSourceArgs(form, { editing: true });
+    await invoke("update_iptv_source", { id, ...args });
+    addStatusMessage(`Source saved: ${args.source.name || "IPTV"}`);
+    await loadProfiles();
+    // Re-resolve and reconnect so new headers apply straight away.
+    if (selectedChannel?.profile_id === id) setReloadKey((value) => value + 1);
+  };
+
+  const changePlayerSettings = (next: PlayerSettings) => {
+    setPlayerSettings(next);
+    savePlayerSettings(next);
   };
 
   const removeProfile = async (id: number) => {
@@ -360,6 +468,40 @@ export default function LiveTVTab() {
     setSelectedChannel({ id: -1, profile_id: -1, name: "Direct stream", stream_url: url, logo_url: null, group_name: null, epg_id: null });
   };
 
+  // Saved channels ask the backend for the address and headers to play with
+  // (Stalker portals hand out a fresh link each time).
+  useEffect(() => {
+    setPlaybackError(null);
+    if (!selectedChannel) {
+      setPlayback(null);
+      return;
+    }
+    const direct: Playback = {
+      url: selectedChannel.stream_url,
+      user_agent: selectedChannel.user_agent ?? null,
+      referrer: selectedChannel.referrer ?? null,
+    };
+    if (selectedChannel.id < 0 || !isTauri()) {
+      setPlayback(direct);
+      return;
+    }
+    let cancelled = false;
+    setPlayback(null);
+    invoke<Playback>("resolve_live_stream", { channelId: selectedChannel.id })
+      .then((resolved) => !cancelled && setPlayback(resolved))
+      .catch((reason) => !cancelled && setPlaybackError(errorText(reason)));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChannel, reloadKey]);
+
+  const watchingSource = findProfile(profiles, selectedChannel?.profile_id);
+  const modalSource = findProfile(profiles, settingsSourceId);
+  const closeSettings = useCallback(() => {
+    setSettingsTab(null);
+    setSettingsSourceId(null);
+  }, []);
+
   const { current, upcoming } = splitGuide(guide, now);
   const watching = selectedChannel;
   const playerOpen = !!watching;
@@ -394,10 +536,24 @@ export default function LiveTVTab() {
               </div>
             </div>
             <div className="p-3">
-              <IPTVPlayer
-                streamUrl={watching.stream_url}
+              <PlayerStage
+                playback={playback}
+                error={playbackError}
                 title={watching.name}
                 subtitle={programmeSubtitle(current)}
+                reloadKey={reloadKey}
+                settings={playerSettings}
+                onSettingsChange={changePlayerSettings}
+                source={watchingSource}
+                settingsTab={settingsSourceId === null ? settingsTab : null}
+                onSettingsTabChange={setSettingsTab}
+                onSaveSource={saveSource}
+                onCloseSettings={closeSettings}
+                onRetry={() => setReloadKey((value) => value + 1)}
+                onOpenSourceSettings={(id) => {
+                  setSettingsSourceId(id);
+                  setSettingsTab("source");
+                }}
               />
               {current && (
                 <div className="mt-3 rounded-lg bg-white/[0.03] p-3">
@@ -509,53 +665,20 @@ export default function LiveTVTab() {
 
         {showAddProfile && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="glass-panel-2 mb-4 rounded-lg p-4">
-            <div className="mb-3 flex gap-1">
-              {(
-                [
-                  ["xtream", "Xtream Codes login"],
-                  ["m3u", "M3U playlist URL"],
-                ] as const
-              ).map(([value, label]) => (
+            <div className="mb-3 flex flex-wrap gap-1" role="tablist" aria-label="Login type">
+              {LOGIN_TYPES.map((type) => (
                 <button
-                  key={value}
-                  onClick={() => setSourceType(value)}
-                  className={`cv-btn text-xs ${sourceType === value ? "cv-btn-primary" : "cv-btn-secondary"}`}
+                  key={type.id}
+                  role="tab"
+                  aria-selected={newSource.kind === type.id}
+                  onClick={() => setNewSource({ ...newSource, kind: type.id, secret: "" })}
+                  className={`cv-btn text-xs ${newSource.kind === type.id ? "cv-btn-primary" : "cv-btn-secondary"}`}
                 >
-                  {label}
+                  {type.label}
                 </button>
               ))}
             </div>
-            {sourceType === "xtream" ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="section-label">Profile Name</label>
-                  <input value={newProfile.name} onChange={(e) => setNewProfile({ ...newProfile, name: e.target.value })} className="cv-input" placeholder="My IPTV" />
-                </div>
-                <div>
-                  <label className="section-label">Server URL</label>
-                  <input value={newProfile.server_url} onChange={(e) => setNewProfile({ ...newProfile, server_url: e.target.value })} className="cv-input" placeholder="https://provider.com:8080" />
-                </div>
-                <div>
-                  <label className="section-label">Username</label>
-                  <input value={newProfile.username} onChange={(e) => setNewProfile({ ...newProfile, username: e.target.value })} className="cv-input" />
-                </div>
-                <div>
-                  <label className="section-label">Password</label>
-                  <input type="password" value={newProfile.password} onChange={(e) => setNewProfile({ ...newProfile, password: e.target.value })} className="cv-input" />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-[1fr_2fr] gap-3">
-                <div>
-                  <label htmlFor="m3u-playlist-name" className="section-label">Name</label>
-                  <input id="m3u-playlist-name" value={newPlaylist.name} onChange={(e) => setNewPlaylist({ ...newPlaylist, name: e.target.value })} className="cv-input" placeholder="My playlist" />
-                </div>
-                <div>
-                  <label htmlFor="m3u-playlist-url" className="section-label">Playlist URL (M3U / M3U8)</label>
-                  <input id="m3u-playlist-url" value={newPlaylist.url} onChange={(e) => setNewPlaylist({ ...newPlaylist, url: e.target.value })} className="cv-input" placeholder="https://provider.com/get.php?username=…&type=m3u_plus" />
-                </div>
-              </div>
-            )}
+            <IptvSourceFields form={newSource} onChange={setNewSource} idPrefix="iptv-new" />
             <div className="mt-3 flex gap-2">
               <button onClick={addProfile} className="cv-btn cv-btn-primary text-xs">
                 <Plus size={12} /> Save
@@ -585,7 +708,7 @@ export default function LiveTVTab() {
                   <span className={`status-dot ${p.enabled ? "online" : "offline"}`} />
                 </div>
                 <div className="mb-3 truncate text-[10px] text-cv-subtext">
-                  {p.source_kind === "m3u" ? "M3U playlist" : p.server_url}
+                  {sourceSummary(p)}
                   {p.last_synced ? ` · synced ${new Date(p.last_synced).toLocaleString()}` : " · not synced yet"}
                 </div>
                 <div className="flex gap-1">
@@ -608,6 +731,18 @@ export default function LiveTVTab() {
                     className="cv-btn cv-btn-secondary px-2 py-1 text-[10px]"
                   >
                     <Calendar size={10} className={busy === `epg-${p.id}` ? "animate-spin" : ""} /> EPG
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSettingsSourceId(p.id);
+                      setSettingsTab("source");
+                    }}
+                    className="cv-btn cv-btn-secondary px-2 py-1 text-[10px]"
+                    aria-label={`Settings for ${p.name}`}
+                    title="Login and headers"
+                  >
+                    <Settings size={10} />
                   </button>
                   <button
                     onClick={(e) => {
@@ -735,6 +870,19 @@ export default function LiveTVTab() {
           </div>
         </div>
       )}
+
+      {settingsTab && modalSource && (
+        <IPTVSettingsPanel
+          variant="modal"
+          tab={settingsTab}
+          onTabChange={setSettingsTab}
+          settings={playerSettings}
+          onSettingsChange={changePlayerSettings}
+          source={modalSource}
+          onSaveSource={saveSource}
+          onClose={closeSettings}
+        />
+      )}
     </div>
   );
 }
@@ -745,7 +893,7 @@ const DEMO_PROFILES: LiveProfile[] = [
     name: "Premium IPTV",
     server_url: "http://iptv.example.com:8080",
     username: "user",
-    password: "pass",
+    password: "",
     enabled: true,
     last_synced: null,
     source_kind: "xtream",

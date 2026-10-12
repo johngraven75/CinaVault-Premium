@@ -4,8 +4,10 @@
 // through mpegts.js, and plain files through the <video> element. Every
 // stream goes through the loopback relay (iptv_relay.rs) because IPTV servers
 // rarely send CORS headers. Both libraries load on first use and run without
-// blob workers, which the app's CSP does not allow.
-import { useCallback, useEffect, useRef, useState } from "react";
+// blob workers, which the app's CSP does not allow. A stream's User-Agent /
+// Referer (from the playlist or the source's settings) is registered with the
+// relay, which sends it upstream for the playlist and every segment.
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
@@ -16,10 +18,18 @@ import {
   PictureInPicture2,
   Play,
   RotateCcw,
+  Settings,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { detectStreamKind, type StreamKind } from "../utils/iptvStream";
+import {
+  DEFAULT_PLAYER_SETTINGS,
+  hlsConfigFor,
+  mpegtsConfigFor,
+  pickHlsLevel,
+  type PlayerSettings,
+} from "../utils/iptvPlayerSettings";
 
 type Status = "loading" | "playing" | "paused" | "error";
 
@@ -35,9 +45,16 @@ interface IPTVPlayerProps {
   subtitle?: string | null;
   /** Bumped by the parent to force a reconnect (e.g. channel re-selected). */
   reloadKey?: number;
+  /** Sent upstream by the relay for this stream. */
+  userAgent?: string | null;
+  referrer?: string | null;
+  settings?: PlayerSettings;
+  /** Shows the gear button. */
+  onOpenSettings?: () => void;
+  /** Rendered inside the player so it stays visible in full screen. */
+  settingsOverlay?: ReactNode;
 }
 
-const MAX_NETWORK_RETRIES = 3;
 const VOLUME_KEY = "cinavault.livetv.volume";
 
 function readVolume(): number {
@@ -50,19 +67,24 @@ function readVolume(): number {
   }
 }
 
-async function relayUrl(url: string): Promise<string> {
+async function relayUrl(url: string, userAgent: string | null, referrer: string | null): Promise<string> {
   // Outside the desktop shell (vite dev in a browser) play directly.
   if (!isTauri()) return url;
   // In the app every stream goes through the relay: most IPTV servers send no
   // CORS headers, so a direct fallback would only fail later with a vaguer error.
   try {
-    return await invoke<string>("get_stream_relay_url", { url });
+    return await invoke<string>("get_stream_relay_url", { url, userAgent, referrer });
   } catch (reason) {
     throw new Error(`The stream relay could not start: ${reason instanceof Error ? reason.message : String(reason)}`);
   }
 }
 
-async function attachHls(video: HTMLVideoElement, src: string, onFatal: (message: string) => void): Promise<Engine> {
+async function attachHls(
+  video: HTMLVideoElement,
+  src: string,
+  settings: PlayerSettings,
+  onFatal: (message: string) => void,
+): Promise<Engine> {
   const { default: Hls } = await import("hls.js");
   if (!Hls.isSupported()) {
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -71,20 +93,17 @@ async function attachHls(video: HTMLVideoElement, src: string, onFatal: (message
     }
     throw new Error("This system cannot play HLS streams.");
   }
-  const hls = new Hls({
-    enableWorker: false,
-    lowLatencyMode: true,
-    backBufferLength: 30,
-    liveDurationInfinity: true,
-  });
+  const hls = new Hls(hlsConfigFor(settings));
   let networkRetries = 0;
   let mediaRecoveries = 0;
-  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+  hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
     networkRetries = 0;
+    const level = pickHlsLevel(settings.quality, data.levels.length);
+    if (level >= 0) hls.currentLevel = level;
   });
   hls.on(Hls.Events.ERROR, (_event, data) => {
     if (!data.fatal) return;
-    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < MAX_NETWORK_RETRIES) {
+    if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < settings.reconnectAttempts) {
       networkRetries += 1;
       window.setTimeout(() => hls.startLoad(), 1000 * networkRetries);
     } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
@@ -103,7 +122,12 @@ async function attachHls(video: HTMLVideoElement, src: string, onFatal: (message
   return { destroy: () => hls.destroy() };
 }
 
-async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (message: string) => void): Promise<Engine> {
+async function attachMpegts(
+  video: HTMLVideoElement,
+  src: string,
+  settings: PlayerSettings,
+  onFatal: (message: string) => void,
+): Promise<Engine> {
   const { default: mpegts } = await import("mpegts.js");
   if (!mpegts.getFeatureList().mseLivePlayback) {
     video.src = src;
@@ -111,13 +135,7 @@ async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (mess
   }
   const player = mpegts.createPlayer(
     { type: "mpegts", isLive: true, url: src },
-    {
-      enableWorker: false,
-      lazyLoad: false,
-      liveBufferLatencyChasing: true,
-      liveBufferLatencyMaxLatency: 6,
-      liveBufferLatencyMinRemain: 1.5,
-    },
+    mpegtsConfigFor(settings),
   );
   // Live TS endpoints drop connections often; reconnect a few times before giving up.
   let networkRetries = 0;
@@ -127,7 +145,7 @@ async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (mess
   };
   video.addEventListener("playing", onPlaying);
   player.on(mpegts.Events.ERROR, (type: string) => {
-    if (type === mpegts.ErrorTypes.NETWORK_ERROR && networkRetries < MAX_NETWORK_RETRIES) {
+    if (type === mpegts.ErrorTypes.NETWORK_ERROR && networkRetries < settings.reconnectAttempts) {
       networkRetries += 1;
       retryTimer = window.setTimeout(() => {
         player.unload();
@@ -159,7 +177,17 @@ async function attachMpegts(video: HTMLVideoElement, src: string, onFatal: (mess
   };
 }
 
-export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }: Readonly<IPTVPlayerProps>) {
+export default function IPTVPlayer({
+  streamUrl,
+  title,
+  subtitle,
+  reloadKey = 0,
+  userAgent = null,
+  referrer = null,
+  settings = DEFAULT_PLAYER_SETTINGS,
+  onOpenSettings,
+  settingsOverlay,
+}: Readonly<IPTVPlayerProps>) {
   const shellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -172,6 +200,11 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  // Engine options are read when a stream (re)connects, not on every change,
+  // so adjusting a slider does not drop the picture.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const { latency, bufferSeconds, quality, reconnectAttempts } = settings;
 
   // (Re)connect whenever the channel, a retry or the parent asks for it.
   useEffect(() => {
@@ -195,12 +228,13 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
     };
 
     void (async () => {
-      const src = await relayUrl(streamUrl);
-      if (cancelled) return;
+      const current = settingsRef.current;
       try {
+        const src = await relayUrl(streamUrl, userAgent, referrer);
+        if (cancelled) return;
         let engine: Engine;
-        if (streamKind === "hls") engine = await attachHls(video, src, fail);
-        else if (streamKind === "mpegts") engine = await attachMpegts(video, src, fail);
+        if (streamKind === "hls") engine = await attachHls(video, src, current, fail);
+        else if (streamKind === "mpegts") engine = await attachMpegts(video, src, current, fail);
         else {
           video.src = src;
           engine = { destroy: () => video.removeAttribute("src") };
@@ -210,6 +244,10 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
           return;
         }
         engineRef.current = engine;
+        if (!current.autoplay) {
+          setStatus("paused");
+          return;
+        }
         await video.play().catch(() => {
           // Autoplay with sound can be refused; the play button still works.
           if (!cancelled) setStatus("paused");
@@ -226,7 +264,8 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
       video.removeAttribute("src");
       video.load();
     };
-  }, [streamUrl, attempt, reloadKey]);
+    // Engine settings reconnect the stream so the new buffer / quality applies.
+  }, [streamUrl, attempt, reloadKey, userAgent, referrer, latency, bufferSeconds, quality, reconnectAttempts]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -318,7 +357,15 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
 
   // Shortcuts while any player control has focus (keydown bubbles to the shell).
   const onKeyDown = useCallback((event: KeyboardEvent) => {
-    if (event.target instanceof HTMLInputElement) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLSelectElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof Element && target.closest("[data-player-settings]"))
+    ) {
+      return;
+    }
     if (event.key === " " || event.key === "k") {
       event.preventDefault();
       togglePlay();
@@ -357,7 +404,8 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
     >
       <video
         ref={videoRef}
-        className="h-full w-full bg-black object-contain"
+        className="h-full w-full bg-black"
+        style={{ objectFit: settings.videoFit }}
         playsInline
         onClick={onVideoClick}
         onDoubleClick={toggleFullscreen}
@@ -427,6 +475,11 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
         <button onClick={() => setAttempt((value) => value + 1)} className="rounded-md p-2 text-white hover:bg-white/10" aria-label="Reconnect" title="Reconnect">
           <RotateCcw size={16} />
         </button>
+        {onOpenSettings && (
+          <button onClick={onOpenSettings} className="rounded-md p-2 text-white hover:bg-white/10" aria-label="Player settings" title="Settings">
+            <Settings size={16} />
+          </button>
+        )}
         {typeof document !== "undefined" && document.pictureInPictureEnabled && (
           <button onClick={togglePip} className="rounded-md p-2 text-white hover:bg-white/10" aria-label="Picture in picture" title="Picture in picture">
             <PictureInPicture2 size={16} />
@@ -436,6 +489,8 @@ export default function IPTVPlayer({ streamUrl, title, subtitle, reloadKey = 0 }
           {fullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
         </button>
       </div>
+
+      {settingsOverlay}
     </div>
   );
 }

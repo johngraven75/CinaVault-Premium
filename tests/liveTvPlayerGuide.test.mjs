@@ -78,7 +78,9 @@ test("Live TV tab, player and Rust commands are wired together", () => {
   const tab = read("src/components/tabs/LiveTVTab.tsx");
   const player = read("src/components/IPTVPlayer.tsx");
   for (const command of [
-    "add_m3u_playlist",
+    "add_iptv_source",
+    "update_iptv_source",
+    "resolve_live_stream",
     "get_stream_relay_url",
     "list_epg_sources",
     "add_epg_source",
@@ -93,7 +95,10 @@ test("Live TV tab, player and Rust commands are wired together", () => {
   }
   assert.ok(player.includes('import("hls.js")'), "hls.js loads on demand");
   assert.ok(player.includes('import("mpegts.js")'), "mpegts.js loads on demand");
-  assert.ok(player.includes("enableWorker: false"), "players stay inside the CSP (no blob workers)");
+  const playerSettings = read("src/utils/iptvPlayerSettings.ts");
+  assert.ok(player.includes("hlsConfigFor(settings)") && player.includes("mpegtsConfigFor(settings)"), "engines take the player settings");
+  assert.equal(playerSettings.match(/enableWorker: false/g)?.length, 2, "players stay inside the CSP (no blob workers)");
+  assert.ok(lib.includes("::add_m3u_playlist,"), "the older add command stays registered");
 });
 
 test("CSP lets the player attach MSE streams and reach the relay", () => {

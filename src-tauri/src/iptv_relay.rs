@@ -11,14 +11,20 @@
 //! every segment, key and variant URI is an absolute relay URL resolved
 //! against the playlist's final (post-redirect) address. Everything else is
 //! streamed through unchanged, which covers endless MPEG-TS live streams.
+//!
+//! Streams that need a User-Agent or Referer (M3U `#EXTVLCOPT`, a source's
+//! settings) get a header set registered for this launch, and their relay URLs
+//! carry it as `{base}/h/{id}/http/host/...`. Rewritten playlists keep the
+//! prefix, so segments and keys go out with the same headers.
 
 use axum::body::Body;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{header, HeaderMap, HeaderValue, Response, StatusCode, Uri};
 use axum::routing::get;
 use axum::Router;
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::OnceCell;
 
@@ -155,10 +161,60 @@ fn same_token(a: &str, b: &str) -> bool {
             == 0
 }
 
+/// Headers the relay sends upstream for one registered stream.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct StreamHeaders {
+    pub user_agent: Option<String>,
+    pub referrer: Option<String>,
+}
+
+impl StreamHeaders {
+    pub fn is_empty(&self) -> bool {
+        self.user_agent.is_none() && self.referrer.is_none()
+    }
+}
+
+/// Header sets registered this launch, by id. Identical sets share an id.
+#[derive(Default)]
+pub struct HeaderRegistry {
+    by_id: HashMap<String, StreamHeaders>,
+    by_headers: HashMap<StreamHeaders, String>,
+}
+
+impl HeaderRegistry {
+    pub fn register(&mut self, headers: StreamHeaders) -> String {
+        if let Some(id) = self.by_headers.get(&headers) {
+            return id.clone();
+        }
+        let id = (self.by_id.len() + 1).to_string();
+        self.by_id.insert(id.clone(), headers.clone());
+        self.by_headers.insert(headers, id.clone());
+        id
+    }
+
+    pub fn get(&self, id: &str) -> Option<&StreamHeaders> {
+        self.by_id.get(id)
+    }
+}
+
+pub type SharedHeaders = Arc<Mutex<HeaderRegistry>>;
+
+/// Splits an optional `h/{id}/` prefix off a relay path.
+pub fn split_header_prefix(rest: &str) -> (Option<&str>, &str) {
+    match rest
+        .strip_prefix("h/")
+        .and_then(|tail| tail.split_once('/'))
+    {
+        Some((id, tail)) => (Some(id), tail),
+        None => (None, rest),
+    }
+}
+
 struct RelayState {
     token: String,
     base: String,
     client: reqwest::Client,
+    headers: SharedHeaders,
 }
 
 type HttpError = (StatusCode, String);
@@ -211,12 +267,45 @@ async fn relay(
         .path()
         .strip_prefix(&format!("/{token}/"))
         .ok_or((StatusCode::NOT_FOUND, "Not found".to_string()))?;
+    let (header_id, rest) = split_header_prefix(rest);
+    let (stream_headers, playlist_base) = match header_id {
+        Some(id) => {
+            let headers = state
+                .headers
+                .lock()
+                .map_err(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Relay unavailable".to_string(),
+                    )
+                })?
+                .get(id)
+                .cloned()
+                .ok_or((StatusCode::NOT_FOUND, "Not found".to_string()))?;
+            (headers, format!("{}/h/{id}", state.base))
+        }
+        None => (StreamHeaders::default(), state.base.clone()),
+    };
     let upstream = from_relay_path(rest, query.as_deref())
         .ok_or((StatusCode::BAD_REQUEST, "Not a stream address".to_string()))?;
 
     let mut request = state.client.get(&upstream);
     if let Some(range) = request_headers.get(header::RANGE) {
         request = request.header(header::RANGE, range.clone());
+    }
+    if let Some(agent) = stream_headers
+        .user_agent
+        .as_deref()
+        .and_then(|value| HeaderValue::from_str(value).ok())
+    {
+        request = request.header(header::USER_AGENT, agent);
+    }
+    if let Some(referrer) = stream_headers
+        .referrer
+        .as_deref()
+        .and_then(|value| HeaderValue::from_str(value).ok())
+    {
+        request = request.header(header::REFERER, referrer);
     }
     let upstream_response = request.send().await.map_err(|error| {
         (
@@ -250,7 +339,7 @@ async fn relay(
             .trim_start()
             .starts_with("#EXTM3U")
         {
-            let body = rewrite_playlist(&text, &final_url, &state.base);
+            let body = rewrite_playlist(&text, &final_url, &playlist_base);
             let mut response = Response::new(Body::from(body));
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
@@ -289,7 +378,7 @@ async fn relay(
     Ok(with_cors(response))
 }
 
-fn relay_router(token: String, base: String) -> Router {
+fn relay_router(token: String, base: String, headers: SharedHeaders) -> Router {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         // Some providers set a session cookie on the playlist that segment and
@@ -308,6 +397,7 @@ fn relay_router(token: String, base: String) -> Router {
             token,
             base,
             client,
+            headers,
         }))
 }
 
@@ -319,7 +409,12 @@ fn random_token() -> String {
     )
 }
 
-async fn bind_relay() -> Result<String, String> {
+struct Relay {
+    base: String,
+    headers: SharedHeaders,
+}
+
+async fn bind_relay() -> Result<Relay, String> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|error| format!("Live TV relay could not start: {error}"))?;
@@ -329,25 +424,52 @@ async fn bind_relay() -> Result<String, String> {
         .port();
     let token = random_token();
     let base = format!("http://127.0.0.1:{port}/{token}");
-    let router = relay_router(token, base.clone());
+    let headers = SharedHeaders::default();
+    let router = relay_router(token, base.clone(), headers.clone());
     tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
             log::warn!("Live TV relay stopped: {error}");
         }
     });
-    Ok(base)
+    Ok(Relay { base, headers })
 }
 
-async fn relay_base() -> Result<&'static String, String> {
-    static BASE: OnceCell<String> = OnceCell::const_new();
-    BASE.get_or_try_init(bind_relay).await
+async fn running_relay() -> Result<&'static Relay, String> {
+    static RELAY: OnceCell<Relay> = OnceCell::const_new();
+    RELAY.get_or_try_init(bind_relay).await
 }
 
-/// The URL the embedded player should load for a stream.
+/// The relay base for a header set: plain, or `{base}/h/{id}`.
+fn base_for(
+    base: &str,
+    registry: &SharedHeaders,
+    headers: StreamHeaders,
+) -> Result<String, String> {
+    if headers.is_empty() {
+        return Ok(base.to_string());
+    }
+    let id = registry
+        .lock()
+        .map_err(|_| "The stream relay is unavailable".to_string())?
+        .register(headers);
+    Ok(format!("{base}/h/{id}"))
+}
+
+/// The URL the embedded player should load for a stream, with the
+/// User-Agent / Referer the relay must send for it.
 #[tauri::command]
-pub async fn get_stream_relay_url(url: String) -> Result<String, String> {
-    let base = relay_base().await?;
-    to_relay_url(base, &url)
+pub async fn get_stream_relay_url(
+    url: String,
+    user_agent: Option<String>,
+    referrer: Option<String>,
+) -> Result<String, String> {
+    let headers = StreamHeaders {
+        user_agent: crate::iptv::clean_header_value("User-Agent", user_agent.as_deref())?,
+        referrer: crate::iptv::clean_header_value("Referer", referrer.as_deref())?,
+    };
+    let relay = running_relay().await?;
+    let base = base_for(&relay.base, &relay.headers, headers)?;
+    to_relay_url(&base, &url)
         .ok_or_else(|| "Only http:// and https:// streams can be played".to_string())
 }
 
@@ -473,7 +595,8 @@ mod tests {
             .unwrap();
         let port = listener.local_addr().unwrap().port();
         let base = format!("http://127.0.0.1:{port}/secret");
-        let router = relay_router("secret".into(), base.clone());
+        let registry = SharedHeaders::default();
+        let router = relay_router("secret".into(), base.clone(), registry.clone());
         tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
@@ -503,5 +626,118 @@ mod tests {
 
         let wrong = playlist_url.replace("/secret/", "/wrong!/");
         assert_eq!(client.get(&wrong).send().await.unwrap().status(), 404);
+
+        // Unregistered header ids are refused rather than played without them.
+        let unknown =
+            to_relay_url(&format!("{base}/h/99"), &format!("{upstream}/hls/seg.ts")).unwrap();
+        assert_eq!(client.get(&unknown).send().await.unwrap().status(), 404);
+        let _ = registry;
+    }
+
+    #[test]
+    fn header_sets_are_shared_and_prefixes_split() {
+        let registry = SharedHeaders::default();
+        let set = StreamHeaders {
+            user_agent: Some("VLC/3.0".into()),
+            referrer: None,
+        };
+        let first = base_for(BASE, &registry, set.clone()).unwrap();
+        assert_eq!(first, format!("{BASE}/h/1"));
+        assert_eq!(base_for(BASE, &registry, set).unwrap(), first);
+        assert_eq!(
+            base_for(BASE, &registry, StreamHeaders::default()).unwrap(),
+            BASE
+        );
+        assert_eq!(
+            split_header_prefix("h/1/http/a.example/x.ts"),
+            (Some("1"), "http/a.example/x.ts")
+        );
+        assert_eq!(
+            split_header_prefix("http/a.example/x.ts"),
+            (None, "http/a.example/x.ts")
+        );
+    }
+
+    #[tokio::test]
+    async fn relay_sends_registered_headers_to_playlists_and_segments() {
+        async fn echo(headers: HeaderMap) -> String {
+            let get = |name: &str| {
+                headers
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+                    .to_string()
+            };
+            format!("{}|{}", get("user-agent"), get("referer"))
+        }
+        let upstream = serve(
+            Router::new()
+                .route(
+                    "/hls/index.m3u8",
+                    get(|headers: HeaderMap| async move {
+                        // Only hand out the playlist to the right agent.
+                        if headers
+                            .get("user-agent")
+                            .is_some_and(|v| v == "SmartIPTV/1")
+                        {
+                            Ok((
+                                [(header::CONTENT_TYPE, "application/x-mpegURL")],
+                                "#EXTM3U\n#EXTINF:4,\nseg.ts\n",
+                            ))
+                        } else {
+                            Err(StatusCode::FORBIDDEN)
+                        }
+                    }),
+                )
+                .route("/hls/seg.ts", get(echo)),
+        )
+        .await;
+
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base = format!("http://127.0.0.1:{port}/secret");
+        let registry = SharedHeaders::default();
+        let router = relay_router("secret".into(), base.clone(), registry.clone());
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let client = reqwest::Client::new();
+        let plain = to_relay_url(&base, &format!("{upstream}/hls/index.m3u8")).unwrap();
+        assert_eq!(client.get(&plain).send().await.unwrap().status(), 403);
+
+        let with_headers = base_for(
+            &base,
+            &registry,
+            StreamHeaders {
+                user_agent: Some("SmartIPTV/1".into()),
+                referrer: Some("https://portal.example/".into()),
+            },
+        )
+        .unwrap();
+        let playlist = to_relay_url(&with_headers, &format!("{upstream}/hls/index.m3u8")).unwrap();
+        let text = client
+            .get(&playlist)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let segment = text.lines().find(|line| line.ends_with("seg.ts")).unwrap();
+        assert!(segment.starts_with(&format!("{base}/h/")), "{text}");
+        assert_eq!(
+            client
+                .get(segment)
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap(),
+            "SmartIPTV/1|https://portal.example/"
+        );
     }
 }
