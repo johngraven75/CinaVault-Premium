@@ -197,17 +197,14 @@ export default function IPTVSettingsPanel({
       : "fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4";
   const card =
     variant === "overlay"
-      ? "h-full w-full max-w-md overflow-y-auto border-l border-white/10 bg-cv-panel p-4 text-cv-text"
+      ? "h-full w-full max-w-md overflow-y-auto border-0 border-l border-white/10 bg-cv-panel p-4 text-cv-text"
       : "max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-white/10 bg-cv-panel p-5 text-cv-text";
 
   return (
-    <div
-      className={shell}
-      data-player-settings
-      onClick={(event) => event.target === event.currentTarget && onClose()}
-      onMouseMove={(event) => event.stopPropagation()}
-    >
-      <div className={card} role="dialog" aria-modal="true" aria-label="Live TV settings">
+    <div className={shell} data-player-settings>
+      {/* Clicking outside the panel closes it; Escape and the X do the same from the keyboard. */}
+      <button type="button" tabIndex={-1} aria-label="Close settings" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <dialog open aria-modal="true" aria-label="Live TV settings" className={`relative m-0 ${card}`}>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="flex items-center gap-2 text-sm font-bold">
             <Settings2 size={15} className="text-cv-accent" /> Live TV settings
@@ -234,7 +231,7 @@ export default function IPTVSettingsPanel({
               <span className="section-label">Latency</span>
               <div className="grid gap-1.5">
                 {LATENCY_OPTIONS.map((option) => (
-                  <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-lg p-2 ${settings.latency === option.value ? "bg-cv-accent/15 ring-1 ring-cv-accent/50" : "bg-white/[0.03] hover:bg-white/[0.06]"}`}>
+                  <label key={option.value} aria-label={option.label} className={`flex cursor-pointer items-start gap-2 rounded-lg p-2 ${settings.latency === option.value ? "bg-cv-accent/15 ring-1 ring-cv-accent/50" : "bg-white/[0.03] hover:bg-white/[0.06]"}`}>
                     <input type="radio" name="iptv-latency" className="mt-0.5" checked={settings.latency === option.value} onChange={() => update({ latency: option.value })} />
                     <span>
                       <span className="block font-semibold">{option.label}</span>
@@ -267,7 +264,7 @@ export default function IPTVSettingsPanel({
               </div>
               <label className="mt-5 flex items-center gap-2">
                 <input type="checkbox" checked={settings.autoplay} onChange={(e) => update({ autoplay: e.target.checked })} />
-                Start playing when a channel opens
+                <span>Start playing when a channel opens</span>
               </label>
             </div>
             {channelHeaders && (channelHeaders.userAgent || channelHeaders.referrer) && (
@@ -296,7 +293,7 @@ export default function IPTVSettingsPanel({
             </div>
           )
         )}
-      </div>
+      </dialog>
     </div>
   );
 }

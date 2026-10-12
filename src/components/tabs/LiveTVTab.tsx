@@ -110,6 +110,91 @@ function epgSourceSummary(source: EpgSource): string {
   return `${source.programme_count.toLocaleString()} programmes · ${source.channel_count.toLocaleString()} channels · synced ${synced}`;
 }
 
+function findProfile(profiles: LiveProfile[], id: number | null | undefined): LiveProfile | null {
+  return id == null ? null : profiles.find((p) => p.id === id) ?? null;
+}
+
+function sourceSummary(profile: LiveProfile): string {
+  const labels: Record<string, string> = {
+    m3u: "M3U playlist",
+    stalker: `Stalker portal · ${profile.server_url}`,
+  };
+  const base = labels[profile.source_kind ?? ""] ?? profile.server_url;
+  return profile.user_agent || profile.referrer ? `${base} · custom headers` : base;
+}
+
+interface PlayerStageProps {
+  playback: Playback | null;
+  error: string | null;
+  title: string;
+  subtitle: string | null;
+  reloadKey: number;
+  settings: PlayerSettings;
+  onSettingsChange: (settings: PlayerSettings) => void;
+  source: LiveProfile | null;
+  /** Open tab of the in-player settings overlay, or null when closed. */
+  settingsTab: SettingsTab | null;
+  onSettingsTabChange: (tab: SettingsTab) => void;
+  onSaveSource: (id: number, form: IptvSourceForm) => Promise<void>;
+  onCloseSettings: () => void;
+  onRetry: () => void;
+  onOpenSourceSettings: (id: number) => void;
+}
+
+/** The player, or why it cannot start yet (resolving the link, or an error). */
+function PlayerStage(props: Readonly<PlayerStageProps>) {
+  const { playback, error, source, settingsTab } = props;
+  if (error) {
+    return (
+      <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl bg-black px-6 text-center">
+        <p className="max-w-md text-sm text-white/90">{error}</p>
+        <div className="flex gap-2">
+          <button onClick={props.onRetry} className="cv-btn cv-btn-primary text-xs">
+            <RefreshCw size={12} /> Try again
+          </button>
+          {source && (
+            <button onClick={() => props.onOpenSourceSettings(source.id)} className="cv-btn cv-btn-secondary text-xs">
+              <Settings size={12} /> Source settings
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (!playback) {
+    return (
+      <div className="flex aspect-video items-center justify-center rounded-xl bg-black text-xs tracking-wide text-white/70">
+        Connecting to the source…
+      </div>
+    );
+  }
+  const overlay = settingsTab && (
+    <IPTVSettingsPanel
+      tab={settingsTab}
+      onTabChange={props.onSettingsTabChange}
+      settings={props.settings}
+      onSettingsChange={props.onSettingsChange}
+      source={source}
+      channelHeaders={{ userAgent: playback.user_agent, referrer: playback.referrer }}
+      onSaveSource={props.onSaveSource}
+      onClose={props.onCloseSettings}
+    />
+  );
+  return (
+    <IPTVPlayer
+      streamUrl={playback.url}
+      title={props.title}
+      subtitle={props.subtitle}
+      reloadKey={props.reloadKey}
+      userAgent={playback.user_agent}
+      referrer={playback.referrer}
+      settings={props.settings}
+      onOpenSettings={() => props.onSettingsTabChange("player")}
+      settingsOverlay={overlay}
+    />
+  );
+}
+
 export default function LiveTVTab() {
   const { addStatusMessage } = useAppStore();
   const now = useClock();
@@ -410,8 +495,8 @@ export default function LiveTVTab() {
     };
   }, [selectedChannel, reloadKey]);
 
-  const watchingSource = selectedChannel ? profiles.find((p) => p.id === selectedChannel.profile_id) ?? null : null;
-  const modalSource = settingsSourceId === null ? null : profiles.find((p) => p.id === settingsSourceId) ?? null;
+  const watchingSource = findProfile(profiles, selectedChannel?.profile_id);
+  const modalSource = findProfile(profiles, settingsSourceId);
   const closeSettings = useCallback(() => {
     setSettingsTab(null);
     setSettingsSourceId(null);
@@ -451,50 +536,25 @@ export default function LiveTVTab() {
               </div>
             </div>
             <div className="p-3">
-              {playbackError ? (
-                <div className="flex aspect-video flex-col items-center justify-center gap-3 rounded-xl bg-black px-6 text-center">
-                  <p className="max-w-md text-sm text-white/90">{playbackError}</p>
-                  <div className="flex gap-2">
-                    <button onClick={() => setReloadKey((value) => value + 1)} className="cv-btn cv-btn-primary text-xs">
-                      <RefreshCw size={12} /> Try again
-                    </button>
-                    {watchingSource && (
-                      <button onClick={() => { setSettingsSourceId(watchingSource.id); setSettingsTab("source"); }} className="cv-btn cv-btn-secondary text-xs">
-                        <Settings size={12} /> Source settings
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : !playback ? (
-                <div className="flex aspect-video items-center justify-center rounded-xl bg-black text-xs tracking-wide text-white/70">
-                  Connecting to the source…
-                </div>
-              ) : (
-                <IPTVPlayer
-                  streamUrl={playback.url}
-                  title={watching.name}
-                  subtitle={programmeSubtitle(current)}
-                  reloadKey={reloadKey}
-                  userAgent={playback.user_agent}
-                  referrer={playback.referrer}
-                  settings={playerSettings}
-                  onOpenSettings={() => setSettingsTab("player")}
-                  settingsOverlay={
-                    settingsTab && settingsSourceId === null ? (
-                      <IPTVSettingsPanel
-                        tab={settingsTab}
-                        onTabChange={setSettingsTab}
-                        settings={playerSettings}
-                        onSettingsChange={changePlayerSettings}
-                        source={watchingSource}
-                        channelHeaders={{ userAgent: playback.user_agent, referrer: playback.referrer }}
-                        onSaveSource={saveSource}
-                        onClose={closeSettings}
-                      />
-                    ) : null
-                  }
-                />
-              )}
+              <PlayerStage
+                playback={playback}
+                error={playbackError}
+                title={watching.name}
+                subtitle={programmeSubtitle(current)}
+                reloadKey={reloadKey}
+                settings={playerSettings}
+                onSettingsChange={changePlayerSettings}
+                source={watchingSource}
+                settingsTab={settingsSourceId === null ? settingsTab : null}
+                onSettingsTabChange={setSettingsTab}
+                onSaveSource={saveSource}
+                onCloseSettings={closeSettings}
+                onRetry={() => setReloadKey((value) => value + 1)}
+                onOpenSourceSettings={(id) => {
+                  setSettingsSourceId(id);
+                  setSettingsTab("source");
+                }}
+              />
               {current && (
                 <div className="mt-3 rounded-lg bg-white/[0.03] p-3">
                   <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-wider text-cv-subtext">
@@ -648,8 +708,7 @@ export default function LiveTVTab() {
                   <span className={`status-dot ${p.enabled ? "online" : "offline"}`} />
                 </div>
                 <div className="mb-3 truncate text-[10px] text-cv-subtext">
-                  {p.source_kind === "m3u" ? "M3U playlist" : p.source_kind === "stalker" ? `Stalker portal · ${p.server_url}` : p.server_url}
-                  {p.user_agent || p.referrer ? " · custom headers" : ""}
+                  {sourceSummary(p)}
                   {p.last_synced ? ` · synced ${new Date(p.last_synced).toLocaleString()}` : " · not synced yet"}
                 </div>
                 <div className="flex gap-1">
