@@ -46,7 +46,7 @@
     "test:local-vision": "node --loader ./tests/typescript-loader.mjs --test tests/localVision.test.mjs tests/aiPosterAutopilot.test.mjs",
     "test:holo-ui": "node --loader ./tests/typescript-loader.mjs --test tests/holoUi.test.mjs tests/holoAgent.test.mjs tests/portraitAvatar.test.mjs",
     "test:code-signing": "node --test tests/codeSigning.test.mjs tests/workflowPowerShell.test.mjs",
-    "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/firstRunSetup.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs",
+    "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/firstRunSetup.test.mjs tests/libraryMetadataPolicy.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs",
     "test:features": "node --loader ./tests/typescript-loader.mjs --test tests/featureMatrix.test.mjs tests/shellPreferences.test.mjs",
     "test:discovery": "node --loader ./tests/typescript-loader.mjs --test tests/discovery.test.mjs",
     "test:player": "node --loader ./tests/typescript-loader.mjs --test tests/playerLogic.test.mjs"

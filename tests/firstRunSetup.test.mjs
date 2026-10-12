@@ -46,15 +46,16 @@ test("the setup is shown until first_run_setup_complete is \"true\"", () => {
 });
 
 test("store-safe edition never lists adult providers", () => {
+  // The full edition asks only for adult keys; TMDb/OMDb are not in use.
   const full = buildSetupProviders(false, ADULT_SETUP_PROVIDERS).map((p) => p.id);
-  assert.deepEqual(full, ["tpdb", "stashdb", "tmdb", "omdb", "fanart"]);
+  assert.deepEqual(full, ["tpdb", "stashdb"]);
   const safe = buildSetupProviders(true, ADULT_SETUP_PROVIDERS);
   assert.deepEqual(safe.map((p) => p.id), ["tmdb", "omdb", "fanart"]);
   assert.ok(safe.every((p) => !p.adult));
 
   assert.deepEqual(
     buildKeylessProviders(false, ADULT_KEYLESS_PROVIDERS).map((p) => p.name),
-    ["IAFD", "PGMA bridge", "TVMaze", "Cinemeta"],
+    ["IAFD", "PGMA bridge"],
   );
   assert.deepEqual(
     buildKeylessProviders(true, ADULT_KEYLESS_PROVIDERS).map((p) => p.name),
@@ -63,8 +64,15 @@ test("store-safe edition never lists adult providers", () => {
   // Non-adult entries passed in the adult slot are ignored either way.
   assert.equal(
     buildSetupProviders(false, [{ ...ADULT_SETUP_PROVIDERS[0], adult: false }]).length,
-    3,
+    0,
   );
+});
+
+test("the full edition never requests regular provider keys", () => {
+  const ids = buildSetupProviders(false, ADULT_SETUP_PROVIDERS).map((p) => p.id);
+  for (const regular of ["tmdb", "omdb", "fanart"]) assert.ok(!ids.includes(regular), regular);
+  const keyless = buildKeylessProviders(false, ADULT_KEYLESS_PROVIDERS).map((p) => p.id);
+  for (const regular of ["tvmaze", "cinemeta"]) assert.ok(!keyless.includes(regular), regular);
 });
 
 test("the wizard component keeps adult provider names out of its own source", () => {
@@ -82,6 +90,7 @@ test("the wizard component keeps adult provider names out of its own source", ()
 
 test("key validation, test interpretation and masking", () => {
   const tmdb = buildSetupProviders(true).find((p) => p.id === "tmdb");
+  assert.ok(tmdb, "store-safe still lists TMDb");
   assert.equal(validateApiKeyInput(tmdb, "   ").ok, false);
   assert.match(validateApiKeyInput(tmdb, "abc def ghi jkl mno").message, /spaces/);
   assert.match(validateApiKeyInput(tmdb, "short").message, /too short/);

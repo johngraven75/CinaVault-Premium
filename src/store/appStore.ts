@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { sanitizeMetadataProviders } from "../utils/pluginUiSafety";
 import featureDefaults from "../features/featureDefaults.json";
+import { applyLibraryProviderPolicy } from "../services/libraryMetadataPolicy";
 import {
   IS_STORE_SAFE,
   filterStoreSafeMedia,
@@ -103,6 +104,8 @@ export interface MetadataProvider {
   name: string;
   category: string;
   enabled: boolean;
+  /** False for providers the library does not call (regular providers in the full edition). */
+  inUse?: boolean;
 }
 
 // ── Scheduled Task State ──
@@ -245,6 +248,11 @@ export interface AppState {
   // Persistence — collect all persistable state
   getPersistedState: () => Record<string, string>;
   restorePersistedState: (data: Record<string, string>) => void;
+}
+
+/** Store-safe filtering plus the adult-only library provider policy. */
+function libraryProviders(providers: MetadataProvider[]): MetadataProvider[] {
+  return applyLibraryProviderPolicy(filterStoreSafeProviders(providers), IS_STORE_SAFE);
 }
 
 // ── Default metadata providers (all enabled by default — Premium standard) ──
@@ -455,18 +463,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   // Metadata Providers
-  metadataProviders: filterStoreSafeProviders([...DEFAULT_PROVIDERS]),
-  setMetadataProviders: (p) => set({ metadataProviders: filterStoreSafeProviders(p) }),
+  metadataProviders: libraryProviders([...DEFAULT_PROVIDERS]),
+  setMetadataProviders: (p) => set({ metadataProviders: libraryProviders(p) }),
   toggleMetadataProvider: (id) =>
     set((s) => ({
-      metadataProviders: s.metadataProviders.map((p) =>
-        p.id === id ? { ...p, enabled: !p.enabled } : p,
+      metadataProviders: libraryProviders(
+        s.metadataProviders.map((p) =>
+          p.id === id ? { ...p, enabled: !p.enabled } : p,
+        ),
       ),
     })),
   enableAllProviders: (category) =>
     set((s) => ({
-      metadataProviders: s.metadataProviders.map((p) =>
-        !category || p.category === category ? { ...p, enabled: true } : p,
+      metadataProviders: libraryProviders(
+        s.metadataProviders.map((p) =>
+          !category || p.category === category ? { ...p, enabled: true } : p,
+        ),
       ),
     })),
   disableAllProviders: (category) =>
@@ -583,7 +595,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentTheme,
       libraryView,
       featureSettings,
-      metadataProviders: filterStoreSafeProviders(metadataProviders),
+      metadataProviders: libraryProviders(metadataProviders),
       scheduledTasks,
       cloudServices,
     });

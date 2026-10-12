@@ -284,7 +284,7 @@ pub async fn search_metadata(provider: String, query: String, media_type: Option
 #[tauri::command]
 pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> Result<serde_json::Value, String> {
     let started = Instant::now();
-    let (item, keys, smart_match) = {
+    let (item, keys, extra_adult, smart_match) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let item = db.conn.query_row("SELECT id,title,file_path,media_type,overview,poster_path,year,rating,genre,tmdb_id,imdb_id FROM media_items WHERE id=?1", params![id], |row| Ok(ItemRecord { id: row.get(0)?, title: row.get(1)?, file_path: row.get(2)?, media_type: row.get(3)?, overview: row.get(4)?, poster_path: row.get(5)?, year: row.get(6)?, rating: row.get(7)?, genre: row.get(8)?, tmdb_id: row.get(9)?, imdb_id: row.get(10)? })).map_err(|e| e.to_string())?;
         let mut stmt = db.conn.prepare("SELECT provider,api_key FROM api_keys").map_err(|e| e.to_string())?;
@@ -296,7 +296,9 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
                 keys.insert(normalize_provider_key(&provider), key);
             }
         }
-        (item, keys, crate::feature_flags::is_enabled(&db, "smart_match"))
+        crate::library_metadata_policy::retain_allowed_keys(&mut keys);
+        let extra_adult = metadata_ext::enabled_extra_adult_provider_values(&db)?;
+        (item, keys, extra_adult, crate::feature_flags::is_enabled(&db, "smart_match"))
     };
 
     let adult = is_adult(&item);
@@ -310,7 +312,14 @@ pub async fn check_media_item_metadata(state: State<'_, AppState>, id: i64) -> R
     if adult {
         let (tpdb, stashdb) = tokio::join!(tpdb_match(&client, &query, keys.get("tpdb")), stashdb_match(&client, &query, keys.get("stashdb")));
         for result in [tpdb, stashdb] { match result { Ok(Some(value)) if value.media_type.as_deref() == Some("adult") => matches.push(value), Ok(_) => {}, Err(error) => errors.push(error) } }
-    } else {
+        // Every other enabled adult provider (Porn Site Nuxt, IAFD,
+        // PhoenixAdult, PGMA) runs in order when ThePornDB and StashDB miss.
+        if matches.is_empty() && !extra_adult.is_empty() {
+            if let Some((provider, found)) = crate::metadata::fetch_adult_metadata_for_batch(&client, &extra_adult, &query, &item.file_path, &mut errors).await {
+                matches.push(MatchData { provider: provider.to_string(), title: found.title, overview: found.overview, poster_path: found.poster_path, year: found.year, rating: found.rating, genre: found.genre, tmdb_id: None, imdb_id: found.imdb_id, media_type: Some("adult".to_string()) });
+            }
+        }
+    } else if crate::library_metadata_policy::standard_providers_enabled() {
         let (tmdb, omdb) = tokio::join!(tmdb_match(&client, &query, keys.get("tmdb")), omdb_match(&client, &query, keys.get("omdb")));
         for result in [tmdb, omdb] { match result { Ok(Some(value)) if value.media_type.as_deref() != Some("adult") => matches.push(value), Ok(_) => {}, Err(error) => errors.push(error) } }
     }

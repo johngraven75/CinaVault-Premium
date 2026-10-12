@@ -74,21 +74,26 @@ export const MAINSTREAM_KEYLESS_PROVIDERS: readonly KeylessProvider[] = [
   },
 ];
 
-/** Providers shown on the metadata step; adult entries never survive store-safe. */
+/**
+ * Providers shown on the metadata step. The full edition looks up library
+ * metadata from adult providers only, so TMDb, OMDb and the other regular
+ * providers are not requested there. Adult entries never survive store-safe,
+ * which keeps the regular providers instead.
+ */
 export function buildSetupProviders(
   storeSafe: boolean,
   adultProviders: readonly SetupProvider[] = [],
 ): SetupProvider[] {
-  const adult = storeSafe ? [] : adultProviders.filter((provider) => provider.adult);
-  return [...adult, ...MAINSTREAM_SETUP_PROVIDERS];
+  if (storeSafe) return [...MAINSTREAM_SETUP_PROVIDERS];
+  return adultProviders.filter((provider) => provider.adult);
 }
 
 export function buildKeylessProviders(
   storeSafe: boolean,
   adultKeyless: readonly KeylessProvider[] = [],
 ): KeylessProvider[] {
-  const adult = storeSafe ? [] : adultKeyless.filter((provider) => provider.adult);
-  return [...adult, ...MAINSTREAM_KEYLESS_PROVIDERS];
+  if (storeSafe) return [...MAINSTREAM_KEYLESS_PROVIDERS];
+  return adultKeyless.filter((provider) => provider.adult);
 }
 
 export function isFirstRunComplete(value: string | null | undefined): boolean {

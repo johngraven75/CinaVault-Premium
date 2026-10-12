@@ -660,6 +660,7 @@ fn load_provider_keys(db: &crate::db::Database) -> Result<HashMap<String, String
         keys.insert(provider.trim().to_lowercase(), key.clone());
         keys.insert(normalize_provider_key(&provider), key);
     }
+    crate::library_metadata_policy::retain_allowed_keys(&mut keys);
     Ok(keys)
 }
 
@@ -699,7 +700,9 @@ async fn resolve_provider_match(
                 }
                 }
             }
-            SourceKind::StandardVideo => {
+            SourceKind::StandardVideo
+                if crate::library_metadata_policy::standard_providers_enabled() =>
+            {
                 fetch_standard_metadata(
                     client,
                     provider_keys,
@@ -709,6 +712,7 @@ async fn resolve_provider_match(
                 )
                 .await;
             }
+            SourceKind::StandardVideo => {}
         }
 
         let merged = matches.into_iter().reduce(merge_provider_matches);

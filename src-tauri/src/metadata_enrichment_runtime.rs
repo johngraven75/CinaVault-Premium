@@ -220,6 +220,10 @@ fn load_item(database: &Database, id: i64) -> Result<MediaItem, String> {
 }
 
 async fn run_keyless_prepass(state: &State<'_, AppState>) -> Result<KeylessPrepassReport, String> {
+    // Cinemeta and TVMaze are regular providers; the full edition skips them.
+    if !crate::library_metadata_policy::standard_providers_enabled() {
+        return Ok(KeylessPrepassReport::default());
+    }
     let (items, smart_match) = {
         let database = state.db.lock().map_err(|error| error.to_string())?;
         let smart_match = crate::feature_flags::is_enabled(&database, "smart_match");
@@ -290,7 +294,7 @@ pub async fn check_media_item_metadata(
         )
     };
 
-    if is_standard_video(&item) {
+    if is_standard_video(&item) && crate::library_metadata_policy::standard_providers_enabled() {
         let client = metadata_keyless::http_client()?;
         match resolve_keyless_update(&client, &state.app_data_dir, &item, smart_match).await {
             Ok(Some(update)) => {

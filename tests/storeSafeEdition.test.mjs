@@ -37,7 +37,9 @@ test("adult-only surfaces are gated out of the store-safe edition", () => {
     "src/components/tabs/AIDiagnosticsTab.tsx": /!IS_STORE_SAFE \|\| action\.progressTask !== "adult_metadata_gather"/,
   };
   assert.match(read("src/components/tabs/AIDiagnosticsTab.tsx"), /tracksAdultGather =\s*!IS_STORE_SAFE &&/);
-  assert.match(read("src/store/appStore.ts"), /metadataProviders: filterStoreSafeProviders\(metadataProviders\)/);
+  // Restored providers go through libraryProviders(), which store-safe filters first.
+  assert.match(read("src/store/appStore.ts"), /metadataProviders: libraryProviders\(metadataProviders\)/);
+  assert.match(read("src/store/appStore.ts"), /applyLibraryProviderPolicy\(filterStoreSafeProviders\(providers\)/);
   for (const [file, pattern] of Object.entries(gated)) {
     assert.match(read(file), pattern, file);
   }

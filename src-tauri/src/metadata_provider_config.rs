@@ -60,7 +60,8 @@ fn provider(
         id: id.to_string(),
         name: name.to_string(),
         category: category.to_string(),
-        enabled: true,
+        enabled: category == "Adult"
+            || crate::library_metadata_policy::standard_providers_enabled(),
         requires_key,
         implemented,
         endpoint: endpoint.map(str::to_string),
@@ -68,10 +69,18 @@ fn provider(
     }
 }
 
+fn registry_policy() -> &'static str {
+    if crate::library_metadata_policy::standard_providers_enabled() {
+        "all_providers_enabled"
+    } else {
+        "adult_providers_only"
+    }
+}
+
 pub fn default_registry() -> MetadataProviderRegistry {
     MetadataProviderRegistry {
         schema_version: SCHEMA_VERSION,
-        policy: "all_providers_enabled".to_string(),
+        policy: registry_policy().to_string(),
         credentials_storage: "native_credentials_store_not_portable_json".to_string(),
         portable_across_operating_systems: true,
         providers: vec![
@@ -343,7 +352,6 @@ fn merge_existing(
                 .clone()
                 .filter(|value| !value.trim().is_empty());
         }
-        provider.enabled = true;
     }
     defaults
 }
@@ -369,7 +377,8 @@ fn ui_provider_json(registry: &MetadataProviderRegistry) -> Result<String, Strin
                 "id": provider.id,
                 "name": provider.name,
                 "category": provider.category,
-                "enabled": true
+                "enabled": provider.enabled,
+                "inUse": provider.enabled
             })
         })
         .collect::<Vec<_>>();
@@ -399,7 +408,7 @@ pub fn ensure_registry(database: &Database) -> Result<MetadataProviderRegistry, 
         )
         .map_err(|error| error.to_string())?;
     for (key, value) in [
-        ("metadata_provider_policy", "all_providers_enabled"),
+        ("metadata_provider_policy", registry_policy()),
         ("metadata_provider_schema", "2"),
         ("metadata_provider_portability", "cross_os_registry"),
         ("metadata_provider_credentials", "native_secure_store"),
@@ -446,10 +455,40 @@ mod tests {
     use super::default_registry;
 
     #[test]
-    fn every_provider_is_enabled_by_default() {
+    fn only_adult_providers_are_enabled_in_the_full_edition() {
         let registry = default_registry();
         assert!(registry.providers.len() >= 30);
-        assert!(registry.providers.iter().all(|provider| provider.enabled));
+        for provider in &registry.providers {
+            let expected = provider.category == "Adult" || crate::edition::STORE_SAFE;
+            assert_eq!(provider.enabled, expected, "{}", provider.id);
+        }
+        for id in ["tpdb", "stashdb"] {
+            assert!(
+                registry.providers.iter().any(|p| p.id == id && p.enabled),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn saved_registry_cannot_reenable_regular_providers() {
+        let mut saved = default_registry();
+        for provider in &mut saved.providers {
+            provider.enabled = true;
+        }
+        let merged = super::merge_existing(default_registry(), Some(saved));
+        let tmdb = merged
+            .providers
+            .iter()
+            .find(|p| p.id == "tmdb")
+            .expect("tmdb listed");
+        let omdb = merged
+            .providers
+            .iter()
+            .find(|p| p.id == "omdb")
+            .expect("omdb listed");
+        assert_eq!(tmdb.enabled, crate::edition::STORE_SAFE);
+        assert_eq!(omdb.enabled, crate::edition::STORE_SAFE);
     }
 
     #[test]
