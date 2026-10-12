@@ -23,6 +23,7 @@ mod enrichment {
 mod epg;
 mod iptv;
 mod iptv_relay;
+mod iptv_stalker;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
@@ -295,6 +296,9 @@ pub fn run() {
             iptv::get_live_channels,
             iptv::play_channel,
             iptv::add_m3u_playlist,
+            iptv::add_iptv_source,
+            iptv::update_iptv_source,
+            iptv::resolve_live_stream,
             iptv_relay::get_stream_relay_url,
             epg::list_epg_sources,
             epg::add_epg_source,
