@@ -4,9 +4,11 @@
 // and attached images, runs diagnostics, and offers buttons for anything that
 // changes the library. Without a key, prompts go to the ai_query command,
 // which routes them to diagnostics, source checks, library automation or the
-// configured local model. Answers are typed out while the head speaks, and
-// can be read aloud with the system voice. When the user has given the agent
-// their own photo (PortraitSetup), the head is that photo, animated locally.
+// configured Hugging Face model, and attached images go to the free vision
+// skill (local CLIP, plus Qwen3-VL when a Hugging Face token is set).
+// Answers are typed out while the head speaks, and can be read aloud with the
+// system voice. When the user has given the agent their own photo
+// (PortraitSetup), the head is that photo, animated locally.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ClipboardEvent, FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -40,6 +42,7 @@ import {
 } from "../../services/agentBrain";
 import type { AgentAction, AgentImageInput, AgentStatus } from "../../services/agentBrain";
 import { getAgentAvatar, type AgentAvatar } from "../../services/agentAvatarStore";
+import { seeImage } from "../../services/agentVision";
 
 type ActionState = "ready" | "running" | "done" | "failed";
 
@@ -198,7 +201,7 @@ export default function HoloAgent() {
     if (busy) return;
     // The status check may still be in flight right after the panel opens.
     const useClaude = status ? status.configured : (await getAgentStatus().catch(() => null))?.configured === true;
-    const image = useClaude ? attachment : null;
+    const image = attachment;
     if (!clean && !image) return;
     const asked = session.current;
     const shownPrompt = clean || "What is in this image?";
@@ -217,6 +220,13 @@ export default function HoloAgent() {
         if (session.current !== asked) return;
         dispatch({ type: "answer" });
         speak(reply.text, reply.actions);
+      } else if (image) {
+        setActivity("Looking at the image…");
+        const seen = await seeImage(image.preview, clean);
+        setActivity(null);
+        if (session.current !== asked) return;
+        dispatch({ type: "answer" });
+        speak(seen);
       } else {
         const result = await invoke<unknown>("ai_query", { prompt: clean });
         if (session.current !== asked) return;
@@ -260,7 +270,6 @@ export default function HoloAgent() {
   };
 
   const onPaste = (event: ClipboardEvent<HTMLInputElement>) => {
-    if (!claude) return;
     const file = Array.from(event.clipboardData.files).find((item) => AGENT_IMAGE_TYPES.includes(item.type));
     if (file) {
       event.preventDefault();
@@ -482,7 +491,7 @@ export default function HoloAgent() {
               ))}
               {status && !claude && !settingsOpen && (
                 <button type="button" className="holo-agent-upgrade" onClick={() => setSettingsOpen(true)}>
-                  Add an Anthropic API key to unlock full chat, image recognition and library actions.
+                  Add an Anthropic API key to unlock full chat and library actions. Image reading already works for free.
                 </button>
               )}
             </div>
@@ -510,29 +519,25 @@ export default function HoloAgent() {
             )}
             {attachError && <p className="text-xs text-red-300" role="alert">{attachError}</p>}
             <form className="holo-agent-form" onSubmit={onSubmit}>
-              {claude && (
-                <>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept={AGENT_IMAGE_TYPES.join(",")}
-                    className="hidden"
-                    onChange={(event) => {
-                      void attach(event.target.files?.[0]);
-                      event.target.value = "";
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="cv-btn cv-btn-secondary px-2"
-                    onClick={() => fileRef.current?.click()}
-                    disabled={busy}
-                    aria-label="Attach an image"
-                  >
-                    <Paperclip size={14} />
-                  </button>
-                </>
-              )}
+              <input
+                ref={fileRef}
+                type="file"
+                accept={AGENT_IMAGE_TYPES.join(",")}
+                className="hidden"
+                onChange={(event) => {
+                  void attach(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="cv-btn cv-btn-secondary px-2"
+                onClick={() => fileRef.current?.click()}
+                disabled={busy}
+                aria-label="Attach an image"
+              >
+                <Paperclip size={14} />
+              </button>
               <input
                 className="cv-input flex-1 text-sm"
                 value={input}

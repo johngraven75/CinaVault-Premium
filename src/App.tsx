@@ -42,6 +42,7 @@ import {
 import { AI_MEDIA_AGENT_ENABLED } from "./services/aiMediaAgent";
 import { startAiMediaAutopilot } from "./services/aiMediaAutopilot";
 import { startPosterAutopilot } from "./services/aiPosterAutopilot";
+import { startVisionPass, summarizeVisionPass } from "./services/posterVisionPass";
 import { getPreferredMediaServer } from "./services/serverProvider";
 import { getEnabledCinaVaultFeatures } from "./features/cinavaultFeatureSuite";
 import { isFeatureOn, syncFeatureSettingsFromBackend } from "./features/featureFlags";
@@ -373,7 +374,8 @@ export default function App(): JSX.Element {
   }, [addStatusMessage, setMediaItems, settings.ai_media_autopilot_interval_minutes]);
 
   // Local AI vision: warm the bundled CLIP model once the UI is idle, then
-  // check unverified posters in the background. No user input, no token.
+  // check unverified posters and read new ones in the background. No user
+  // input; a Hugging Face token only adds printed-text reading.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void startPosterAutopilot().then((result) => {
@@ -382,6 +384,11 @@ export default function App(): JSX.Element {
             `AI vision checked ${result.checked} posters: ${result.verified.length} confirmed, ${result.flagged.length} look mismatched.`,
           );
         }
+        // Then the vision skill tags posters that have no vision record yet.
+        return startVisionPass().then((vision) => {
+          const summary = vision && summarizeVisionPass(vision);
+          if (summary) addStatusMessage(summary);
+        });
       });
     }, 8000);
     return () => window.clearTimeout(timer);

@@ -27,6 +27,7 @@ mod library_count;
 mod library_metadata_policy;
 mod library_unify;
 mod media_tools;
+mod media_vision;
 // Legacy module compiled without its #[tauri::command] attributes (see build.rs);
 // the newer guarded wrappers own the commands, so most of it is unreachable by design.
 #[allow(dead_code)]
@@ -424,6 +425,10 @@ pub fn run() {
             ai::ensure_hf_token,
             ai::get_ai_config,
             ai::set_ai_model,
+            media_vision::media_vision_pending,
+            media_vision::media_vision_save,
+            media_vision::media_vision_get,
+            media_vision::media_vision_forget,
             ai_automation::ai_library_manage,
             metadata_enrichment_runtime::run_library_enrichment,
             enrichment::gather_adult_metadata,

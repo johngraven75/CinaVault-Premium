@@ -8,6 +8,7 @@ import TabBanner from "../experience/TabBanner";
 import { IS_STORE_SAFE } from "../../config/edition";
 import { useFeature } from "../../features/featureFlags";
 import { followPostScan } from "../../services/postScan";
+import { startVisionPass, summarizeVisionPass } from "../../services/posterVisionPass";
 
 type ScanResult = { status?: string; total_found?: number | string; total_added?: number | string; total_updated?: number | string; sources_scanned?: number | string; sources_failed?: number | string; nfo_applied?: number; post_scan?: { new_items: number; retry_items?: number; follow_up: string }; errors?: string[] };
 type SourceLike = { id?: number; path: string; source_type: string; name: string; enabled: boolean; last_scanned?: string; item_count: number };
@@ -120,6 +121,13 @@ export default function MediaSourcesTab() {
         if (!status) return;
         refreshLibrary("post-scan");
         if (status.lastRun?.items) addStatusMessage(`Finished work on ${status.lastRun.items} new title(s)`);
+        // Metadata and posters are in; now read the new posters with AI vision.
+        void startVisionPass().then((vision) => {
+          const summary = vision && summarizeVisionPass(vision);
+          if (!summary) return;
+          addStatusMessage(summary);
+          refreshLibrary("post-scan-vision");
+        });
       });
     }
   };
