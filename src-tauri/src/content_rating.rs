@@ -260,16 +260,23 @@ pub async fn refresh(
         if rating.is_none() {
             summary.unrated += 1;
         }
-        results.push((row.id, rating.unwrap_or_default()));
+        results.push((row.id, rating));
     }
     let db = db.lock().map_err(|error| error.to_string())?;
     for (id, rating) in results {
-        db.conn
-            .execute(
+        // A miss only marks unchecked rows as checked; it never clears a
+        // rating found earlier, so a forced refresh cannot wipe ratings.
+        match rating {
+            Some(rating) => db.conn.execute(
                 "UPDATE media_items SET content_rating = ?2 WHERE id = ?1",
                 params![id, rating],
-            )
-            .map_err(|error| error.to_string())?;
+            ),
+            None => db.conn.execute(
+                "UPDATE media_items SET content_rating = '' WHERE id = ?1 AND content_rating IS NULL",
+                params![id],
+            ),
+        }
+        .map_err(|error| error.to_string())?;
     }
     Ok(summary)
 }
@@ -405,6 +412,37 @@ mod tests {
             .block_on(refresh(&std::sync::Mutex::new(db), false))
             .unwrap();
         assert_eq!(again.checked, 0);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn forced_refresh_keeps_existing_ratings_on_a_miss() {
+        let dir = std::env::temp_dir().join(format!("cinavault-nfo-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::new(dir.join("lib.db").to_str().unwrap()).unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO media_items (title, file_path, media_type, date_added, content_rating) VALUES ('t', ?1, 'movie', 'now', 'R')",
+                params![dir.join("Kept Film.mkv").to_string_lossy()],
+            )
+            .unwrap();
+        let lock = std::sync::Mutex::new(db);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let summary = runtime.block_on(refresh(&lock, true)).unwrap();
+        assert_eq!(summary.checked, 1);
+        assert_eq!(summary.unrated, 1);
+        let kept: String = lock
+            .into_inner()
+            .unwrap()
+            .conn
+            .query_row("SELECT content_rating FROM media_items", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, "R");
         std::fs::remove_dir_all(dir).ok();
     }
 
