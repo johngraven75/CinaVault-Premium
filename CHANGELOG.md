@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v1.0.5 Public Beta · Build 105
+
+### Changed
+
+- **The library only uses adult metadata providers now.** On the full edition, library scans and metadata updates read from ThePornDB, StashDB and the adult fallbacks (Porn Site Nuxt, IAFD, PhoenixAdult, PGMA). TMDB, OMDb, Cinemeta and TVMaze are never called, and first-run setup only asks for the adult provider keys. The Microsoft Store edition keeps the regular providers.
+
+- **The app reads your posters with free AI vision.** After each scan, a bundled offline model (CLIP) reads every poster to fill in empty genre and year fields without overwriting anything you already have. With a Hugging Face token it also reads printed titles and years with Qwen3-VL. The holo agent can now look at an attached image and describe it with no paid key.
+
 ### New
 
 - **AI vision reads your posters for free.** After each scan, CinaVault looks at every new poster with a free AI model that runs on your computer and fills in a missing genre (and, with a free Hugging Face token, a missing year printed on the poster). Genres and years from TMDB, OMDb, NFO files or your own edits are never replaced. Adult artwork is only ever read on your computer.
