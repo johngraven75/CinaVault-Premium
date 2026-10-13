@@ -153,6 +153,9 @@ fn candidates(db: &Database, force: bool) -> rusqlite::Result<Vec<Candidate>> {
 }
 
 fn tmdb_key(db: &Database) -> Option<String> {
+    if !crate::library_metadata_policy::provider_allowed("tmdb") {
+        return None;
+    }
     let mut stmt = db
         .conn
         .prepare("SELECT provider, api_key FROM api_keys WHERE lower(provider) IN ('tmdb', 'themoviedb')")

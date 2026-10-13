@@ -24,6 +24,7 @@ mod iptv;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
+mod library_metadata_policy;
 mod library_unify;
 mod media_tools;
 // Legacy module compiled without its #[tauri::command] attributes (see build.rs);
@@ -223,6 +224,9 @@ pub fn run() {
             }
             if let Err(error) = collections::ensure_tables(&database) {
                 log::warn!("Collection tables could not be prepared: {error}");
+            }
+            if let Err(error) = metadata_ext::enable_all_adult_providers_once(&database) {
+                log::warn!("Adult metadata providers could not be enabled: {error}");
             }
 
             app.manage(AppState {

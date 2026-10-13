@@ -101,6 +101,8 @@ async fn check_media_item_metadata(
             .map_err(|err| err.to_string())?
     };
 
+    let backdrop_request = backdrop_request
+        .filter(|_| crate::library_metadata_policy::provider_allowed("tmdb_images"));
     if let Some((Some(tmdb_id), media_type, backdrop_path, Some(api_key))) = backdrop_request {
         let missing_backdrop = backdrop_path
             .as_deref()

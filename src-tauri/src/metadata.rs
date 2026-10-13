@@ -701,7 +701,7 @@ async fn fetch_adult_item_metadata(
     provider_keys: &std::collections::HashMap<String, String>,
     item: &MediaItemLookup,
     provider_errors: &mut Vec<String>,
-) -> Option<ProviderWriteMatch> {
+) -> Option<(&'static str, ProviderWriteMatch)> {
     let queries = build_metadata_queries(item);
     for provider in configured_adult_provider_order(provider_keys) {
         for query in &queries {
@@ -782,7 +782,7 @@ async fn fetch_adult_item_metadata(
                 _ => Ok(None),
             };
             match result {
-                Ok(Some(provider_match)) => return Some(provider_match),
+                Ok(Some(provider_match)) => return Some((provider, provider_match)),
                 Ok(None) => {}
                 Err(error) => provider_errors.push(format!("{provider}/{query}: {error}")),
             }
@@ -791,13 +791,15 @@ async fn fetch_adult_item_metadata(
     None
 }
 
+/// Runs the adult provider chain (in configured order) for one title and
+/// returns the provider that matched with its fields.
 pub(crate) async fn fetch_adult_metadata_for_batch(
     client: &reqwest::Client,
     provider_keys: &std::collections::HashMap<String, String>,
     title: &str,
     file_path: &str,
     provider_errors: &mut Vec<String>,
-) -> Option<ProviderWriteMatch> {
+) -> Option<(&'static str, ProviderWriteMatch)> {
     let item = MediaItemLookup {
         id: 0,
         title: title.to_string(),
@@ -1164,7 +1166,9 @@ pub async fn check_media_item_metadata(
     let mut provider_errors = Vec::new();
 
     let provider_match = if media_item_is_adult(&item) {
-        fetch_adult_item_metadata(&client, &provider_keys, &item, &mut provider_errors).await
+        fetch_adult_item_metadata(&client, &provider_keys, &item, &mut provider_errors)
+            .await
+            .map(|(_, provider_match)| provider_match)
     } else {
         fetch_standard_item_metadata(&client, &provider_keys, &item, &mut provider_errors).await
     };

@@ -25,8 +25,9 @@ const AutoMetadataPanel: FeaturePanel = () => {
   return (
     <div className="space-y-1 text-xs">
       <div className="text-cv-subtext">
-        New titles from a scan are looked up in the background (keyless providers, then TMDB/OMDb when keys are
-        stored). Progress and Stop use the metadata task bar. Off: scans only add files.
+        New titles from a scan are looked up in the background (adult providers: ThePornDB and StashDB when keys
+        are stored; TMDB/OMDb are not in use). Progress and Stop use the metadata task bar. Off: scans only add
+        files.
       </div>
       {status?.running && <div>Working on new titles{status.queued ? ` (${status.queued} queued)` : ""}...</div>}
       {describePostScanRun(status?.lastRun).map((line) => (

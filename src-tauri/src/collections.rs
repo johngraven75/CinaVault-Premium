@@ -386,6 +386,9 @@ pub fn rebuild(db: &Database) -> Result<RebuildReport, String> {
 }
 
 fn tmdb_key(db: &Database) -> Option<String> {
+    if !crate::library_metadata_policy::provider_allowed("tmdb") {
+        return None;
+    }
     let stored = db
         .conn
         .query_row(

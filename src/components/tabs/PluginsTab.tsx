@@ -16,6 +16,7 @@ import {
   getMetadataProviderInitials,
   matchesPluginSearch,
 } from "../../utils/pluginUiSafety";
+import { NOT_IN_USE_LABEL } from "../../services/libraryMetadataPolicy";
 import {
   Package,
   Search,
@@ -506,8 +507,10 @@ export default function PluginsTab() {
                     style={{ color: "var(--cv-subtext)" }}
                   >
                     Select which metadata providers to use for scanning.
-                    Enabled: {metadataProviders.filter((p) => p.enabled).length}{" "}
-                    / {metadataProviders.length}
+                    Library metadata currently comes from adult providers
+                    only. Enabled:{" "}
+                    {metadataProviders.filter((p) => p.enabled).length} /{" "}
+                    {metadataProviders.length}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -564,8 +567,16 @@ export default function PluginsTab() {
                       <button
                         key={provider.id}
                         onClick={() => toggleMetadataProvider(provider.id)}
+                        disabled={provider.inUse === false}
+                        title={
+                          provider.inUse === false
+                            ? "Not in use: the library uses adult metadata providers only"
+                            : undefined
+                        }
                         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                          provider.enabled
+                          provider.inUse === false
+                            ? "border-white/5 bg-white/3 opacity-50 cursor-not-allowed"
+                            : provider.enabled
                             ? "border-[var(--cv-accent)]/40 bg-[var(--cv-accent)]/10"
                             : "border-white/5 bg-white/3 hover:bg-white/5"
                         }`}
@@ -594,7 +605,9 @@ export default function PluginsTab() {
                             className="text-[10px]"
                             style={{ color: "var(--cv-subtext)" }}
                           >
-                            {provider.category}
+                            {provider.inUse === false
+                              ? NOT_IN_USE_LABEL
+                              : provider.category}
                           </div>
                         </div>
                         {provider.enabled ? (

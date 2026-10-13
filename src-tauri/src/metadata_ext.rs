@@ -37,6 +37,61 @@ pub fn is_adult_provider_enabled(database: &Database, provider: &str) -> Result<
     Ok(adult_provider_enabled_keys(database)?.iter().any(|key| key == &provider))
 }
 
+const ALL_ADULT_ENABLED_MARKER: &str = "adult_metadata_all_enabled_v1";
+
+/// Switches every adult metadata provider on, once per install, now that the
+/// library uses adult providers only. Later choices in settings are kept.
+pub(crate) fn enable_all_adult_providers_once(database: &Database) -> Result<bool, String> {
+    if crate::edition::STORE_SAFE
+        || database
+            .get_setting_data(ALL_ADULT_ENABLED_MARKER)
+            .map_err(|error| error.to_string())?
+            .is_some()
+    {
+        return Ok(false);
+    }
+    let all = serde_json::to_string(ADULT_PROVIDER_KEYS).map_err(|error| error.to_string())?;
+    database
+        .set_setting_data(ADULT_PROVIDER_ENABLED_SETTING, &all)
+        .map_err(|error| error.to_string())?;
+    database
+        .set_setting_data(ALL_ADULT_ENABLED_MARKER, "true")
+        .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+/// Adult providers beyond ThePornDB and StashDB, in lookup order.
+pub(crate) const EXTRA_ADULT_PROVIDER_KEYS: &[&str] =
+    &["porn_site_nuxt", "iafd", "phoenixadult", "pgma"];
+
+/// Saved values for the extra adult providers that are switched on, keyed by
+/// normalized provider id, for the adult fallback chain in a scan.
+pub(crate) fn enabled_extra_adult_provider_values(
+    database: &Database,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut values = std::collections::HashMap::new();
+    let mut stmt = database
+        .conn
+        .prepare("SELECT provider, api_key FROM api_keys")
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (provider, stored) = row.map_err(|error| error.to_string())?;
+        let provider = normalize_provider_key(&provider);
+        if !EXTRA_ADULT_PROVIDER_KEYS.contains(&provider.as_str())
+            || !is_adult_provider_enabled(database, &provider)?
+        {
+            continue;
+        }
+        if let Some(value) = resolve_stored_provider_key(&provider, &stored)? {
+            values.insert(provider, value);
+        }
+    }
+    Ok(values)
+}
+
 fn is_pgma_alias(provider: &str) -> bool {
     matches!(
         provider.trim().to_lowercase().as_str(),
@@ -235,6 +290,7 @@ pub async fn fetch_metadata(
     api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let provider = normalize_provider_key(&provider);
+    crate::library_metadata_policy::ensure_provider_allowed(&provider)?;
     match provider.as_str() {
         PGMA_PROVIDER_KEY => Ok(pgma_metadata_response(&query)),
         "porn_site_nuxt" => {
@@ -698,6 +754,33 @@ pub fn get_api_keys(state: State<AppState>) -> Result<serde_json::Value, String>
 #[cfg(test)]
 mod tests {
     use super::{get_metadata_providers, normalize_provider_key, pgma_metadata_response};
+
+    #[test]
+    fn every_adult_provider_is_switched_on_once() {
+        let db = crate::db::Database::new(":memory:").expect("test database");
+        // An older install had narrowed the adult list down to ThePornDB.
+        db.set_setting_data(super::ADULT_PROVIDER_ENABLED_SETTING, r#"["tpdb"]"#)
+            .expect("seed setting");
+        let changed = super::enable_all_adult_providers_once(&db).expect("migration runs");
+        assert_eq!(changed, !crate::edition::STORE_SAFE);
+        if crate::edition::STORE_SAFE {
+            return;
+        }
+        for provider in super::ADULT_PROVIDER_KEYS {
+            assert!(super::is_adult_provider_enabled(&db, provider).unwrap(), "{provider}");
+        }
+        let extra = super::enabled_extra_adult_provider_values(&db).expect("extra providers");
+        for provider in super::EXTRA_ADULT_PROVIDER_KEYS {
+            assert!(extra.contains_key(*provider), "{provider} is seeded and enabled");
+        }
+
+        // A later choice in settings is kept: the reset happens only once.
+        db.set_setting_data(super::ADULT_PROVIDER_ENABLED_SETTING, r#"["tpdb","stashdb"]"#)
+            .expect("user narrows list");
+        assert!(!super::enable_all_adult_providers_once(&db).unwrap());
+        assert!(!super::is_adult_provider_enabled(&db, "iafd").unwrap());
+        assert!(super::enabled_extra_adult_provider_values(&db).unwrap().is_empty());
+    }
 
     #[test]
     fn provider_aliases_include_pgma_and_nuxt() {

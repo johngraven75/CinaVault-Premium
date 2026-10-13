@@ -964,6 +964,7 @@ async fn gather_adult_metadata_assets_inner(
             keys.insert(raw_key, row.1.clone());
             keys.insert(normalized_key, row.1);
         }
+        crate::library_metadata_policy::retain_allowed_keys(&mut keys);
         keys
     };
     let tmdb_key = provider_keys.get("tmdb").cloned();
