@@ -507,8 +507,10 @@ export default function PluginsTab() {
                     style={{ color: "var(--cv-subtext)" }}
                   >
                     Select which metadata providers to use for scanning.
-                    Library metadata currently comes from adult providers
-                    only. Enabled:{" "}
+                    {IS_STORE_SAFE
+                      ? " "
+                      : " Library metadata currently comes from adult providers only. "}
+                    Enabled:{" "}
                     {metadataProviders.filter((p) => p.enabled).length} /{" "}
                     {metadataProviders.length}
                   </p>
