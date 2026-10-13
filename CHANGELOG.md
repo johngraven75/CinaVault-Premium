@@ -2,10 +2,20 @@
 
 ## Unreleased
 
+## v1.0.5 Public Beta · Build 105
+
 ### New
 
 - **AI vision reads your posters for free.** After each scan, CinaVault looks at every new poster with a free AI model that runs on your computer and fills in a missing genre (and, with a free Hugging Face token, a missing year printed on the poster). Genres and years from TMDB, OMDb, NFO files or your own edits are never replaced. Adult artwork is only ever read on your computer.
 - **The agent can look at pictures without an Anthropic key.** Attach or paste an image in the agent panel and it describes what it sees. With a free Hugging Face token it can also answer questions about the image, like what title is printed on a poster.
+
+### Changed
+
+- **The library only uses adult metadata providers now.** On the full edition, library scans and metadata updates read from ThePornDB, StashDB and the adult fallbacks (Porn Site Nuxt, IAFD, PhoenixAdult, PGMA). TMDB, OMDb, Cinemeta and TVMaze are never called, and first-run setup only asks for the adult provider keys. The Microsoft Store edition keeps the regular providers.
+
+### Fixed
+
+- **Parental-control ratings survive a refresh that finds nothing.** A forced content-rating refresh used to write an empty rating over every title that had no sidecar NFO rating, which wiped ratings already in your library on the full edition. A refresh that finds no rating now only marks unchecked titles as checked and never clears one you already have. The Plugins and Auto Metadata screens also name the providers each edition actually uses.
 
 ## v1.0.4 Pre-Beta · Build 104
 

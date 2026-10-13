@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>v1.0.4 Pre-Beta · Build 104</b> · Tauri 2 · Rust · React 19 · SQLite
+  <b>v1.0.5 Public Beta · Build 105</b> · Tauri 2 · Rust · React 19 · SQLite
 </p>
 
 ---
