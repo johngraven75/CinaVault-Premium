@@ -92,24 +92,24 @@ follow-up.
 
 ### Blank white window on launch
 
-The WebKitGTK DMABUF renderer fails the first paint on many Zorin 17 /
-Ubuntu 22.04 GPU and driver combinations, which shows as a window that opens
-but stays blank white. CinaVault disables that renderer path at startup
-(`WEBKIT_DISABLE_DMABUF_RENDERER=1`, set in `gpu_startup::apply()` before the
-window is created), so the interface loads normally while GPU acceleration
-stays on for everything else.
+On many Zorin 17 / Ubuntu 22.04 GPU and driver combinations the WebKitGTK
+accelerated render path crashes the web view process at launch — the window
+opens but stays blank white and the terminal shows `WebProcess didn't exit as
+expected after the UI process connection was closed`. CinaVault starts the web
+view with software compositing to avoid this: `gpu_startup::apply()` sets both
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1`
+before the window is created. Video playback is unaffected — it uses the
+player's own hardware decoding, not the WebKit compositor.
 
-If a window still opens white on an unusual driver, launch from a terminal to
-see the WebKit error:
+If a window still opens white on an unusual driver, launch from a terminal and
+share the full output so the real cause is visible:
 
 ```bash
 cinavault-premium 2>&1 | tail -40
 ```
 
-As a manual fallback you can also force software compositing with
-`WEBKIT_DISABLE_COMPOSITING_MODE=1 cinavault-premium`, or turn off **GPU
-acceleration** in Settings → Advanced, which sets the same variable on the next
-start.
+Both variables are already exported by the app; setting them yourself on the
+command line is only needed when debugging a non-standard setup.
 
 ## Building from source on Linux
 

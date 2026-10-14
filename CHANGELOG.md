@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- **The Linux window no longer opens to a blank white screen.** On Zorin OS 17 and other Ubuntu 22.04 systems the WebKitGTK DMABUF renderer fails the first paint on many GPU and driver combinations, leaving the window white. CinaVault now disables that renderer path at startup while keeping GPU acceleration for everything else, so the interface loads normally.
+- **The Linux window no longer opens to a blank white screen.** On Zorin OS 17 and other Ubuntu 22.04 systems the WebKitGTK accelerated render path crashes the web view at launch on many GPU and driver combinations, leaving the window white. CinaVault now starts the web view with software compositing (the DMABUF renderer and the accelerated compositor are both disabled), so the interface loads reliably. This does not affect video playback, which uses the player's own hardware decoding.
 
 ## v1.0.5 Public Beta · Build 105
 
