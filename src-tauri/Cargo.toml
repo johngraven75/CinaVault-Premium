@@ -48,14 +48,30 @@ quick-xml = "0.41"
 percent-encoding = "2"
 dirs = "6"
 # keyring 3 has no platform store by default and silently falls back to an
-# in-memory mock, which loses every saved key. Use the Windows Credential Manager.
-keyring = { version = "3", features = ["windows-native"] }
+# in-memory mock, which loses every saved key. Each platform needs its own
+# native backend, selected in the per-target dependency tables below:
+# Windows Credential Manager, and the Freedesktop Secret Service (GNOME
+# Keyring / KWallet) on Linux. `default-features = false` keeps the shared
+# build free of a backend so a target that forgets to pick one fails to
+# compile instead of silently losing keys.
+keyring = { version = "3", default-features = false }
 env_logger = "0.11"
 open = "5"
 log = "0.4"
 base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 rust_cast = "0.21"
+
+# Windows stores secrets in the Credential Manager.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+# Linux stores secrets in the Freedesktop Secret Service over D-Bus (GNOME
+# Keyring on GNOME/Zorin, KWallet on KDE). The sync backend keeps the blocking
+# `secure_credentials` calls free of an async runtime; crypto-rust encrypts the
+# D-Bus session transport without pulling in a system OpenSSL dependency.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 # Backport RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g without a breaking GTK-rs upgrade.
 [patch.crates-io]

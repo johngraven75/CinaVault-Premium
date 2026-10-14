@@ -67,10 +67,17 @@ pub fn environment(gpu: bool, existing_webview2: Option<&str>) -> Vec<(&'static 
         args.push_str(existing);
     }
     let mut vars = vec![(WEBVIEW2_ARGS, args)];
-    if !gpu {
-        // WebKitGTK equivalent on Linux builds.
-        vars.push(("WEBKIT_DISABLE_COMPOSITING_MODE", "1".into()));
-    }
+    // WebKitGTK rendering on Linux builds. On many Ubuntu 22.04 / Zorin 17 GPU +
+    // driver combinations the accelerated render path crashes the WebProcess at
+    // launch ("WebProcess didn't exit as expected"), leaving a blank white
+    // window. Disabling the DMABUF renderer alone was not enough, so the
+    // accelerated compositor is also disabled: WebKit falls back to software
+    // compositing, which renders the window reliably. This costs nothing for
+    // this app — video decode/transcode runs in the player pipeline, not the
+    // WebKit compositor. Both variables are always set (independent of the GPU
+    // switch) and are ignored by WebView2 on Windows.
+    vars.push(("WEBKIT_DISABLE_DMABUF_RENDERER", "1".into()));
+    vars.push(("WEBKIT_DISABLE_COMPOSITING_MODE", "1".into()));
     vars
 }
 
@@ -115,8 +122,35 @@ mod tests {
         assert!(env[0]
             .1
             .ends_with("--disable-gpu-compositing --remote-debugging-port=9222"));
-        assert_eq!(env[1], ("WEBKIT_DISABLE_COMPOSITING_MODE", "1".to_string()));
-        assert_eq!(environment(true, None).len(), 1);
+        assert_eq!(env[1], ("WEBKIT_DISABLE_DMABUF_RENDERER", "1".to_string()));
+        assert_eq!(env[2], ("WEBKIT_DISABLE_COMPOSITING_MODE", "1".to_string()));
+        // GPU on: the WebView2 args plus both always-on WebKit render guards.
+        let on = environment(true, None);
+        assert_eq!(on.len(), 3);
+        assert_eq!(on[0].0, WEBVIEW2_ARGS);
+        assert_eq!(on[1], ("WEBKIT_DISABLE_DMABUF_RENDERER", "1".to_string()));
+        assert_eq!(on[2], ("WEBKIT_DISABLE_COMPOSITING_MODE", "1".to_string()));
+    }
+
+    #[test]
+    fn webkit_render_guards_are_always_set() {
+        // Regression: both the DMABUF renderer and the accelerated compositor
+        // must be disabled whether or not GPU acceleration is enabled. On
+        // Zorin 17 / Ubuntu 22.04 the accelerated render path crashes the
+        // WebProcess at launch (blank white window) independently of the switch.
+        for gpu in [true, false] {
+            let env = environment(gpu, None);
+            assert!(
+                env.iter()
+                    .any(|(k, v)| *k == "WEBKIT_DISABLE_DMABUF_RENDERER" && v == "1"),
+                "DMABUF renderer disable missing for gpu={gpu}"
+            );
+            assert!(
+                env.iter()
+                    .any(|(k, v)| *k == "WEBKIT_DISABLE_COMPOSITING_MODE" && v == "1"),
+                "compositing-mode disable missing for gpu={gpu}"
+            );
+        }
     }
 
     #[test]

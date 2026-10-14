@@ -156,6 +156,15 @@ The full list, with what each switch does, is in [`src/features/featureCatalog.t
 
 ## Getting started
 
+CinaVault Premium runs on Windows and Linux from one Tauri codebase.
+
+| Platform | Install | Build |
+|---|---|---|
+| Windows | NSIS / MSI installer from the release | `npm run tauri:build:windows` |
+| Linux (Debian · Ubuntu · Zorin OS) | `sudo apt install ./CinaVault-Premium_*.deb`, or the AppImage — see [docs/releases/linux-zorin.md](docs/releases/linux-zorin.md) | `npx tauri build --bundles deb appimage` |
+
+### Windows
+
 **Requirements:** Windows 10/11, Node.js 22, the Rust stable toolchain, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) (WebView2, MSVC build tools).
 
 ```powershell
@@ -168,6 +177,21 @@ npm run tauri:build:windows  # build the NSIS and MSI installers
 ```
 
 Optional metadata keys (TMDB, OMDb, Fanart and others) are entered in the first-run wizard and stored in the Windows credential store, never in the repository.
+
+### Linux (Debian / Ubuntu / Zorin OS)
+
+**Requirements:** Ubuntu 22.04+ (covers Debian 12 and Zorin OS 17), Node.js 22, the Rust stable toolchain, and the Tauri Linux prerequisites (`webkit2gtk-4.1`, `librsvg2`, `patchelf`).
+
+```bash
+sudo apt install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev libglib2.0-dev libfuse2
+git clone https://github.com/johngraven75/CinaVault-Premium.git
+cd CinaVault-Premium
+npm ci
+npm run fetch:ai-models                 # bundles the offline vision model (about 149 MB)
+npx tauri build --bundles deb appimage  # build the .deb and AppImage
+```
+
+Provider keys are stored in the Freedesktop Secret Service (GNOME Keyring / KWallet) rather than the Windows credential store, and the WireGuard client uses `wg-quick` with a polkit prompt. Full install steps, runtime dependencies and the Windows-parity notes are in [docs/releases/linux-zorin.md](docs/releases/linux-zorin.md).
 
 ## Testing
 
@@ -223,6 +247,7 @@ Code signing is wired to Azure Artifact Signing and turns on as soon as the sign
 | [docs/README.md](docs/README.md) | Index of all documentation |
 | [docs/LIBRARY_ENGINE.md](docs/LIBRARY_ENGINE.md) | Unified library, duplicates and first-run setup |
 | [docs/LOCAL_AI.md](docs/LOCAL_AI.md) | Offline vision model |
+| [docs/releases/linux-zorin.md](docs/releases/linux-zorin.md) | Debian / Zorin OS install, dependencies and Windows-parity notes |
 | [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md) | Setting up Windows code signing |
 | [docs/HLS_STREAM_SUPPORT.md](docs/HLS_STREAM_SUPPORT.md) | HLS and live streams |
 | [docs/WIREGUARD_READINESS_AUTOCONNECT.md](docs/WIREGUARD_READINESS_AUTOCONNECT.md) | WireGuard remote access |

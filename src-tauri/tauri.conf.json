@@ -56,6 +56,14 @@
         "installMode": "both",
         "displayLanguageSelector": false
       }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "wireguard-tools",
+          "libayatana-appindicator3-1"
+        ]
+      }
     }
   },
   "plugins": {

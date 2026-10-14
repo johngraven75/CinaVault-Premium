@@ -1,0 +1,165 @@
+name: Linux Build (Debian / Zorin)
+
+# Produces the Debian package (.deb) and an AppImage for CinaVault Premium on
+# Ubuntu 22.04 LTS (glibc + webkit2gtk-4.1), the baseline that also covers
+# Debian 12 and Zorin OS 17. The .deb is the required artifact; the AppImage is
+# best effort. On a version tag the artifacts are attached to the GitHub release
+# so they sit alongside the Windows installers.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Debian / Zorin package
+    runs-on: ubuntu-22.04
+    timeout-minutes: 80
+    # A tag build attaches the artifacts to the release, which needs write.
+    permissions:
+      contents: ${{ startsWith(github.ref, 'refs/tags/') && 'write' || 'read' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Read build identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const build = JSON.parse(fs.readFileSync('build-version.json', 'utf8'));
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `display_name=${build.displayName}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `semver=${pkg.version}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `artifact_slug=${build.releaseTag.replaceAll('.', '-')}\n`);
+          NODE
+
+      - name: Install Tauri Linux prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libfuse2 \
+            imagemagick
+
+      - name: Prepare cross-platform bundle resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          # tauri.conf.json bundles the Windows-only WireGuard/cloudflared
+          # resources; stand in placeholders so the Linux bundle resolves them.
+          mkdir -p tools/wireguard src-tauri/tools/wireguard src-tauri/tools/cloudflared
+          if [ ! -f src-tauri/tools/wireguard/wireguard.exe ]; then
+            printf 'CI placeholder for Windows bundle resource\n' > src-tauri/tools/wireguard/wireguard.exe
+          fi
+          if [ ! -f src-tauri/tools/cloudflared/README.txt ]; then
+            printf 'CI placeholder directory for cloud relay resource\n' > src-tauri/tools/cloudflared/README.txt
+          fi
+          # Tauri's Linux icon pipeline needs RGBA PNGs.
+          shopt -s nullglob
+          for icon in src-tauri/icons/*.png; do
+            converted="${icon%.png}.rgba.png"
+            convert "$icon" -alpha on -define png:color-type=6 "$converted"
+            mv "$converted" "$icon"
+          done
+
+      - name: Install frontend dependencies
+        shell: bash
+        run: npm ci
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      - name: Align Cargo lockfile with the npm Tauri packages
+        # The committed lock pins older Tauri crates than package-lock.json, so
+        # the CLI's version-match preflight would fail; regenerating floats the
+        # crates to the matching minors, mirroring the Windows release job.
+        shell: bash
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Debian package
+        id: deb
+        shell: bash
+        run: npx tauri build --bundles deb 2>&1 | tee deb-build.log
+
+      - name: Build AppImage (best effort)
+        id: appimage
+        continue-on-error: true
+        shell: bash
+        env:
+          # Common GitHub-runner workarounds for the AppImage tooling.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: 'true'
+        run: npx tauri build --bundles appimage 2>&1 | tee appimage-build.log
+
+      - name: Collect artifacts and checksums
+        id: collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=linux-artifacts
+          mkdir -p "$out"
+          deb_dir=src-tauri/target/release/bundle/deb
+          appimage_dir=src-tauri/target/release/bundle/appimage
+          shopt -s nullglob
+          deb_found=0
+          for f in "$deb_dir"/*.deb; do
+            cp "$f" "$out/"
+            deb_found=1
+          done
+          if [ "$deb_found" -ne 1 ]; then
+            echo "::error::No .deb was produced in $deb_dir"
+            exit 1
+          fi
+          for f in "$appimage_dir"/*.AppImage; do
+            cp "$f" "$out/"
+          done
+          ( cd "$out" && sha256sum ./* > SHA256SUMS.txt )
+          echo "=== Linux artifacts ==="
+          cat "$out/SHA256SUMS.txt"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cinavault-linux-${{ steps.identity.outputs.artifact_slug }}-${{ github.sha }}
+          path: linux-artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach artifacts to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release upload "$tag" linux-artifacts/* --clobber
