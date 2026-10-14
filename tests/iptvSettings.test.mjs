@@ -90,6 +90,20 @@ test("each login type sends only the fields it uses", () => {
   assert.throws(() => buildIptvSourceArgs({ ...EMPTY_SOURCE_FORM, kind: "m3u", serverUrl: "https://a.example/x", userAgent: "a\nb" }), /line breaks/);
 });
 
+test("a public playlist URL saves with no username or password", () => {
+  // Regression: the Add Source form defaults to Xtream. Pasting a public M3U
+  // URL with no credentials used to fail with "Username is required"; an Xtream
+  // login with neither field now resolves to an M3U playlist and saves.
+  const args = buildIptvSourceArgs({
+    ...EMPTY_SOURCE_FORM,
+    serverUrl: "https://iptv-org.github.io/iptv/countries/us.m3u",
+  });
+  assert.equal(args.source.kind, "m3u");
+  assert.equal(args.source.username, null);
+  assert.equal(args.source.secret, null);
+  assert.equal(args.source.serverUrl, "https://iptv-org.github.io/iptv/countries/us.m3u");
+});
+
 test("the player has a settings button and passes headers to the relay", () => {
   const player = read("src/components/IPTVPlayer.tsx");
   const tab = read("src/components/tabs/LiveTVTab.tsx");

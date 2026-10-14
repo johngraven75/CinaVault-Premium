@@ -111,25 +111,31 @@ function header(label: string, value: string): string | null {
 
 /** Checks a source form before it goes to the backend (which checks again). */
 export function buildIptvSourceArgs(form: IptvSourceForm, { editing = false } = {}): IptvSourceArgs {
-  const info = loginTypeInfo(form.kind);
+  const username = form.username.trim();
+  const secret = form.secret.trim();
+  // A public playlist is just a URL with no login. An Xtream login with neither
+  // a username nor a password can't work, so treat that as an M3U playlist —
+  // this lets a bare public M3U/M3U8 URL save without the user first switching
+  // the login type away from the default.
+  const kind: IptvLoginType =
+    form.kind === "xtream" && !username && !secret ? "m3u" : form.kind;
+  const info = loginTypeInfo(kind);
   const raw = form.serverUrl.trim();
   if (!raw) throw new Error(`${info.serverLabel} is required.`);
   let serverUrl = raw;
-  if (form.kind === "xtream") {
+  if (kind === "xtream") {
     serverUrl = normalizeXtreamServerUrl(raw);
   } else if (!/^https?:\/\/[^/\s]+/i.test(raw)) {
     throw new Error(`Enter the full ${info.serverLabel.toLowerCase()} starting with http:// or https://.`);
   }
-  const username = form.username.trim();
   if (info.needsUsername && !username) throw new Error("Username is required.");
-  const secret = form.secret.trim();
   if (info.secretLabel && !secret && !editing) throw new Error(`${info.secretLabel} is required.`);
-  if (form.kind === "stalker" && secret && !MAC_PATTERN.test(secret)) {
+  if (kind === "stalker" && secret && !MAC_PATTERN.test(secret)) {
     throw new Error("Enter the MAC address as 00:1A:79:XX:XX:XX.");
   }
   return {
     source: {
-      kind: form.kind,
+      kind,
       name: form.name.trim(),
       serverUrl,
       username: info.needsUsername ? username : null,

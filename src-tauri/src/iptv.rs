@@ -119,6 +119,22 @@ pub fn validate_source(input: &IptvSourceInput, editing: bool) -> Result<ValidSo
     if !SOURCE_KINDS.contains(&kind.as_str()) {
         return Err(format!("Unknown login type: {}", input.kind));
     }
+    // A public playlist is just a URL with no login. An Xtream login with
+    // neither a username nor a password can't work, so treat that as an M3U
+    // playlist and let the bare URL through (mirrors the frontend builder).
+    let kind = if kind == "xtream"
+        && input.username.as_deref().unwrap_or("").trim().is_empty()
+        && input
+            .secret
+            .as_deref()
+            .map(str::trim)
+            .filter(|secret| !secret.is_empty())
+            .is_none()
+    {
+        "m3u".to_string()
+    } else {
+        kind
+    };
     let server_url = crate::epg::validate_source_url(&input.server_url).map_err(|_| {
         match kind.as_str() {
             "m3u" => "Enter the full playlist URL starting with http:// or https://",
