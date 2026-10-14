@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.6 Public Beta · Build 106
+
+### Fixed
+
+- **The VPN connects reliably on Windows.** Earlier builds could fail to bring up a WireGuard VPN connection, or tear the tunnel down while it was still starting, and some connections were refused because your Windows username was written into the profile incorrectly. Connecting and disconnecting now asks for permission once, waits until the tunnel service is running and has completed a fresh handshake, and no longer drops a connection that is still coming up.
+
 ## v1.0.5 Public Beta · Build 105
 
 ### New
