@@ -67,8 +67,15 @@ pub fn environment(gpu: bool, existing_webview2: Option<&str>) -> Vec<(&'static 
         args.push_str(existing);
     }
     let mut vars = vec![(WEBVIEW2_ARGS, args)];
+    // WebKitGTK rendering on Linux builds. The DMABUF renderer in
+    // webkit2gtk-4.1 paints a blank white window on many Ubuntu 22.04 / Zorin
+    // 17 GPU + driver combinations, so it is always disabled regardless of the
+    // GPU switch: this only changes WebKit's final-composite path and leaves
+    // GPU acceleration on for everything else. When the switch is off the
+    // compositor is disabled too, for full software rendering. Both variables
+    // are ignored by WebView2 on Windows.
+    vars.push(("WEBKIT_DISABLE_DMABUF_RENDERER", "1".into()));
     if !gpu {
-        // WebKitGTK equivalent on Linux builds.
         vars.push(("WEBKIT_DISABLE_COMPOSITING_MODE", "1".into()));
     }
     vars
@@ -115,8 +122,28 @@ mod tests {
         assert!(env[0]
             .1
             .ends_with("--disable-gpu-compositing --remote-debugging-port=9222"));
-        assert_eq!(env[1], ("WEBKIT_DISABLE_COMPOSITING_MODE", "1".to_string()));
-        assert_eq!(environment(true, None).len(), 1);
+        assert_eq!(env[1], ("WEBKIT_DISABLE_DMABUF_RENDERER", "1".to_string()));
+        assert_eq!(env[2], ("WEBKIT_DISABLE_COMPOSITING_MODE", "1".to_string()));
+        // GPU on: the WebView2 args plus the always-on DMABUF renderer disable.
+        let on = environment(true, None);
+        assert_eq!(on.len(), 2);
+        assert_eq!(on[0].0, WEBVIEW2_ARGS);
+        assert_eq!(on[1], ("WEBKIT_DISABLE_DMABUF_RENDERER", "1".to_string()));
+    }
+
+    #[test]
+    fn dmabuf_renderer_is_always_disabled() {
+        // Regression: the Linux blank-white-window fix must hold whether or not
+        // GPU acceleration is enabled, since the DMABUF renderer breaks the
+        // initial paint on Zorin 17 / Ubuntu 22.04 independently of the switch.
+        for gpu in [true, false] {
+            let env = environment(gpu, None);
+            assert!(
+                env.iter()
+                    .any(|(k, v)| *k == "WEBKIT_DISABLE_DMABUF_RENDERER" && v == "1"),
+                "DMABUF renderer disable missing for gpu={gpu}"
+            );
+        }
     }
 
     #[test]

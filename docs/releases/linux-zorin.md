@@ -88,6 +88,29 @@ Hardware-accelerated decode (VA-API) is not wired up yet on Linux; playback
 falls back to CPU decode, which is fine for most content. This is tracked as a
 follow-up.
 
+## Troubleshooting
+
+### Blank white window on launch
+
+The WebKitGTK DMABUF renderer fails the first paint on many Zorin 17 /
+Ubuntu 22.04 GPU and driver combinations, which shows as a window that opens
+but stays blank white. CinaVault disables that renderer path at startup
+(`WEBKIT_DISABLE_DMABUF_RENDERER=1`, set in `gpu_startup::apply()` before the
+window is created), so the interface loads normally while GPU acceleration
+stays on for everything else.
+
+If a window still opens white on an unusual driver, launch from a terminal to
+see the WebKit error:
+
+```bash
+cinavault-premium 2>&1 | tail -40
+```
+
+As a manual fallback you can also force software compositing with
+`WEBKIT_DISABLE_COMPOSITING_MODE=1 cinavault-premium`, or turn off **GPU
+acceleration** in Settings → Advanced, which sets the same variable on the next
+start.
+
 ## Building from source on Linux
 
 **Requirements:** Ubuntu 22.04+ (or Debian 12 / Zorin OS 17), Node.js 22, the
