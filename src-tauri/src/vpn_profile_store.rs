@@ -411,7 +411,17 @@ fn restrict_to_current_user(path: &Path) -> Result<(), String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+// On Unix, WireGuard profiles hold a private key, so restrict them to the
+// owner: 0700 for the directory, 0600 for each .conf file.
+#[cfg(all(unix, not(target_os = "windows")))]
+fn restrict_to_current_user(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = if path.is_dir() { 0o700 } else { 0o600 };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|error| format!("unable to secure VPN profile permissions: {error}"))
+}
+
+#[cfg(not(any(target_os = "windows", unix)))]
 fn restrict_to_current_user(_path: &Path) -> Result<(), String> {
     Ok(())
 }

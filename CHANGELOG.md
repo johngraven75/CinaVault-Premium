@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### New
+
+- **CinaVault now runs on Linux.** A Debian package (`.deb`) and an AppImage build from the same codebase and install on Ubuntu 22.04, Debian 12 and Zorin OS 17 (`sudo apt install ./CinaVault-Premium_*.deb`). Every feature of the Windows build is present. Provider keys and remote-access credentials are stored in the system keyring (GNOME Keyring / KWallet) instead of the Windows Credential Manager, the WireGuard client uses `wg-quick` with a polkit (pkexec) prompt in place of the Windows service and UAC, and the Windows Defender scan button reports as unavailable on Linux. See [docs/releases/linux-zorin.md](docs/releases/linux-zorin.md).
+
 ## v1.0.5 Public Beta · Build 105
 
 ### New

@@ -26,40 +26,179 @@ fn startup_status() -> &'static Mutex<serde_json::Value> {
 }
 
 fn wireguard_executable(app: &AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("unable to resolve application resources: {error}"))?;
-    let mut candidates = vec![];
-    #[cfg(target_os = "windows")]
+    // On Linux the engine is the system `wg-quick` from wireguard-tools, driven
+    // under polkit/sudo elevation rather than a bundled signed binary.
+    #[cfg(target_os = "linux")]
     {
-        if let Some(program_files) = std::env::var_os("ProgramFiles") {
-            candidates.push(
-                PathBuf::from(program_files)
-                    .join("WireGuard")
-                    .join("wireguard.exe"),
-            );
+        let _ = app;
+        return linux_wg_quick();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("unable to resolve application resources: {error}"))?;
+        let mut candidates = vec![];
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(program_files) = std::env::var_os("ProgramFiles") {
+                candidates.push(
+                    PathBuf::from(program_files)
+                        .join("WireGuard")
+                        .join("wireguard.exe"),
+                );
+            }
+            if let Some(program_files) = std::env::var_os("ProgramFiles(x86)") {
+                candidates.push(
+                    PathBuf::from(program_files)
+                        .join("WireGuard")
+                        .join("wireguard.exe"),
+                );
+            }
         }
-        if let Some(program_files) = std::env::var_os("ProgramFiles(x86)") {
-            candidates.push(
-                PathBuf::from(program_files)
-                    .join("WireGuard")
-                    .join("wireguard.exe"),
-            );
+        candidates.extend([
+            resource_dir
+                .join("tools")
+                .join("wireguard")
+                .join("wireguard.exe"),
+            resource_dir.join("wireguard").join("wireguard.exe"),
+            resource_dir.join("wireguard.exe"),
+        ]);
+        candidates
+            .into_iter()
+            .find(|path| official_engine(path))
+            .ok_or_else(|| "official WireGuard engine is missing or failed publisher, product, signature, or size verification".to_string())
+    }
+}
+
+/// Locates `wg-quick` from the official WireGuard tools on Linux. Checked
+/// against the standard system locations first, then `PATH`.
+#[cfg(target_os = "linux")]
+fn linux_wg_quick() -> Result<PathBuf, String> {
+    for dir in ["/usr/bin", "/usr/local/bin", "/bin", "/usr/sbin", "/sbin"] {
+        let candidate = PathBuf::from(dir).join("wg-quick");
+        if candidate.is_file() {
+            return Ok(candidate);
         }
     }
-    candidates.extend([
-        resource_dir
-            .join("tools")
-            .join("wireguard")
-            .join("wireguard.exe"),
-        resource_dir.join("wireguard").join("wireguard.exe"),
-        resource_dir.join("wireguard.exe"),
-    ]);
-    candidates
-        .into_iter()
-        .find(|path| official_engine(path))
-        .ok_or_else(|| "official WireGuard engine is missing or failed publisher, product, signature, or size verification".to_string())
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join("wg-quick");
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+    Err("the WireGuard tools were not found. Install the official package (sudo apt install wireguard-tools) and try again".to_string())
+}
+
+/// Derives a kernel-valid network interface name from a profile name. WireGuard
+/// profiles allow up to 32 characters, but a Linux interface name must stay
+/// under IFNAMSIZ (15 usable bytes), so longer names are truncated and made
+/// unique with a short digest of the full name. The mapping is deterministic,
+/// so status checks and disconnects can recompute the same interface.
+#[cfg(target_os = "linux")]
+fn linux_interface_name(profile: &str) -> String {
+    let slug: String = profile
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if slug.len() <= 15 {
+        slug
+    } else {
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(profile.as_bytes());
+        format!("{}-{:02x}{:02x}", &slug[..10], digest[0], digest[1])
+    }
+}
+
+/// Picks the privilege-escalation helper. `pkexec` (polkit) shows a graphical
+/// authentication dialog on GNOME/Zorin and KDE — the Linux counterpart of the
+/// Windows UAC prompt. `sudo -n` is a non-interactive fallback for headless or
+/// NOPASSWD setups.
+#[cfg(target_os = "linux")]
+fn linux_escalator() -> Option<PathBuf> {
+    for name in ["pkexec", "sudo"] {
+        for dir in ["/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin"] {
+            let candidate = PathBuf::from(dir).join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// Runs `wg-quick <args>` elevated. Returns the helper's exit code so the caller
+/// can distinguish a declined prompt (pkexec 126) or failed auth (pkexec 127)
+/// from a genuine tunnel failure.
+#[cfg(target_os = "linux")]
+fn run_privileged(engine: &std::path::Path, args: &[&str]) -> Result<Option<i32>, String> {
+    let escalator = linux_escalator().ok_or_else(|| {
+        "neither pkexec nor sudo is available to run WireGuard with administrator rights; install polkit (pkexec) or configure sudo".to_string()
+    })?;
+    let mut command = Command::new(&escalator);
+    if escalator.file_name().and_then(|n| n.to_str()) == Some("sudo") {
+        command.arg("-n");
+    }
+    command.arg(engine);
+    command.args(args);
+    command
+        .status()
+        .map(|status| status.code())
+        .map_err(|error| format!("failed to start the WireGuard helper: {error}"))
+}
+
+/// Maps a `wg-quick` elevation result to an actionable message.
+#[cfg(target_os = "linux")]
+fn linux_tunnel_error(code: Option<i32>, profile: &str) -> String {
+    match code {
+        Some(126) => "administrator approval was declined. Linux requires it for WireGuard to bring a tunnel up or down".to_string(),
+        Some(127) => "administrator authentication failed, or the WireGuard helper could not be started".to_string(),
+        Some(other) => format!("WireGuard tunnel '{profile}' failed with exit code {other}. Check the profile, the endpoint, and that wireguard-tools is installed"),
+        None => format!("WireGuard tunnel '{profile}' was interrupted"),
+    }
+}
+
+/// Copies a stored profile to `vpn/run/<interface>.conf` (user-owned, 0600) so
+/// `wg-quick` brings the tunnel up under the derived interface name. wg-quick
+/// uses the file's basename as the interface, so the staged name controls it.
+#[cfg(target_os = "linux")]
+fn linux_stage_conf(
+    app: &AppHandle,
+    stored: &std::path::Path,
+    interface: &str,
+) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let run_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("unable to resolve app data directory: {error}"))?
+        .join("vpn")
+        .join("run");
+    std::fs::create_dir_all(&run_dir)
+        .map_err(|error| format!("unable to create WireGuard run directory: {error}"))?;
+    let _ = std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o700));
+    let destination = run_dir.join(format!("{interface}.conf"));
+    std::fs::copy(stored, &destination)
+        .map_err(|error| format!("unable to stage WireGuard profile: {error}"))?;
+    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("unable to secure staged WireGuard profile: {error}"))?;
+    Ok(destination)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_remove_staged_conf(app: &AppHandle, interface: &str) {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let _ = std::fs::remove_file(dir.join("vpn").join("run").join(format!("{interface}.conf")));
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -94,7 +233,9 @@ fn engine_metadata_is_official(
         && signer.to_ascii_lowercase().contains("wireguard")
 }
 
-#[cfg(not(target_os = "windows"))]
+// Linux resolves the engine through `linux_wg_quick`, so this stub is only
+// used by the remaining non-Windows targets (e.g. macOS).
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn official_engine(_path: &std::path::Path) -> bool {
     false
 }
@@ -132,7 +273,18 @@ fn service_is_running(profile_name: &str) -> bool {
             })
             .unwrap_or(false)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        // The tunnel interface exists while the tunnel is up; `ip link show`
+        // needs no privileges, unlike `wg show`.
+        let interface = linux_interface_name(profile_name);
+        Command::new("ip")
+            .args(["link", "show", &interface])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         let _ = profile_name;
         false
@@ -360,10 +512,43 @@ pub async fn vpn_connect(app: AppHandle, profile: String) -> Result<serde_json::
             "engine": executable.to_string_lossy(),
         }))
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        let engine = wireguard_executable(&app)?;
+        let stored = vpn_profile_store::profile_path(&app, &profile)?;
+        let interface = linux_interface_name(&profile);
+        if service_is_running(&profile) {
+            return Err(format!("WireGuard tunnel '{profile}' is already connected"));
+        }
+        let staged = linux_stage_conf(&app, &stored, &interface)?;
+        let staged_arg = staged
+            .to_str()
+            .ok_or("the staged WireGuard profile path is not valid UTF-8")?;
+        let code = run_privileged(&engine, &["up", staged_arg])?;
+        if code != Some(0) {
+            linux_remove_staged_conf(&app, &interface);
+            return Err(linux_tunnel_error(code, &profile));
+        }
+        if !service_is_running(&profile) {
+            let _ = run_privileged(&engine, &["down", &interface]);
+            linux_remove_staged_conf(&app, &interface);
+            return Err(
+                "WireGuard reported success but the tunnel interface is not up".to_string(),
+            );
+        }
+        vpn_profile_store::record_verified_connection(&app, &profile)?;
+        Ok(serde_json::json!({
+            "status": "connected",
+            "profile": profile,
+            "interface": interface,
+            "engine": engine.to_string_lossy(),
+        }))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         let _ = (app, profile);
-        Err("bundled WireGuard tunnels are currently supported on Windows only".to_string())
+        Err("bundled WireGuard tunnels are currently supported on Windows and Linux only"
+            .to_string())
     }
 }
 
@@ -389,10 +574,37 @@ pub async fn vpn_disconnect(app: AppHandle) -> Result<serde_json::Value, String>
             "profiles": active,
         }))
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        let engine = wireguard_executable(&app)?;
+        let profiles = vpn_profile_store::list_profiles(&app, None)?;
+        let active: Vec<String> = profiles
+            .into_iter()
+            .filter(|profile| service_is_running(&profile.name))
+            .map(|profile| profile.name)
+            .collect();
+        let mut failed = vec![];
+        for profile in &active {
+            let interface = linux_interface_name(profile);
+            let code = run_privileged(&engine, &["down", &interface]);
+            if !matches!(code, Ok(Some(0))) {
+                failed.push(profile.clone());
+            }
+            linux_remove_staged_conf(&app, &interface);
+        }
+        if !failed.is_empty() {
+            return Err(linux_tunnel_error(None, &failed.join(", ")));
+        }
+        Ok(serde_json::json!({
+            "status": "disconnected",
+            "profiles": active,
+        }))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         let _ = app;
-        Err("bundled WireGuard tunnels are currently supported on Windows only".to_string())
+        Err("bundled WireGuard tunnels are currently supported on Windows and Linux only"
+            .to_string())
     }
 }
 
@@ -715,5 +927,51 @@ mod tests {
     fn tunnel_errors_explain_what_failed() {
         assert!(tunnel_error(Some(EXIT_UAC_DECLINED), "home").contains("Administrator approval"));
         assert!(tunnel_error(Some(EXIT_NO_HANDSHAKE), "home").contains("handshake"));
+    }
+
+    #[cfg(target_os = "linux")]
+    mod linux {
+        use super::super::{linux_interface_name, linux_tunnel_error};
+
+        #[test]
+        fn short_profile_names_map_to_themselves() {
+            assert_eq!(linux_interface_name("home"), "home");
+            assert_eq!(linux_interface_name("work-vpn_1"), "work-vpn_1");
+        }
+
+        #[test]
+        fn unsafe_characters_are_replaced() {
+            assert_eq!(linux_interface_name("my vpn!"), "my-vpn-");
+        }
+
+        #[test]
+        fn long_names_stay_under_the_interface_limit_and_are_deterministic() {
+            let long = "a-very-long-wireguard-profile-name";
+            let first = linux_interface_name(long);
+            let second = linux_interface_name(long);
+            assert_eq!(first, second, "interface name must be stable for a profile");
+            assert!(
+                first.len() <= 15,
+                "interface name {first:?} exceeds IFNAMSIZ"
+            );
+        }
+
+        #[test]
+        fn long_names_carry_a_digest_suffix_for_uniqueness() {
+            let interface = linux_interface_name("corporate-gateway-primary-tunnel");
+            // 10 slug chars, a dash, then a 4-hex digest of the full name.
+            assert_eq!(interface.len(), 15);
+            assert!(interface.starts_with("corporate-"));
+            let suffix = &interface[11..];
+            assert_eq!(suffix.len(), 4);
+            assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
+        }
+
+        #[test]
+        fn tunnel_errors_explain_privilege_outcomes() {
+            assert!(linux_tunnel_error(Some(126), "home").contains("declined"));
+            assert!(linux_tunnel_error(Some(127), "home").contains("authentication"));
+            assert!(linux_tunnel_error(Some(2), "home").contains("exit code 2"));
+        }
     }
 }
