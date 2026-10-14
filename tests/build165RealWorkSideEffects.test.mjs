@@ -194,8 +194,8 @@ test("cast and IPTV controls invoke real work and clean up exact listeners", () 
   assert.match(cast, /startCasting/);
   assert.match(cast, /await startCasting/);
   assert.match(service, /invoke<string>\("start_casting"/);
-  assert.match(iptv, /removeEventListener\("timeupdate", updateTime\)/);
-  assert.match(iptv, /removeEventListener\("play", handlePlay\)/);
-  assert.match(iptv, /removeEventListener\("error", handleError\)/);
+  assert.match(iptv, /removeEventListener\("playing", onPlaying\)/);
+  assert.match(iptv, /removeEventListener\("pause", onPause\)/);
+  assert.match(iptv, /removeEventListener\("error", onError\)/);
   assert.doesNotMatch(iptv, /removeEventListener\("[^"]+", \(\) =>/);
 });

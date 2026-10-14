@@ -45,6 +45,8 @@ uuid = { version = "1", features = ["v4"] }
 regex = "1"
 # Kodi .nfo parsing (nfo_import); already in the lockfile through tauri.
 quick-xml = "0.41"
+# Gzipped XMLTV guides (epg.rs); already in the lockfile through other crates.
+flate2 = "1"
 percent-encoding = "2"
 dirs = "6"
 # keyring 3 has no platform store by default and silently falls back to an
