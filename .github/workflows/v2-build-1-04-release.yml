@@ -59,7 +59,7 @@ jobs:
           # CinaVault Premium Build Test Notes
 
           - Public release: v1.0.6 Public Beta
-          - Build: 105
+          - Build: 106
           - Internal version: 1.0.6
           - Commit: $env:GITHUB_SHA
           - Event: $env:GITHUB_EVENT_NAME
@@ -86,7 +86,7 @@ jobs:
           $cargoVersion = ((Get-Content src-tauri/Cargo.toml | Select-String '^version = ' | Select-Object -First 1).Line -replace 'version = ', '').Trim('"')
           if ($packageVersion -ne $env:APP_VERSION) { throw "package.json version mismatch: $packageVersion" }
           if ($manifest.semanticVersion -ne $env:APP_VERSION) { throw "build manifest mismatch: $($manifest.semanticVersion)" }
-          if ($manifest.displayBuild -ne '105') { throw "display build mismatch: $($manifest.displayBuild)" }
+          if ($manifest.displayBuild -ne '106') { throw "display build mismatch: $($manifest.displayBuild)" }
           if ($manifest.displayName -ne $env:DISPLAY_NAME) { throw "display name mismatch: $($manifest.displayName)" }
           if ($manifest.releaseTag -ne $env:TAG_NAME) { throw "release tag format mismatch: $($manifest.releaseTag)" }
           if ($tauri.version -ne $env:APP_VERSION) { throw "tauri version mismatch: $($tauri.version)" }
