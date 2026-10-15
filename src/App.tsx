@@ -51,6 +51,9 @@ import {
   ensurePermanentMediaPluginsAtStartup,
   initializePermanentMediaPluginsAtStartup,
 } from "./services/startupMediaPluginService";
+import { playMedia, controlPlayback } from "./services/playback";
+import { canPlayMediaItem } from "./utils/mediaPlaybackSafety";
+import { installSiriBridge, emitSiriAsk } from "./services/siriBridge";
 
 const TAB_COMPONENTS: Record<TabId, FC> = {
   home: HomeTab,
@@ -288,6 +291,41 @@ export default function App(): JSX.Element {
     [],
   );
   const aiAutopilotEnabled = settings.ai_media_autopilot_enabled !== "false";
+
+  // Siri / iOS App Intents bridge. The native App Intents layer opens the app
+  // and hands the webview a `cinavault://…` URL; installSiriBridge routes it to
+  // these existing app actions. Reads live state via getState so the handler is
+  // installed once and never goes stale. No-ops off iOS (the URL simply never
+  // arrives). See platforms/ios/siri for the native half.
+  useEffect(() => {
+    const uninstall = installSiriBridge({
+      getLibrary: () => useAppStore.getState().mediaItems,
+      showLibrary: () => useAppStore.getState().setActiveTab("home"),
+      setSearch: (query) => useAppStore.getState().setSearchQuery(query),
+      playItem: async (item) => {
+        if (!canPlayMediaItem(item)) {
+          addStatusMessage(`Siri: ${item.title} is not playable`);
+          return;
+        }
+        const library = useAppStore.getState().mediaItems.filter(canPlayMediaItem);
+        const index = library.findIndex((entry) => entry.file_path === item.file_path);
+        try {
+          await playMedia(index >= 0 ? library : [item], Math.max(0, index), { source: "siri" });
+          addStatusMessage(`Siri: playing ${item.title}`);
+        } catch (error) {
+          addStatusMessage(`Siri play failed: ${String(error)}`);
+        }
+      },
+      control: (command) => controlPlayback(command),
+      ask: (question) => {
+        emitSiriAsk(question);
+        addStatusMessage(`Siri asked the agent: ${question}`);
+      },
+    });
+    return uninstall;
+    // Store actions are stable (zustand); install once for the app's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addStatusMessage]);
 
   const saveState = useCallback(async () => {
     if (isSaving.current || !hasRestoredSettings.current) return;

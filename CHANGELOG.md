@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### New
+
+- **Siri support on iPhone and iPad.** Ask Siri to play, search, pause, resume, skip, or put a question to the CinaVault agent — "Play Dune on CinaVault", "Search for sci-fi on CinaVault", "Pause CinaVault", "Ask CinaVault what's in my library". The same commands show up in the Shortcuts app and Spotlight. Everything is matched on your device; no request leaves it. CinaVault also reads more clearly with VoiceOver: the main navigation is a labelled landmark and every item is announced.
+
 ## v1.0.5 Public Beta · Build 105
 
 ### New

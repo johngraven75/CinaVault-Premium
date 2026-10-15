@@ -26,8 +26,8 @@
     "scan:preventive": "node scripts/scan-preventive-risks.mjs",
     "verify:preflight": "npm run verify:master-build && npm run verify:contracts && npm run scan:preventive",
     "generate:evidence": "node scripts/generate-master-ci-evidence.mjs",
-    "test": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user && npm run test:local-vision && npm run test:library-engine && npm run test:holo-ui && npm run test:features && npm run test:discovery && npm run test:player && npm run test:server-profiles && npm run test:library && npm run test:code-signing",
-    "test:all": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user && npm run test:local-vision && npm run test:library-engine && npm run test:holo-ui && npm run test:features && npm run test:discovery && npm run test:player && npm run test:server-profiles && npm run test:library && npm run test:code-signing",
+    "test": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user && npm run test:local-vision && npm run test:library-engine && npm run test:holo-ui && npm run test:features && npm run test:discovery && npm run test:player && npm run test:server-profiles && npm run test:library && npm run test:code-signing && npm run test:siri",
+    "test:all": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs tests/build170RemoteConnectivity.test.mjs tests/v2Build102UiStability.test.mjs tests/v2Build103CommandPaletteStability.test.mjs tests/platformParityContract.test.mjs tests/hlsStreamSupport.test.mjs tests/build140GoogleCast.test.mjs tests/storeSafeEdition.test.mjs tests/nasSyncVerification.test.mjs && npm run test:remote-user && npm run test:local-vision && npm run test:library-engine && npm run test:holo-ui && npm run test:features && npm run test:discovery && npm run test:player && npm run test:server-profiles && npm run test:library && npm run test:code-signing && npm run test:siri",
     "test:carry-forward": "node --test tests/carryForwardVerification.test.mjs",
     "test:governance": "npm run verify:preflight && node --test tests/carryForwardVerification.test.mjs",
     "test:build169": "node --test tests/carryForwardVerification.test.mjs",
@@ -49,7 +49,8 @@
     "test:library-engine": "node --loader ./tests/typescript-loader.mjs --test tests/firstRunSetup.test.mjs tests/libraryMetadataPolicy.test.mjs tests/unifiedLibrary.test.mjs tests/frontBackWiring.test.mjs",
     "test:features": "node --loader ./tests/typescript-loader.mjs --test tests/featureMatrix.test.mjs tests/shellPreferences.test.mjs",
     "test:discovery": "node --loader ./tests/typescript-loader.mjs --test tests/discovery.test.mjs",
-    "test:player": "node --loader ./tests/typescript-loader.mjs --test tests/playerLogic.test.mjs"
+    "test:player": "node --loader ./tests/typescript-loader.mjs --test tests/playerLogic.test.mjs",
+    "test:siri": "node --loader ./tests/typescript-loader.mjs --test tests/build171SiriIntents.test.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "4.3.0",

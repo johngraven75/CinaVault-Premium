@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CinaVault Premium — Info.plist keys required for the Siri / App Intents
+  link-up. These are a FRAGMENT to merge into the Tauri-generated iOS app
+  Info.plist (src-tauri/gen/apple/cinavault_iOS/Info.plist); see README.md.
+  Do not ship this file as-is — copy the keys below into the real plist.
+
+  • NSSiriUsageDescription — the string shown when the app requests Siri use.
+  • CFBundleURLTypes — registers the cinavault:// scheme so the App Intents can
+    open the app with a deep link that the webview router handles.
+-->
+<dict>
+    <key>NSSiriUsageDescription</key>
+    <string>CinaVault uses Siri so you can play, search, control playback, and ask the CinaVault agent by voice.</string>
+
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.cinavault.premium.siri</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>cinavault</string>
+            </array>
+        </dict>
+    </array>
+</dict>

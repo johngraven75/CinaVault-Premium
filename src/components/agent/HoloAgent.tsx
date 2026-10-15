@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Paperclip, RotateCcw, Send, Settings, Sparkles, Volume2, VolumeX, X } from "lucide-react";
 
+import { SIRI_ASK_EVENT } from "../../services/siriBridge";
 import HoloHead from "./HoloHead";
 import PortraitHead from "./PortraitHead";
 import PortraitSetup from "./PortraitSetup";
@@ -240,6 +241,22 @@ export default function HoloAgent() {
       speak(`That didn't work: ${errorText(error)}`);
     }
   };
+
+  // Siri / iOS App Intents route a spoken question here (siriBridge.ts emits
+  // SIRI_ASK_EVENT). Open the panel and ask; the answer is spoken via the same
+  // speak() path the UI uses. askRef keeps the listener stable across renders.
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  useEffect(() => {
+    const onSiriAsk = (event: Event) => {
+      const question = (event as CustomEvent<string>).detail;
+      if (typeof question !== "string" || !question.trim()) return;
+      setOpen(true);
+      void askRef.current(question);
+    };
+    window.addEventListener(SIRI_ASK_EVENT, onSiriAsk as EventListener);
+    return () => window.removeEventListener(SIRI_ASK_EVENT, onSiriAsk as EventListener);
+  }, []);
 
   const approve = async (action: AgentAction) => {
     if (actionStates[action.id] && actionStates[action.id] !== "ready") return;

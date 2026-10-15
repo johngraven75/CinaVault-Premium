@@ -39,3 +39,30 @@ export async function playMedia(queue: MediaItem[], index = 0, options: PlayOpti
   if (handler && (await handler({ ...options, queue, index }))) return;
   await invoke("play_media", { filePath: item.file_path });
 }
+
+// ------------------------------------------------------------- controls ----
+// Transport controls for the already-open built-in player, used by Siri /
+// App Intents (siriBridge.ts) and any other out-of-UI caller. The player
+// registers a controller while it is mounted; callers get back whether it
+// was handled, so a control with no player open is a no-op rather than a throw.
+
+export type PlaybackCommand = "pause" | "resume" | "skip";
+
+/** Returns true when the built-in player acted on the command. */
+export type PlayerController = (command: PlaybackCommand) => boolean | Promise<boolean>;
+
+let controller: PlayerController | null = null;
+
+/** Registers the built-in player's transport controls; returns an unregister function. */
+export function registerPlayerController(next: PlayerController): () => void {
+  controller = next;
+  return () => {
+    if (controller === next) controller = null;
+  };
+}
+
+/** Sends a transport command to the open player. Returns true if a player handled it. */
+export async function controlPlayback(command: PlaybackCommand): Promise<boolean> {
+  if (!controller) return false;
+  return (await controller(command)) === true;
+}

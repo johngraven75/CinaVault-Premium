@@ -170,7 +170,7 @@ function NavItemButton({
       type="button"
       onClick={() => setActiveTab(item.id)}
       title={collapsed ? item.label : undefined}
-      aria-label={collapsed ? item.label : undefined}
+      aria-label={item.label}
       aria-current={active ? "page" : undefined}
       whileHover={{ x: collapsed ? 0 : 5, scale: collapsed ? 1.035 : 1 }}
       whileTap={{ scale: 0.975 }}
@@ -271,7 +271,7 @@ export default function Sidebar(): JSX.Element {
           )}
         </div>
 
-        <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+        <nav aria-label="Primary navigation" className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
           {ZONES.map((zone) => (
             <div key={zone} className="mb-3 last:mb-0">
               {!sidebarCollapsed && (

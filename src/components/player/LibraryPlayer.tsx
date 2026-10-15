@@ -11,7 +11,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Captions, CaptionsOff, Loader2, X } from "lucide-react";
 
 import { useFeature } from "../../features/featureFlags";
-import { registerPlayer, type PlayRequest } from "../../services/playback";
+import { registerPlayer, registerPlayerController, type PlayRequest } from "../../services/playback";
 import {
   activeSkip,
   bufferHold,
@@ -369,6 +369,28 @@ const LibraryPlayer: FC = () => {
   };
 
   useEffect(() => registerPlayer((request) => handleRequest.current(request)), []);
+
+  // Transport controls for Siri / iOS App Intents (siriBridge.ts). Acts only
+  // while a title is open; returns false otherwise so the control is a no-op.
+  useEffect(
+    () =>
+      registerPlayerController((command) => {
+        if (queueRef.current === null) return false;
+        const v = activeVideo();
+        if (!v) return false;
+        if (command === "pause") {
+          wantPlay.current = false;
+          v.pause();
+        } else if (command === "resume") {
+          wantPlay.current = true;
+          void v.play().catch((error) => console.warn("Playback did not start:", error));
+        } else {
+          void advance(1);
+        }
+        return true;
+      }),
+    [activeVideo, advance],
+  );
 
   // ── Transport ─────────────────────────────────────────────────────────────
 
