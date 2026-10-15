@@ -1,11 +1,12 @@
 // CinaVault Premium — holographic AI agent: a floating orb that opens a
-// projected 3D head and a chat. With an Anthropic API key the agent is
-// Claude (agent_chat in ai_agent.rs): it reads the library, looks at posters
-// and attached images, runs diagnostics, and offers buttons for anything that
-// changes the library. Without a key, prompts go to the ai_query command,
-// which routes them to diagnostics, source checks, library automation or the
-// configured Hugging Face model, and attached images go to the free vision
-// skill (local CLIP, plus Qwen3-VL when a Hugging Face token is set).
+// projected 3D head and a chat. With a free Hugging Face token the agent runs
+// on a free, open-weight multimodal reasoning model (agent_chat in ai_agent.rs,
+// routed through the Hugging Face router — no Claude): it reads the library,
+// looks at posters and attached images, runs diagnostics, and offers buttons for
+// anything that changes the library. Without a token, prompts go to the ai_query
+// command, which routes them to diagnostics, source checks, library automation
+// or the configured Hugging Face model, and attached images go to the free
+// vision skill (local CLIP, plus Qwen3-VL when a token is set).
 // Answers are typed out while the head speaks, and can be read aloud with the
 // system voice. When the user has given the agent their own photo
 // (PortraitSetup), the head is that photo, animated locally.
@@ -28,16 +29,16 @@ import {
   summarizeAgentResult,
 } from "../../services/holoAgent";
 import {
-  ANTHROPIC_KEYS_URL,
+  HF_TOKENS_URL,
   MODEL_LABELS,
-  clearAgentApiKey,
+  clearAgentHfToken,
   errorText,
   getAgentStatus,
   readAgentImage,
   resetAgent,
   runAgentAction,
   sendAgentMessage,
-  setAgentApiKey,
+  setAgentHfToken,
   setAgentModel,
 } from "../../services/agentBrain";
 import type { AgentAction, AgentImageInput, AgentStatus } from "../../services/agentBrain";
@@ -105,7 +106,7 @@ export default function HoloAgent() {
   const logRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const claude = status?.configured === true;
+  const agentReady = status?.configured === true;
   const busy = state.mood === "thinking";
 
   const stopSpeaking = useCallback(() => {
@@ -137,8 +138,8 @@ export default function HoloAgent() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Whether Claude is available is re-checked each time the panel opens, so a
-  // key added through ANTHROPIC_API_KEY or the settings shows up right away.
+  // Whether the agent is ready is re-checked each time the panel opens, so a
+  // token added through HF_TOKEN or the settings shows up right away.
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -200,7 +201,7 @@ export default function HoloAgent() {
     const clean = prompt.trim();
     if (busy) return;
     // The status check may still be in flight right after the panel opens.
-    const useClaude = status ? status.configured : (await getAgentStatus().catch(() => null))?.configured === true;
+    const useAgent = status ? status.configured : (await getAgentStatus().catch(() => null))?.configured === true;
     const image = attachment;
     if (!clean && !image) return;
     const asked = session.current;
@@ -212,7 +213,7 @@ export default function HoloAgent() {
     setAttachment(null);
     setAttachError(null);
     try {
-      if (useClaude) {
+      if (useAgent) {
         const reply = await sendAgentMessage(clean, image?.input ?? null, (phase, tool) =>
           setActivity(phase === "idle" ? null : activityLabel(phase, tool)),
         );
@@ -280,7 +281,7 @@ export default function HoloAgent() {
   const saveKey = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      setStatus(await setAgentApiKey(keyDraft));
+      setStatus(await setAgentHfToken(keyDraft));
       setKeyDraft("");
       setSettingsError(null);
       setSettingsOpen(false);
@@ -291,7 +292,7 @@ export default function HoloAgent() {
 
   const removeKey = async () => {
     try {
-      setStatus(await clearAgentApiKey());
+      setStatus(await clearAgentHfToken());
       setSettingsError(null);
     } catch (error) {
       setSettingsError(errorText(error));
@@ -329,7 +330,7 @@ export default function HoloAgent() {
     void ask(input);
   };
 
-  const subtitle = activity ?? (state.mood === "idle" && status && !claude ? "Offline mode" : MOOD_LABEL[state.mood]);
+  const subtitle = activity ?? (state.mood === "idle" && status && !agentReady ? "Offline mode" : MOOD_LABEL[state.mood]);
 
   return (
     <>
@@ -385,7 +386,9 @@ export default function HoloAgent() {
             {settingsOpen ? (
               <div className="holo-agent-settings">
                 {status?.keySource === "env" ? (
-                  <p className="text-xs text-cv-subtext">Using the key from the ANTHROPIC_API_KEY environment variable.</p>
+                  <p className="text-xs text-cv-subtext">Using the token from the HF_TOKEN environment variable.</p>
+                ) : status?.keySource === "cache" ? (
+                  <p className="text-xs text-cv-subtext">Using the token from your Hugging Face CLI sign-in.</p>
                 ) : (
                   <form className="holo-agent-form" onSubmit={saveKey}>
                     <input
@@ -393,8 +396,8 @@ export default function HoloAgent() {
                       type="password"
                       autoComplete="off"
                       value={keyDraft}
-                      placeholder={claude ? "Replace Anthropic API key" : "Anthropic API key (sk-ant-…)"}
-                      aria-label="Anthropic API key"
+                      placeholder={agentReady ? "Replace Hugging Face token" : "Hugging Face token (hf_…)"}
+                      aria-label="Hugging Face token"
                       onChange={(event) => setKeyDraft(event.target.value)}
                     />
                     <button type="submit" className="cv-btn cv-btn-primary px-3 text-xs" disabled={!keyDraft.trim()}>
@@ -403,13 +406,14 @@ export default function HoloAgent() {
                   </form>
                 )}
                 <p className="text-xs text-cv-subtext">
-                  The key is kept in your system keychain and never shown again. Get one at{" "}
-                  <a className="underline" href={ANTHROPIC_KEYS_URL} target="_blank" rel="noreferrer">
-                    console.anthropic.com
+                  The head runs on a free Hugging Face model, so it needs a free token, kept on this
+                  computer and never shown again. Get one at{" "}
+                  <a className="underline" href={HF_TOKENS_URL} target="_blank" rel="noreferrer">
+                    huggingface.co/settings/tokens
                   </a>
                   .
                 </p>
-                {claude && (
+                {agentReady && (
                   <label className="flex flex-col gap-1 text-xs text-cv-subtext">
                     Model
                     <select
@@ -423,6 +427,9 @@ export default function HoloAgent() {
                         </option>
                       ))}
                     </select>
+                    <span className="text-[11px] text-cv-subtext/80">
+                      Uncensored models may produce explicit output.
+                    </span>
                   </label>
                 )}
                 <div className="flex flex-wrap gap-2">
@@ -430,9 +437,9 @@ export default function HoloAgent() {
                     <RotateCcw size={11} className="mr-1 inline" />
                     New conversation
                   </button>
-                  {status?.keySource === "keychain" && (
+                  {status?.keySource === "settings" && (
                     <button type="button" className="holo-agent-chip" onClick={() => void removeKey()}>
-                      Remove key
+                      Remove token
                     </button>
                   )}
                 </div>
@@ -489,9 +496,9 @@ export default function HoloAgent() {
                   )}
                 </div>
               ))}
-              {status && !claude && !settingsOpen && (
+              {status && !agentReady && !settingsOpen && (
                 <button type="button" className="holo-agent-upgrade" onClick={() => setSettingsOpen(true)}>
-                  Add an Anthropic API key to unlock full chat and library actions. Image reading already works for free.
+                  Add a free Hugging Face token to unlock full chat and library actions. Image reading already works for free.
                 </button>
               )}
             </div>

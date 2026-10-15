@@ -10,6 +10,11 @@
 - **Add the IPTV sources you actually have.** Live TV now signs in to Xtream Codes accounts, plain M3U / M3U8 playlist links, and Stalker / MAG portals (by set-top-box MAC address). Each source can carry its own User-Agent and Referer so providers that check those headers still play.
 - **Per-source player settings.** A settings panel on the player lets you choose how a channel is played and which headers are sent, and the choice is remembered for that source.
 
+### Changed
+
+- **The holographic AI head now runs on Qwen3-VL (8B Thinking) via Hugging Face — no Claude dependency.** The animated agent's chat and image understanding use a free, open-weight multimodal reasoning model served through Hugging Face, the same free service the poster reader already uses. It reasons step by step before answering, still reads your library, looks at posters and attached images, and offers approve buttons for anything that changes your library. Add a free Hugging Face token in the agent's settings (or set `HF_TOKEN`); the head either answers with the free model or tells you the model is unreachable, and no Anthropic key is needed.
+- **Pick the AI head's model, including uncensored ones.** The agent's settings now have a model menu. Alongside the safe default (Qwen3-VL Thinking) and two other Qwen vision models, you can choose a free, uncensored Hugging Face model (Dolphin 2.9 or NeuralDaredevil) that answers without content filtering. The uncensored models are text only — they don't read images — and your choice is saved. A note in settings reminds you that uncensored models may produce explicit output.
+
 ### Fixed
 
 - **Live TV → Add IPTV source: public M3U URLs can now be saved without a username or password.** Pasting a public playlist link used to be blocked by the "Username is required" check that only belongs to Xtream logins. A source with just a URL and no credentials is now saved as an M3U playlist.

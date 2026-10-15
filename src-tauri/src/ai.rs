@@ -37,6 +37,35 @@ fn cached_hf_token() -> Option<String> {
     read_hf_token_file(&token_path)
 }
 
+/// Resolves the Hugging Face token and where it came from, in the one order the
+/// whole app relies on: the saved setting first (what AI Configure writes), then
+/// the `CINAVAULT_HF_TOKEN` / `HF_TOKEN` environment variables, then the token
+/// cached by the Hugging Face CLI. This is the single source of truth for both
+/// the diagnostics/inference path and the holographic agent brain so neither can
+/// drift from the other. `source` is a stable label ("settings", "env", "cache").
+pub(crate) fn resolve_hf_token_with_source(
+    db: &crate::db::Database,
+) -> Option<(String, &'static str)> {
+    if let Some(token) = db
+        .get_setting_data("hf_token")
+        .ok()
+        .flatten()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+    {
+        return Some((token, "settings"));
+    }
+    for name in ["CINAVAULT_HF_TOKEN", "HF_TOKEN"] {
+        if let Ok(token) = std::env::var(name) {
+            let token = token.trim().to_string();
+            if !token.is_empty() {
+                return Some((token, "env"));
+            }
+        }
+    }
+    cached_hf_token().map(|token| (token, "cache"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiQueryRoute {
     NetworkDiagnostics,
@@ -294,12 +323,7 @@ pub async fn ai_inference(
 ) -> Result<serde_json::Value, String> {
     let token = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        db.get_setting_data("hf_token")
-            .map_err(|e| e.to_string())?
-            .filter(|t| !t.trim().is_empty())
-            .or_else(|| std::env::var("CINAVAULT_HF_TOKEN").ok())
-            .or_else(|| std::env::var("HF_TOKEN").ok())
-            .or_else(cached_hf_token)
+        resolve_hf_token_with_source(&db).map(|(token, _)| token)
     };
 
     let model_id = model.unwrap_or_else(|| {

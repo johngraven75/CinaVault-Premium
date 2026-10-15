@@ -284,9 +284,9 @@ export function summarizeAgentResult(result: unknown): string {
   return "Done.";
 }
 
-// ---------------------------------------------------------- Claude brain ----
+// ------------------------------------------------------- Hugging Face brain ----
 
-/** Progress the back end streams while Claude works (ai_agent.rs emit_activity). */
+/** Progress the back end streams while the model works (ai_agent.rs emit_activity). */
 export type AgentActivityPhase = "thinking" | "searching" | "acting" | "idle";
 
 const TOOL_ACTIVITY: Record<string, string> = {
@@ -305,7 +305,7 @@ export function activityLabel(phase: AgentActivityPhase, tool: string | null): s
   return "Ready";
 }
 
-/** The Messages API accepts these image types, up to 5 MB each. */
+/** The agent accepts these image types, up to 5 MB each. */
 export const AGENT_IMAGE_TYPES: readonly string[] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 export const AGENT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
