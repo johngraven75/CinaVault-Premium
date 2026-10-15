@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v1.0.7 Public Beta · Build 107
+
+### New
+
+- **Live TV has a built-in player with a programme guide.** Channels from your IPTV sources now play inside CinaVault, with an on-screen guide (EPG) that shows what is on now and next so you can browse and switch channels without leaving the app.
+- **Add the IPTV sources you actually have.** Live TV now signs in to Xtream Codes accounts, plain M3U / M3U8 playlist links, and Stalker / MAG portals (by set-top-box MAC address). Each source can carry its own User-Agent and Referer so providers that check those headers still play.
+- **Per-source player settings.** A settings panel on the player lets you choose how a channel is played and which headers are sent, and the choice is remembered for that source.
+
+### Fixed
+
+- **Live TV → Add IPTV source: public M3U URLs can now be saved without a username or password.** Pasting a public playlist link used to be blocked by the "Username is required" check that only belongs to Xtream logins. A source with just a URL and no credentials is now saved as an M3U playlist.
+
+## v1.0.6 Public Beta · Build 106
+
+### Fixed
+
+- **The VPN connects reliably on Windows.** Earlier builds could fail to bring up a WireGuard VPN connection, or tear the tunnel down while it was still starting, and some connections were refused because your Windows username was written into the profile incorrectly. Connecting and disconnecting now asks for permission once, waits until the tunnel service is running and has completed a fresh handshake, and no longer drops a connection that is still coming up.
+
 ## v1.0.5 Public Beta · Build 105
 
 ### New

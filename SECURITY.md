@@ -4,7 +4,9 @@
 
 | Version | Supported |
 |---|---|
-| 1.0.5 Public Beta (Build 105) | Yes |
+| 1.0.7 Public Beta (Build 107) | Yes |
+| 1.0.6 Public Beta (Build 106) | No |
+| 1.0.5 Public Beta (Build 105) | No |
 | 1.0.4 Pre-Beta (Build 104) | No |
 | 1.0.2 Pre-Beta (Build 102) | No |
 | 1.0.1 Pre-Beta (Build 101) | No |
