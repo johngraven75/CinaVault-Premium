@@ -432,6 +432,16 @@
   color: var(--holo-ink);
 }
 
+.holo-action.is-danger {
+  border-color: rgba(255, 60, 90, 0.5);
+  color: #ffd2db;
+}
+
+.holo-action.is-danger:hover {
+  border-color: rgba(255, 70, 100, 0.75);
+  background: rgba(255, 60, 90, 0.16);
+}
+
 .holo-action:disabled {
   opacity: 0.55;
   cursor: progress;

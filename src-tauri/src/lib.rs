@@ -24,6 +24,7 @@ mod iptv;
 mod jellyfin;
 mod library_artifacts;
 mod library_count;
+mod library_item_actions;
 mod library_metadata_policy;
 mod library_unify;
 mod media_tools;
@@ -265,6 +266,8 @@ pub fn run() {
             db::add_media_item,
             db::update_media_item,
             db::delete_media_item,
+            library_item_actions::metadata_unmatch_item,
+            library_item_actions::library_delete_item,
             db::purge_photo_items,
             db::search_media,
             db::get_recent_media,
