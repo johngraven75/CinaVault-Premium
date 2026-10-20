@@ -84,7 +84,9 @@ pub fn validate_profile(content: &str) -> Result<ParsedVpnProfile, String> {
         if value.is_empty() {
             return Err(format!("{key}: value cannot be empty"));
         }
-        let fields = sections.get_mut(section).expect("section exists");
+        let fields = sections
+            .get_mut(section)
+            .ok_or_else(|| format!("line {}: field appears before a section", index + 1))?;
         if fields.insert(key.to_string(), value.to_string()).is_some() {
             return Err(format!("{key}: duplicate field"));
         }

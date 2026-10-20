@@ -694,8 +694,9 @@ pub fn group_items(items: Vec<MediaItem>) -> Vec<UnifiedEntry> {
         let title = titles[index].as_str();
         match strong_roots_by_title.get(title) {
             Some(roots) if roots.len() == 1 => {
-                let root = *roots.iter().next().expect("one root");
-                sets.union(root, index);
+                if let Some(&root) = roots.iter().next() {
+                    sets.union(root, index);
+                }
             }
             Some(_) => {
                 // Ambiguous between several identified works: keep apart.
@@ -734,8 +735,9 @@ pub fn group_items(items: Vec<MediaItem>) -> Vec<UnifiedEntry> {
         }
         if let Some(roots) = yeared_roots.get(&yearless) {
             if roots.len() == 1 {
-                let root = *roots.iter().next().expect("one root");
-                sets.union(root, index);
+                if let Some(&root) = roots.iter().next() {
+                    sets.union(root, index);
+                }
             }
         }
     }

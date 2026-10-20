@@ -18,7 +18,12 @@ test("WireGuard UI gives truthful persistent readiness and verified-default feed
 test("WireGuard backend keeps startup bounded, cleanup explicit, and summaries secret-safe", () => {
   assert.match(vpn, /Duration::from_secs\(15\)/);
   assert.match(vpn, /cleanup\(\)\.await/);
-  assert.match(vpn, /handshake_is_verified/);
+  // Handshake verification now lives in the elevated connect script (#176):
+  // the tunnel only counts as up after a logged handshake response, and is
+  // uninstalled with EXIT_NO_HANDSHAKE when none arrives.
+  assert.match(vpn, /handshake response/);
+  assert.match(vpn, /EXIT_NO_HANDSHAKE/);
+  assert.match(vpn, /uninstalltunnelservice/);
   assert.match(profiles, /successful manual connection verification first/);
   const summary = profiles.slice(
     profiles.indexOf("pub struct StoredVpnProfile"),

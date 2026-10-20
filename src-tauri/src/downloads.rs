@@ -150,15 +150,15 @@ pub async fn check_download_tools() -> Result<serde_json::Value, String> {
 
     Ok(serde_json::json!({
         "yt_dlp": {
-            "installed": ytdlp.is_ok() && ytdlp.as_ref().unwrap().status.success(),
+            "installed": ytdlp.as_ref().is_ok_and(|output| output.status.success()),
             "version": ytdlp.ok().map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").to_string()),
         },
         "ffmpeg": {
-            "installed": ffmpeg.is_ok() && ffmpeg.as_ref().unwrap().status.success(),
+            "installed": ffmpeg.as_ref().is_ok_and(|output| output.status.success()),
             "version": ffmpeg.ok().map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").to_string()),
         },
         "ffprobe": {
-            "installed": ffprobe.is_ok() && ffprobe.as_ref().unwrap().status.success(),
+            "installed": ffprobe.as_ref().is_ok_and(|output| output.status.success()),
         },
         "supported_media": {
             "streaming": ["HLS .m3u8", "DASH .mpd"],

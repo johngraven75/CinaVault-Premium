@@ -47,9 +47,7 @@ impl MetadataTaskGuard {
     }
 
     pub fn update(&mut self, current: usize, message: impl Into<String>) {
-        let mut progress = progress_state()
-            .lock()
-            .expect("metadata task progress lock");
+        let mut progress = lock_progress();
         if progress.task != self.task || !progress.active {
             return;
         }
@@ -59,9 +57,7 @@ impl MetadataTaskGuard {
     }
 
     pub fn finish(mut self, message: impl Into<String>) {
-        let mut progress = progress_state()
-            .lock()
-            .expect("metadata task progress lock");
+        let mut progress = lock_progress();
         if progress.task == self.task {
             progress.active = false;
             progress.current = progress.total;
@@ -77,9 +73,7 @@ impl Drop for MetadataTaskGuard {
         if self.finished {
             return;
         }
-        let mut progress = progress_state()
-            .lock()
-            .expect("metadata task progress lock");
+        let mut progress = lock_progress();
         if progress.task == self.task && progress.active {
             progress.active = false;
             progress.percent = 100;
@@ -90,18 +84,13 @@ impl Drop for MetadataTaskGuard {
 
 #[tauri::command]
 pub fn get_metadata_task_progress() -> MetadataTaskProgress {
-    progress_state()
-        .lock()
-        .expect("metadata task progress lock")
-        .clone()
+    lock_progress().clone()
 }
 
 #[tauri::command]
 pub fn stop_ai_agent() -> MetadataTaskProgress {
     cancellation_flag().store(true, Ordering::SeqCst);
-    let mut progress = progress_state()
-        .lock()
-        .expect("metadata task progress lock");
+    let mut progress = lock_progress();
     if progress.active {
         progress.message = "Stop requested; finishing the current item...".to_string();
     }
@@ -112,10 +101,16 @@ pub fn stop_requested() -> bool {
     cancellation_flag().load(Ordering::SeqCst)
 }
 
-fn replace_progress(progress: MetadataTaskProgress) {
-    *progress_state()
+/// Progress is plain data, so a panic in another thread must not take the
+/// progress panel (or the stop button) down with it: recover the guard.
+fn lock_progress() -> std::sync::MutexGuard<'static, MetadataTaskProgress> {
+    progress_state()
         .lock()
-        .expect("metadata task progress lock") = progress;
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn replace_progress(progress: MetadataTaskProgress) {
+    *lock_progress() = progress;
 }
 
 fn progress_state() -> &'static Mutex<MetadataTaskProgress> {
@@ -177,5 +172,20 @@ mod tests {
         let snapshot = get_metadata_task_progress();
         assert_eq!(snapshot.percent, 100);
         assert!(!snapshot.active);
+    }
+    #[test]
+    fn progress_survives_a_panic_while_the_lock_was_held() {
+        let poisoner = std::thread::spawn(|| {
+            let _held = progress_state().lock().unwrap_or_else(|p| p.into_inner());
+            panic!("simulated crash while updating progress");
+        });
+        assert!(poisoner.join().is_err());
+        assert!(progress_state().is_poisoned());
+
+        reset_metadata_task_progress_for_test();
+        let snapshot = stop_ai_agent();
+        assert!(!snapshot.active);
+        assert_eq!(get_metadata_task_progress().percent, snapshot.percent);
+        cancellation_flag().store(false, Ordering::SeqCst);
     }
 }

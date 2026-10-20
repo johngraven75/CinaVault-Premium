@@ -6,6 +6,9 @@ mod agent_avatar;
 mod ai;
 mod ai_agent;
 mod ai_automation;
+// Typed, UI-safe error + path confinement for new commands; adopted incrementally.
+#[allow(dead_code)]
+mod app_error;
 mod atomic_file;
 mod build_identity;
 mod casting;

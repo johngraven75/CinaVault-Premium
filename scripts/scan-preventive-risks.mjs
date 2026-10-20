@@ -48,7 +48,7 @@ for (const required of [
 }
 assert.equal(build.schemaVersion, 1);
 assert.match(build.semanticVersion, /^\d+\.\d+\.\d+$/);
-assert.match(build.displayName, /^v\d+(?:\.\d+)*(?: [A-Za-z-]+(?: [A-Za-z-]+)*)? Build \d+(?:\.\d+)?$/);
+assert.match(build.displayName, /^v\d+(?:\.\d+)*(?: [A-Za-z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+)*)? Build \d+(?:\.\d+)?$/);
 // Legacy v2-build-N.N tags, or semver tags such as v1.0.1-pre-beta.
 assert.match(build.releaseTag, /^v(?:\d+-build-\d+(?:\.\d+)?|\d+\.\d+\.\d+(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?)$/);
 
