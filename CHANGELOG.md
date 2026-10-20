@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Per-item Check metadata, Unmatch, and Delete buttons on every library card.** Each poster card now has three controls you can reach while browsing (and from the detail panel): Check metadata re-fetches this one title through every enabled adult provider and updates the card in place; Unmatch clears the current match and falls the title back to its filename so the next scan can match it fresh, without touching the file; Delete removes it from the library, with a choice to also send the file to your system trash (recoverable). The buttons are keyboard-accessible, and pressing Delete on a focused card opens the delete prompt.
+
+### Fixed
+
+- **All adult metadata providers now enabled by default; existing installs are migrated once on upgrade.** The adult metadata scan previously only queried ThePornDB and StashDB, which need an API key, so a library with no keys got nothing even though every provider showed as enabled. The scan now runs the full enabled chain, including the keyless providers (IAFD, PhoenixAdult, PGMA, Porn Site Nuxt). Installs from an earlier build re-enable every adult provider once on next launch, without overriding any provider you deliberately turned off.
+
 ## v1.0.5 Public Beta · Build 105
 
 ### New

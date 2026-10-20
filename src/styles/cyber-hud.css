@@ -577,6 +577,15 @@ body,
   background: linear-gradient(45deg, var(--cyber-amber), var(--cyber-violet));
 }
 
+.cyber-button.is-danger {
+  border-color: rgba(255, 60, 90, 0.62) !important;
+  color: #ff6a86 !important;
+}
+
+.cyber-button.is-danger::before {
+  background: linear-gradient(45deg, #ff3c5a, var(--cyber-violet));
+}
+
 .cyber-grid {
   display: grid;
   gap: 1rem;

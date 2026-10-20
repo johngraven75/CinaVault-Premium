@@ -1664,17 +1664,25 @@ pub async fn gather_adult_metadata(
         provider_keys.retain(|provider, _| {
             crate::metadata_ext::is_adult_provider_enabled(&db, provider).unwrap_or(false)
         });
-        (items, provider_keys)
+        // Every enabled adult provider beyond ThePornDB and StashDB — the
+        // keyless ones (IAFD, PhoenixAdult, PGMA, Porn Site Nuxt) — runs as a
+        // fallback when the keyed providers miss or are not configured.
+        let extra_adult = crate::metadata_ext::enabled_extra_adult_provider_values(&db)?;
+        (items, provider_keys, extra_adult)
     };
 
-    // Only report adapters this build can actually call.  IAFD and Phoenix do
-    // not have a supported integration here; reporting them as configured
-    // previously made a successful-looking gather do no work.
-    let configured_adult_providers: Vec<String> = ["tpdb", "stashdb"]
-    .iter()
-    .filter(|&&p| provider_keys.contains_key(p))
-    .map(|p| p.to_string())
-    .collect();
+    // Report every adapter the gather can actually call: the keyed providers
+    // that have a key, plus the keyless adult providers that are switched on.
+    let mut configured_adult_providers: Vec<String> = ["tpdb", "stashdb"]
+        .iter()
+        .filter(|&&p| provider_keys.contains_key(p))
+        .map(|p| p.to_string())
+        .collect();
+    for provider in crate::metadata_ext::EXTRA_ADULT_PROVIDER_KEYS {
+        if extra_adult.contains_key(*provider) {
+            configured_adult_providers.push((*provider).to_string());
+        }
+    }
 
     let mut report = AdultMetadataReport {
         result_type: "adult_metadata_gather",
@@ -1688,14 +1696,6 @@ pub async fn gather_adult_metadata(
         configured_adult_providers: configured_adult_providers.clone(),
         provider_errors: Vec::new(),
     };
-
-    for unavailable in ["iafd", "phoenixadult"] {
-        if provider_keys.contains_key(unavailable) {
-            report.provider_errors.push(format!(
-                "{unavailable}: unavailable in this build; no request was made"
-            ));
-        }
-    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -1719,7 +1719,7 @@ pub async fn gather_adult_metadata(
 
         let embedded_title = extract_embedded_title(&item.file_path);
         let queries = build_query_candidates(&item, embedded_title.clone());
-        let remote_provider = resolve_provider_match(
+        let mut remote_provider = resolve_provider_match(
             &client,
             &provider_keys,
             SourceKind::AdultVideo,
@@ -1728,6 +1728,36 @@ pub async fn gather_adult_metadata(
             &mut report.provider_errors,
         )
         .await;
+
+        // ThePornDB and StashDB need a key and may be unset or miss. Fall back
+        // to every other enabled adult provider (IAFD, PhoenixAdult, PGMA,
+        // Porn Site Nuxt), which work with no key, so the gather still fills
+        // metadata out of the box.
+        if remote_provider.is_none() && !extra_adult.is_empty() {
+            for query in &queries {
+                if let Some((_provider, found)) = crate::metadata::fetch_adult_metadata_for_batch(
+                    &client,
+                    &extra_adult,
+                    query,
+                    &item.file_path,
+                    &mut report.provider_errors,
+                )
+                .await
+                {
+                    remote_provider = Some(ProviderMatch {
+                        title: found.title,
+                        overview: found.overview,
+                        poster_path: found.poster_path,
+                        year: found.year,
+                        rating: found.rating,
+                        genre: found.genre,
+                        tmdb_id: found.tmdb_id,
+                        imdb_id: found.imdb_id,
+                    });
+                    break;
+                }
+            }
+        }
 
         let Some(provider) = remote_provider else {
             continue;

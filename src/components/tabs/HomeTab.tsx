@@ -46,6 +46,8 @@ import {
   Search,
   Sparkles,
   Star,
+  Trash2,
+  Unlink,
   X,
   Zap,
   type LucideIcon,
@@ -199,6 +201,8 @@ export default function HomeTab(): JSX.Element {
   const [titleInitialFilter, setTitleInitialFilter] =
     useState<TitleInitialFilter>("all");
   const [metadataCheckId, setMetadataCheckId] = useState<number | null>(null);
+  const [cardActionId, setCardActionId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const [unifiedView, setUnifiedView] = useState(false);
   const libraryLoadGenerationRef = useRef(0);
@@ -459,6 +463,71 @@ export default function HomeTab(): JSX.Element {
     }
   };
 
+  const removeMediaItemFromList = useCallback(
+    (id: number) => {
+      setMediaItems((current) => current.filter((item) => item.id !== id));
+      if (selectedMedia?.id === id) setSelectedMedia(null);
+    },
+    [selectedMedia, setMediaItems, setSelectedMedia],
+  );
+
+  const handleUnmatch = async (item: MediaItem) => {
+    if (!item.id) {
+      addStatusMessage(`Unmatch skipped: ${item.title} has no vault id yet`);
+      return;
+    }
+    if (!window.confirm(`Unmatch "${item.title}" and keep the file?`)) return;
+    setCardActionId(item.id);
+    try {
+      const result = await invoke<{ fallback_title?: string }>("metadata_unmatch_item", {
+        id: item.id,
+      });
+      applyUpdatedMediaItem({
+        id: item.id,
+        title: result.fallback_title || item.title,
+        overview: undefined,
+        poster_path: undefined,
+        backdrop_path: undefined,
+        year: undefined,
+        rating: undefined,
+        genre: undefined,
+        tmdb_id: undefined,
+        imdb_id: undefined,
+      });
+      addStatusMessage(`Unmatched ${item.title}; it falls back to its filename now.`);
+    } catch (error) {
+      addStatusMessage(`Unmatch failed for ${item.title}: ${String(error)}`);
+    } finally {
+      setCardActionId(null);
+    }
+  };
+
+  const handleConfirmDelete = async (item: MediaItem, removeFile: boolean) => {
+    if (!item.id) {
+      addStatusMessage(`Delete skipped: ${item.title} has no vault id yet`);
+      setPendingDelete(null);
+      return;
+    }
+    setCardActionId(item.id);
+    try {
+      const result = await invoke<{ file_removed?: boolean }>("library_delete_item", {
+        id: item.id,
+        removeFile,
+      });
+      removeMediaItemFromList(item.id);
+      addStatusMessage(
+        result.file_removed
+          ? `Deleted ${item.title} and sent its file to the trash.`
+          : `Removed ${item.title} from the library; the file is untouched.`,
+      );
+    } catch (error) {
+      addStatusMessage(`Delete failed for ${item.title}: ${String(error)}`);
+    } finally {
+      setCardActionId(null);
+      setPendingDelete(null);
+    }
+  };
+
   if (currentTheme?.startsWith("kodi_")) return <KodiHomeLayout />;
 
   return (
@@ -577,7 +646,7 @@ export default function HomeTab(): JSX.Element {
           ) : libraryView === "card" ? (
             <div className="holo-grid">
               {filteredItems.map((item, index) => (
-                <MediaCard key={`${item.id || item.title}-${index}`} item={item} index={index} selected={selectedMedia !== null && (selectedMedia.id != null ? selectedMedia.id === item.id : selectedMedia === item)} checking={metadataCheckId === item.id} onSelect={() => setSelectedMedia(item)} onPlay={() => void handlePlay(item)} onCheckMetadata={() => void handleCheckMetadata(item)} />
+                <MediaCard key={`${item.id || item.title}-${index}`} item={item} index={index} selected={selectedMedia !== null && (selectedMedia.id != null ? selectedMedia.id === item.id : selectedMedia === item)} checking={metadataCheckId === item.id} busy={cardActionId === item.id} onSelect={() => setSelectedMedia(item)} onPlay={() => void handlePlay(item)} onCheckMetadata={() => void handleCheckMetadata(item)} onUnmatch={() => void handleUnmatch(item)} onDelete={() => setPendingDelete(item)} />
               ))}
             </div>
           ) : (
@@ -586,15 +655,19 @@ export default function HomeTab(): JSX.Element {
               {filteredItems.map((item, index) => {
                 const checking = metadataCheckId === item.id;
                 return (
-                  <div key={`${item.id || item.title}-row-${index}`} role="button" tabIndex={0} onClick={() => setSelectedMedia(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedMedia(item); } }} className="cyber-table-row with-metadata-action w-full text-left text-sm">
+                  <div key={`${item.id || item.title}-row-${index}`} role="button" tabIndex={0} onClick={() => setSelectedMedia(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedMedia(item); } else if (event.key === "Delete") { event.preventDefault(); setPendingDelete(item); } }} className="cyber-table-row with-metadata-action w-full text-left text-sm">
                     <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{item.title}</span><CopyCountBadge item={item} className="shrink-0" /></span>
                     <span className="text-xs capitalize text-cv-subtext">{item.media_type}</span>
                     <span className="text-xs text-cv-subtext">{item.year || "—"}</span>
                     <span className="flex items-center gap-1 text-xs">{item.rating ? <><Star size={11} className="text-[var(--cyber-amber)]" />{item.rating}</> : "—"}</span>
                     <span>{item.verified ? <CheckCircle size={15} className="text-cyan-200" /> : <Clock size={15} className="text-cv-subtext/50" />}</span>
-                    <button type="button" onClick={(event) => { event.stopPropagation(); void handleCheckMetadata(item); }} disabled={checking} className="cyber-button library-row-metadata-action disabled:opacity-60" title={`Check metadata for ${item.title}`}>
-                      {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />} {checking ? "Checking..." : "Check Metadata"}
-                    </button>
+                    <span className="flex items-center gap-1">
+                      <button type="button" onClick={(event) => { event.stopPropagation(); void handleCheckMetadata(item); }} disabled={checking} className="cyber-button library-row-metadata-action disabled:opacity-60" title={`Check metadata for ${item.title}`} aria-label={`Check metadata for ${item.title}`}>
+                        {checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />} {checking ? "Checking..." : "Check Metadata"}
+                      </button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); void handleUnmatch(item); }} disabled={cardActionId === item.id} className="cyber-button h-9 w-9 px-0 disabled:opacity-60" title={`Unmatch ${item.title}`} aria-label={`Unmatch ${item.title}`}><Unlink size={12} /></button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); setPendingDelete(item); }} disabled={cardActionId === item.id} className="cyber-button h-9 w-9 px-0 disabled:opacity-60" title={`Delete ${item.title}`} aria-label={`Delete ${item.title}`}><Trash2 size={12} /></button>
+                    </span>
                   </div>
                 );
               })}
@@ -625,6 +698,8 @@ export default function HomeTab(): JSX.Element {
               <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button"><Play size={14} /> Quick Play</button>
               <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button"><CheckCircle size={14} /> Verify Signal</button>
               <button type="button" onClick={() => void handleCheckMetadata(selectedMedia)} disabled={metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60">{metadataCheckId === selectedMedia.id ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />} Check Metadata</button>
+              <button type="button" onClick={() => void handleUnmatch(selectedMedia)} disabled={cardActionId === selectedMedia.id} className="cyber-button disabled:opacity-60" aria-label={`Unmatch ${selectedMedia.title}, keeps the file`}><Unlink size={14} /> Unmatch (keep file)</button>
+              <button type="button" onClick={() => setPendingDelete(selectedMedia)} disabled={cardActionId === selectedMedia.id} className="cyber-button is-danger disabled:opacity-60" aria-label={`Delete ${selectedMedia.title}`}><Trash2 size={14} /> Delete</button>
               <WatchlistButton item={selectedMedia} className="cyber-button" />
             </div>
             <MoreLikeThis item={selectedMedia} skin="holo" onSelect={setSelectedMedia} />
@@ -638,6 +713,20 @@ export default function HomeTab(): JSX.Element {
       )}
       {libraryHasMore && !loading && !autoLoadingLibrary && (
         <div className="flex justify-center"><button type="button" onClick={() => void loadMoreMedia()} disabled={loadingMore} className="cyber-button">{loadingMore ? <RefreshCw size={14} className="animate-spin" /> : <ChevronDown size={14} />} {loadingMore ? "Compiling" : `Load Next ${LIBRARY_PAGE_SIZE}`}</button></div>
+      )}
+
+      {pendingDelete && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="cv-delete-title" onClick={() => setPendingDelete(null)}>
+          <div className="cyber-panel w-full max-w-md rounded-[18px] p-5" onClick={(event) => event.stopPropagation()}>
+            <h3 id="cv-delete-title" className="text-lg font-black uppercase tracking-[0.12em] text-cv-text">Delete “{pendingDelete.title}”?</h3>
+            <p className="mt-2 text-sm text-cv-subtext">Choose how far to remove it. Deleting the file sends it to your system trash, so it can be restored.</p>
+            <div className="mt-5 grid gap-2">
+              <button type="button" autoFocus onClick={() => void handleConfirmDelete(pendingDelete, false)} disabled={cardActionId === pendingDelete.id} className="cyber-button is-amber disabled:opacity-60" aria-label={`Remove ${pendingDelete.title} from the library only`}><Trash2 size={14} /> Remove from library only</button>
+              <button type="button" onClick={() => void handleConfirmDelete(pendingDelete, true)} disabled={cardActionId === pendingDelete.id} className="cyber-button is-danger disabled:opacity-60" aria-label={`Delete ${pendingDelete.title} and send the file to trash`}><Trash2 size={14} /> Also send the file to trash</button>
+              <button type="button" onClick={() => setPendingDelete(null)} className="cyber-button" aria-label="Cancel delete"><X size={14} /> Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -682,13 +771,14 @@ function TerminalLine({ label, value }: { label: string; value: string }): JSX.E
   return <div className="terminal-line"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function MediaCard({ item, index, selected, checking, onSelect, onPlay, onCheckMetadata }: { item: MediaItem; index: number; selected: boolean; checking: boolean; onSelect: () => void; onPlay: () => void; onCheckMetadata: () => void }): JSX.Element {
+function MediaCard({ item, index, selected, checking, busy, onSelect, onPlay, onCheckMetadata, onUnmatch, onDelete }: { item: MediaItem; index: number; selected: boolean; checking: boolean; busy: boolean; onSelect: () => void; onPlay: () => void; onCheckMetadata: () => void; onUnmatch: () => void; onDelete: () => void }): JSX.Element {
   return (
     <HoloCard
       label={`${item.title}${item.year ? ` (${item.year})` : ""}`}
       index={index}
       selected={selected}
       onSelect={onSelect}
+      onDeleteKey={onDelete}
       media={<MediaPosterImage path={item.poster_path || item.backdrop_path} alt={item.title} fallbackClassName="flex h-full w-full items-center justify-center" />}
       badges={
         <>
@@ -715,8 +805,10 @@ function MediaCard({ item, index, selected, checking, onSelect, onPlay, onCheckM
       }
       actions={
         <>
-          <button type="button" onClick={(event) => { event.stopPropagation(); onPlay(); }} className="holo-action is-primary" title={`Play ${item.title}`}><Play size={12} /> Play</button>
-          <button type="button" onClick={(event) => { event.stopPropagation(); onCheckMetadata(); }} disabled={checking} className="holo-action" title={`Check metadata for ${item.title}`}>{checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}<span className="metadata-action-label">{checking ? "Checking" : "Metadata"}</span></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onPlay(); }} className="holo-action is-primary" title={`Play ${item.title}`} aria-label={`Play ${item.title}`}><Play size={12} /> Play</button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onCheckMetadata(); }} disabled={checking} className="holo-action" title={`Check metadata for ${item.title}`} aria-label={`Check metadata for ${item.title}`}>{checking ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}<span className="metadata-action-label">{checking ? "Checking" : "Metadata"}</span></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onUnmatch(); }} disabled={busy} className="holo-action" title={`Unmatch ${item.title} (keeps file)`} aria-label={`Unmatch ${item.title}, keeps the file`}><Unlink size={12} /><span className="metadata-action-label">Unmatch</span></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onDelete(); }} disabled={busy} className="holo-action is-danger" title={`Delete ${item.title}`} aria-label={`Delete ${item.title}`}><Trash2 size={12} /><span className="metadata-action-label">Delete</span></button>
           <WatchlistButton item={item} compact className="holo-action" />
         </>
       }
