@@ -119,7 +119,7 @@ test("agent is mounted behind its Advanced switch and lazy-loaded", () => {
   assert.match(head, /canvas\.getContext\("2d"\)/, "2D fallback when WebGL2 is unavailable");
 });
 
-test("activity from the Claude brain becomes a readable status line", () => {
+test("activity from the Hugging Face brain becomes a readable status line", () => {
   assert.equal(activityLabel("thinking", null), "Thinking");
   assert.equal(activityLabel("searching", "search_library"), "Searching your library");
   assert.equal(activityLabel("searching", "view_poster"), "Looking at the poster");
@@ -141,15 +141,15 @@ test("image attachments are checked before they are encoded", () => {
   assert.equal(base64FromDataUrl("iVBORw0KGgo="), "iVBORw0KGgo=");
 });
 
-test("the Claude brain is wired front to back and keeps the key in Rust", () => {
+test("the Hugging Face brain is wired front to back and keeps the token in Rust", () => {
   const lib = read("src-tauri/src/lib.rs");
   const rust = read("src-tauri/src/ai_agent.rs");
   const brain = read("src/services/agentBrain.ts");
   const panel = read("src/components/agent/HoloAgent.tsx");
   for (const command of [
     "agent_status",
-    "agent_set_api_key",
-    "agent_clear_api_key",
+    "agent_set_hf_token",
+    "agent_clear_hf_token",
     "agent_set_model",
     "agent_reset",
     "agent_chat",
@@ -163,15 +163,49 @@ test("the Claude brain is wired front to back and keeps the key in Rust", () => 
     assert.match(brain, new RegExp(`type: "${kind}"`), kind);
   }
   assert.match(rust, /DiscoverFolders,\s*OrganizeLibrary \{ tasks: Vec<String> \},/);
-  // The key never travels back to the WebView, and no SDK ships in the bundle.
+  // The token never travels back to the WebView, and no SDK ships in the bundle.
   assert.doesNotMatch(rust, /pub key:|api_key: String,\s*\n\s*pub/);
   assert.match(rust, /pub key_source: Option<&'static str>/);
   assert.doesNotMatch(brain + panel, /@anthropic-ai\/sdk/);
   assert.match(panel, /type="password"/);
-  // Without a key the panel keeps working offline through ai_query.
-  // Images go to Claude with a key, otherwise to the free vision skill.
+  // Without a token the panel keeps working offline through ai_query.
+  // Images go to the Hugging Face head with a token, otherwise to the free vision skill.
   assert.match(panel, /seeImage\(image\.preview, clean\)/);
   assert.match(panel, /sendAgentMessage\(clean, image\?\.input \?\? null/);
   // Anything that changes the library is a button the user presses.
   assert.match(panel, /runAgentAction\(action\.id\)/);
+});
+
+test("the holo head runs on a free Hugging Face model, not Claude", () => {
+  const rust = read("src-tauri/src/ai_agent.rs");
+  const brain = read("src/services/agentBrain.ts");
+  const panel = read("src/components/agent/HoloAgent.tsx");
+  // The default head model is the free, multimodal Qwen3-VL Thinking model on HF.
+  assert.match(rust, /HF_DEFAULT_MODEL: &str = "Qwen\/Qwen3-VL-8B-Thinking"/);
+  assert.match(rust, /HF_API_URL: &str = "https:\/\/router\.huggingface\.co\/v1\/chat\/completions"/);
+  // agent_chat routes through the Hugging Face client, with no Anthropic call left on the head path.
+  assert.match(rust, /call_hf_chat\(Some\(&token\)/);
+  assert.doesNotMatch(rust, /call_messages_api\(&api_key/);
+  // The panel offers the HF model menu and token help, not an Anthropic key.
+  assert.doesNotMatch(brain + panel, /console\.anthropic\.com|ANTHROPIC_API_KEY|sk-ant-/);
+  assert.match(brain, /Qwen\/Qwen3-VL-8B-Thinking/);
+});
+
+test("the head offers uncensored Hugging Face models alongside the safe default", () => {
+  const rust = read("src-tauri/src/ai_agent.rs");
+  const brain = read("src/services/agentBrain.ts");
+  const panel = read("src/components/agent/HoloAgent.tsx");
+  // The two uncensored models are allowed back-end choices and flagged as uncensored.
+  for (const id of ["dphn/dolphin-2.9-llama3-8b", "mlabonne/NeuralDaredevil-8B-abliterated"]) {
+    assert.match(rust, new RegExp(id.replace(/\//g, "\\/")), `${id} is an allowed model`);
+    assert.match(brain, new RegExp(id.replace(/\//g, "\\/")), `${id} is labelled on the front end`);
+  }
+  assert.match(rust, /HF_UNCENSORED_MODELS: \[&str; 2\]/);
+  // The safe default stays the reasoning + vision model, not an uncensored one.
+  assert.match(rust, /HF_DEFAULT_MODEL: &str = "Qwen\/Qwen3-VL-8B-Thinking"/);
+  // The dropdown labels name each model and mark the uncensored ones.
+  assert.match(brain, /Dolphin 2\.9 8B — Uncensored/);
+  assert.match(brain, /NeuralDaredevil 8B — Uncensored/);
+  // The settings panel carries the one-line explicit-output notice.
+  assert.match(panel, /Uncensored models may produce explicit output\./);
 });

@@ -1,13 +1,16 @@
-// IPC contract for the holo agent's Claude brain. Mirrors the commands and
-// payloads in src-tauri/src/ai_agent.rs. The Anthropic API key is write-only
-// from here: it goes into agent_set_api_key and never comes back to the WebView.
+// IPC contract for the holo agent's Hugging Face brain. Mirrors the commands and
+// payloads in src-tauri/src/ai_agent.rs. The head runs on a free, open-weight
+// multimodal reasoning model served through the Hugging Face router — there is no
+// Claude on this path. The Hugging Face token is write-only from here: it goes
+// into agent_set_hf_token and never comes back to the WebView.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { base64FromDataUrl, imageAttachmentError } from "./holoAgent";
 import type { AgentActivityPhase } from "./holoAgent";
 
 export interface AgentStatus {
   configured: boolean;
-  keySource: "env" | "keychain" | null;
+  /** Where the Hugging Face token came from: "settings", "env", "cache", or null when none. */
+  keySource: "settings" | "env" | "cache" | null;
   model: string;
   models: string[];
 }
@@ -42,16 +45,24 @@ export interface AgentImageInput {
 }
 
 export const MODEL_LABELS: Record<string, string> = {
-  "claude-opus-5-5": "Claude Opus 5.5 (most capable)",
-  "claude-sonnet-5-5": "Claude Sonnet 5.5 (balanced)",
-  "claude-haiku-5-5": "Claude Haiku 5.5 (fastest)",
+  "Qwen/Qwen3-VL-8B-Thinking": "Qwen3-VL 8B Thinking (reasoning + vision)",
+  "Qwen/Qwen3-VL-8B-Instruct": "Qwen3-VL 8B Instruct (fast, vision)",
+  "Qwen/Qwen2.5-VL-7B-Instruct": "Qwen2.5-VL 7B Instruct (vision)",
+  "dphn/dolphin-2.9-llama3-8b": "Dolphin 2.9 8B — Uncensored (text only)",
+  "mlabonne/NeuralDaredevil-8B-abliterated": "NeuralDaredevil 8B — Uncensored (text only)",
 };
 
-export const ANTHROPIC_KEYS_URL = "https://console.anthropic.com/settings/keys";
+/** Models that answer without content filtering; they are text-only (no image understanding). */
+export const UNCENSORED_MODELS: ReadonlySet<string> = new Set([
+  "dphn/dolphin-2.9-llama3-8b",
+  "mlabonne/NeuralDaredevil-8B-abliterated",
+]);
+
+export const HF_TOKENS_URL = "https://huggingface.co/settings/tokens";
 
 export const getAgentStatus = () => invoke<AgentStatus>("agent_status");
-export const setAgentApiKey = (key: string) => invoke<AgentStatus>("agent_set_api_key", { key });
-export const clearAgentApiKey = () => invoke<AgentStatus>("agent_clear_api_key");
+export const setAgentHfToken = (token: string) => invoke<AgentStatus>("agent_set_hf_token", { token });
+export const clearAgentHfToken = () => invoke<AgentStatus>("agent_clear_hf_token");
 export const setAgentModel = (model: string) => invoke<AgentStatus>("agent_set_model", { model });
 export const resetAgent = () => invoke<void>("agent_reset");
 export const runAgentAction = (actionId: string) => invoke<string>("agent_run_action", { actionId });
