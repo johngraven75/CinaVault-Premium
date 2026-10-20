@@ -707,7 +707,9 @@ async fn fetch_adult_item_metadata(
         for query in &queries {
             let result = match provider {
                 "tpdb" => {
-                    let key = provider_keys.get("tpdb").expect("configured provider key");
+                    let Some(key) = provider_keys.get("tpdb") else {
+                        continue;
+                    };
                     if !provider_value_is_real_key(key) {
                         continue;
                     }
@@ -733,16 +735,18 @@ async fn fetch_adult_item_metadata(
                     }
                 }
                 "stashdb" => {
-                    let key = provider_keys.get("stashdb").expect("configured provider key");
+                    let Some(key) = provider_keys.get("stashdb") else {
+                        continue;
+                    };
                     if !provider_value_is_real_key(key) {
                         continue;
                     }
                     fetch_stashdb_item_metadata(client, query, key).await
                 }
                 "porn_site_nuxt" => {
-                    let base_url = provider_keys
-                        .get("porn_site_nuxt")
-                        .expect("configured provider value");
+                    let Some(base_url) = provider_keys.get("porn_site_nuxt") else {
+                        continue;
+                    };
                     fetch_nuxt_item_metadata(client, query, base_url).await
                 }
                 "iafd" => fetch_iafd_item_metadata(client, query).await,
