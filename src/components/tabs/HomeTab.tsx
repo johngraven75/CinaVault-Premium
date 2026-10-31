@@ -716,8 +716,9 @@ export default function HomeTab(): JSX.Element {
       )}
 
       {pendingDelete && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="cv-delete-title" onClick={() => setPendingDelete(null)}>
-          <div className="cyber-panel w-full max-w-md rounded-[18px] p-5" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="cv-delete-title" onKeyDown={(event) => { if (event.key === "Escape") setPendingDelete(null); }}>
+          <button type="button" tabIndex={-1} aria-label={`Close, keep ${pendingDelete.title}`} className="absolute inset-0 h-full w-full cursor-default bg-transparent" onClick={() => setPendingDelete(null)} />
+          <div className="cyber-panel relative w-full max-w-md rounded-[18px] p-5">
             <h3 id="cv-delete-title" className="text-lg font-black uppercase tracking-[0.12em] text-cv-text">Delete “{pendingDelete.title}”?</h3>
             <p className="mt-2 text-sm text-cv-subtext">Choose how far to remove it. Deleting the file sends it to your system trash, so it can be restored.</p>
             <div className="mt-5 grid gap-2">
