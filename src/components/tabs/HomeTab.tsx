@@ -466,9 +466,15 @@ export default function HomeTab(): JSX.Element {
   const removeMediaItemFromList = useCallback(
     (id: number) => {
       setMediaItems((current) => current.filter((item) => item.id !== id));
+      // A deleted card also removed its row from the DB, so the paging offset
+      // (the count of rows already consumed) must drop by one too, or the next
+      // "Load Next" page skips the row that shifted up into the deleted item's
+      // position. Only ever called for a displayed item, after a successful
+      // delete, so the decrement always matches a real removed row.
+      setLibraryOffset((offset) => Math.max(0, offset - 1));
       if (selectedMedia?.id === id) setSelectedMedia(null);
     },
-    [selectedMedia, setMediaItems, setSelectedMedia],
+    [selectedMedia, setMediaItems, setSelectedMedia, setLibraryOffset],
   );
 
   const handleUnmatch = async (item: MediaItem) => {

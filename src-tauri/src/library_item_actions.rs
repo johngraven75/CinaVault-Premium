@@ -16,13 +16,27 @@ use tauri::State;
 
 /// The file's base name without its extension, used as the fallback title
 /// after an unmatch so the card shows the filename again.
+///
+/// Splits on both `/` and `\` regardless of host OS: CinaVault runs on
+/// Windows so stored paths use backslashes, but `std::path::Path` only treats
+/// `\` as a separator on Windows, so a `Path`-based stem would keep the whole
+/// directory on Linux (where CI runs the tests).
 pub(crate) fn filename_title(file_path: &str) -> String {
-    Path::new(file_path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .map(|stem| stem.to_string())
-        .filter(|stem| !stem.trim().is_empty())
-        .unwrap_or_else(|| file_path.to_string())
+    let name = file_path
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(file_path);
+    // Strip the extension at the last dot, but keep a leading-dot name intact.
+    let stem = match name.rfind('.') {
+        Some(dot) if dot > 0 => &name[..dot],
+        _ => name,
+    };
+    let trimmed = stem.trim();
+    if trimmed.is_empty() {
+        file_path.to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Clears the metadata match on one item: resets the title to the filename and
@@ -91,10 +105,20 @@ pub fn library_delete_item(
     id: i64,
     remove_file: bool,
 ) -> Result<serde_json::Value, String> {
-    let file_path = {
-        let db = state.db.lock().map_err(|error| error.to_string())?;
-        delete_item_row(&db, id)?
-    };
+    let db = state.db.lock().map_err(|error| error.to_string())?;
+
+    // Look up the path first, then trash the file BEFORE removing the row, so a
+    // trash failure leaves the library row intact and the command's error
+    // matches on-disk reality (the card stays, the file stays).
+    let file_path: Option<String> = db
+        .conn
+        .query_row(
+            "SELECT file_path FROM media_items WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
 
     let mut file_removed = false;
     if remove_file {
@@ -106,6 +130,8 @@ pub fn library_delete_item(
             }
         }
     }
+
+    delete_item_row(&db, id)?;
 
     Ok(serde_json::json!({
         "type": "library_delete",
