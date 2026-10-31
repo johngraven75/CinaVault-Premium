@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v2.1.7 Beta 1 · Build 217
+
+### Changed
+
+- **A stuck background task can no longer lock up the progress panel.** If a metadata or AI task crashed while updating its progress, the progress panel and the Stop button could fail afterwards. They now keep working.
+- **Fewer hard crashes in metadata, download-tool and VPN-profile handling.** A missing provider key, a missing yt-dlp, ffmpeg or ffprobe install, or a malformed WireGuard profile now produces a normal message or is skipped, instead of stopping the app.
+
 ## v1.0.5 Public Beta · Build 105
 
 ### New
