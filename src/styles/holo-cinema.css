@@ -325,6 +325,97 @@
   align-items: flex-end;
 }
 
+/* ── Card corner menu (Issue 5) ────────────────────────────────────────── */
+/* The ⋮ button sits in the top-right corner, above the badge layer. The badge
+   row reserves the button's width only on cards that actually carry a corner
+   menu (:has), so badge layout is untouched everywhere else. The button is
+   always visible, not hover-revealed like the bottom actions, so it works on
+   touch devices too. The dropdown drops downward from the top corner, inside
+   the card body, so the body's overflow:hidden never clips it. */
+
+.holo-card__corner {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 6;
+  pointer-events: auto;
+  transform: translateZ(44px);
+}
+
+.holo-card__body:has(> .holo-card__corner) .holo-card__badges {
+  padding-right: 2.35rem;
+}
+
+.holo-card__corner-menu {
+  position: relative;
+}
+
+.holo-card__corner-button {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(6, 8, 20, 0.62);
+  color: #eafcff;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+.holo-card__corner-button:hover,
+.holo-card__corner-button:focus-visible {
+  border-color: rgba(92, 246, 255, 0.55);
+  color: var(--holo-cyan);
+}
+
+.holo-card__corner-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.holo-card__menu {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  min-width: 11rem;
+  padding: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(6, 8, 20, 0.94);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 7;
+}
+
+.holo-card__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #eafcff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.holo-card__menu-item:hover,
+.holo-card__menu-item:focus-visible {
+  background: rgba(92, 246, 255, 0.14);
+}
+
+.holo-card__menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .holo-card__info {
   position: absolute;
   inset: auto 0 0 0;

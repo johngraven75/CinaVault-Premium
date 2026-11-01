@@ -3,6 +3,12 @@
 // CinaVault consumes provider folders that are synchronized by the provider's
 // desktop client. Commands never report success unless a real, readable folder
 // was found and (for sync) persisted as an enabled media source.
+//
+// Issue 6: Google Drive ALSO has a real OAuth path now (see cloud_oauth.rs).
+// The folder flow below is retained ONLY as the explicitly labelled
+// "Local folder (no Google sign-in)" fallback. It is no longer the silent
+// default behind a Google Drive "Connect" button.
+use crate::cloud_oauth;
 use crate::db::MediaSource;
 use crate::AppState;
 use serde_json::{json, Value};
@@ -183,6 +189,10 @@ fn setting_key(provider: &str) -> Result<String, String> {
     Ok(format!("cloud_connection_{}", provider_key(provider)?))
 }
 
+/// Local-folder fallback ONLY (Issue 6). Records a synchronized desktop
+/// folder as the connection; it performs no Google sign-in and must only be
+/// reached from the explicitly labelled "Local folder (no Google sign-in)"
+/// button. Real Google sign-in is `cloud_oauth::cloud_oauth_connect`.
 #[tauri::command]
 pub fn cloud_auth_start(
     state: State<AppState>,
@@ -211,9 +221,47 @@ pub fn cloud_auth_start(
 
 #[tauri::command]
 pub fn cloud_disconnect(state: State<AppState>, provider: String) -> Result<(), String> {
+    let provider = provider_key(&provider)?;
+    // Issue 6: for Google Drive, revoke first, then clear the token, the
+    // connection record, AND any media source cloud_sync added for it.
+    // Revocation is best-effort: a failed revoke must not leave a stale
+    // token or record behind, so clearing always proceeds.
+    let recorded_root: Option<String> = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        db.get_setting_data(&setting_key(provider)?)
+            .map_err(|error| error.to_string())?
+            .filter(|value| !value.is_empty())
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|record| record["root"].as_str().map(str::to_string))
+    };
+    if provider == "googledrive" {
+        cloud_oauth::revoke_and_clear();
+    }
     let db = state.db.lock().map_err(|error| error.to_string())?;
-    db.set_setting_data(&setting_key(&provider)?, "")
-        .map_err(|error| error.to_string())
+    db.set_setting_data(&setting_key(provider)?, "")
+        .map_err(|error| error.to_string())?;
+    if provider == "googledrive" {
+        // Remove sources cloud_sync created for this provider: the recorded
+        // root, plus any source carrying cloud_sync's "googledrive — <name>"
+        // naming (cloud_sync is the only creator of that pattern).
+        let sources = db
+            .get_sources_data()
+            .map_err(|error| error.to_string())?;
+        for source in sources {
+            let is_recorded_root = recorded_root
+                .as_deref()
+                .map(|root| source.path == root)
+                .unwrap_or(false);
+            let is_googledrive_source = source.name.starts_with("googledrive — ");
+            if is_recorded_root || is_googledrive_source {
+                if let Some(id) = source.id {
+                    db.remove_source_data(id)
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -295,29 +343,82 @@ pub fn cloud_list_files(
 
 #[tauri::command]
 pub fn cloud_get_status(state: State<AppState>) -> Result<Value, String> {
-    let db = state.db.lock().map_err(|error| error.to_string())?;
-    let mut connected = Vec::new();
-    for provider in ["onedrive", "googledrive", "dropbox"] {
-        if let Some(raw) = db
-            .get_setting_data(&setting_key(provider)?)
-            .map_err(|error| error.to_string())?
-            .filter(|value| !value.is_empty())
-        {
-            if let Ok(record) = serde_json::from_str::<Value>(&raw) {
-                if record["root"]
-                    .as_str()
-                    .map(Path::new)
-                    .map(readable_directory)
-                    .unwrap_or(false)
-                {
-                    connected.push(record);
+    // Read records first and drop the DB lock before any network I/O, so
+    // token validation never blocks other commands on the DB mutex.
+    let records: Vec<(String, Value)> = {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        let mut records = Vec::new();
+        for provider in ["onedrive", "googledrive", "dropbox"] {
+            if let Some(raw) = db
+                .get_setting_data(&setting_key(provider)?)
+                .map_err(|error| error.to_string())?
+                .filter(|value| !value.is_empty())
+            {
+                if let Ok(record) = serde_json::from_str::<Value>(&raw) {
+                    records.push((provider.to_string(), record));
                 }
             }
         }
+        records
+    };
+    let mut connected = Vec::new();
+    let mut provider_errors = serde_json::Map::new();
+    let mut clear_oauth_record = false;
+    for (provider, record) in records {
+        // Issue 6: an OAuth record is "connected" ONLY if its token validates
+        // against the Drive about endpoint (with one refresh-and-retry on
+        // 401). A stored record alone no longer counts.
+        if provider == "googledrive" && record["method"].as_str() == Some("google_oauth") {
+            match cloud_oauth::validate_tokens() {
+                cloud_oauth::DriveCheck::Valid { email } => {
+                    connected.push(json!({
+                        "provider": provider,
+                        "method": "google_oauth",
+                        "account": email,
+                        "verified_at": record.get("verified_at").cloned().unwrap_or(Value::Null),
+                    }));
+                }
+                cloud_oauth::DriveCheck::NoToken | cloud_oauth::DriveCheck::Invalid => {
+                    // TRUE disconnected state: the token is gone or
+                    // unrefreshable, so the record must not survive either.
+                    clear_oauth_record = true;
+                    provider_errors.insert(
+                        provider.clone(),
+                        Value::String(
+                            "Google Drive sign-in is no longer valid. Use Reconnect to sign in again."
+                                .to_string(),
+                        ),
+                    );
+                }
+                cloud_oauth::DriveCheck::Transient(message) => {
+                    // Transient failure (network, or no client ID configured):
+                    // do NOT clear the token or record; the next status check
+                    // can revalidate once the cause is fixed.
+                    provider_errors.insert(provider.clone(), Value::String(message));
+                }
+            }
+            continue;
+        }
+        if record["root"]
+            .as_str()
+            .map(Path::new)
+            .map(readable_directory)
+            .unwrap_or(false)
+        {
+            connected.push(record);
+        }
+    }
+    if clear_oauth_record {
+        let db = state.db.lock().map_err(|error| error.to_string())?;
+        db.set_setting_data(&setting_key("googledrive")?, "")
+            .map_err(|error| error.to_string())?;
+        cloud_oauth::clear_tokens();
     }
     Ok(json!({
         "connected": connected,
         "available": ["onedrive", "googledrive", "dropbox"],
+        "gdrive_oauth_configured": cloud_oauth::client_configured(),
+        "provider_errors": provider_errors,
     }))
 }
 
