@@ -27,6 +27,8 @@ export interface HoloCardProps {
   index?: number;
   selected?: boolean;
   onSelect?: () => void;
+  /** Invoked when the Delete key is pressed while the card itself is focused. */
+  onDeleteKey?: () => void;
   className?: string;
 }
 
@@ -45,6 +47,7 @@ export default function HoloCard({
   index = 0,
   selected = false,
   onSelect,
+  onDeleteKey,
   className = "",
 }: HoloCardProps): JSX.Element {
   const reduceMotion = useReducedMotion();
@@ -103,6 +106,9 @@ export default function HoloCard({
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onSelect?.();
+    } else if (event.key === "Delete" && onDeleteKey) {
+      event.preventDefault();
+      onDeleteKey();
     }
   };
 

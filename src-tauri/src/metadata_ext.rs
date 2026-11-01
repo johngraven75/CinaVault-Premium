@@ -37,10 +37,17 @@ pub fn is_adult_provider_enabled(database: &Database, provider: &str) -> Result<
     Ok(adult_provider_enabled_keys(database)?.iter().any(|key| key == &provider))
 }
 
-const ALL_ADULT_ENABLED_MARKER: &str = "adult_metadata_all_enabled_v1";
+// Bumped to v2 so installs that ran the first pass (Build 105/107) re-run it
+// once: the adult gather now calls every enabled provider, so all of them
+// genuinely need to be switched on for a library with no keyed providers.
+const ALL_ADULT_ENABLED_MARKER: &str = "adult_metadata_all_enabled_v2";
+/// Set once a user edits the adult provider list themselves, so the one-shot
+/// migration never overrides a provider they deliberately turned off.
+const ADULT_PROVIDERS_USER_ADJUSTED_MARKER: &str = "adult_metadata_providers_user_adjusted";
 
 /// Switches every adult metadata provider on, once per install, now that the
-/// library uses adult providers only. Later choices in settings are kept.
+/// library uses adult providers only. A user who has already chosen their
+/// own adult providers is never overridden.
 pub(crate) fn enable_all_adult_providers_once(database: &Database) -> Result<bool, String> {
     if crate::edition::STORE_SAFE
         || database
@@ -48,6 +55,27 @@ pub(crate) fn enable_all_adult_providers_once(database: &Database) -> Result<boo
             .map_err(|error| error.to_string())?
             .is_some()
     {
+        return Ok(false);
+    }
+    // Respect an explicit user choice: mark this version done without touching
+    // their list, so the migration does not re-enable a provider they disabled.
+    // Two signals count as "the user chose": the explicit marker (set on every
+    // save from this build on), and — for installs from Build 105/107, which
+    // predate that marker — any already-saved provider list. A saved subset is
+    // a deliberate narrowing to preserve; a saved full list makes the overwrite
+    // a no-op anyway. Only when no list was ever saved do we write the defaults.
+    let user_adjusted = database
+        .get_setting_data(ADULT_PROVIDERS_USER_ADJUSTED_MARKER)
+        .map_err(|error| error.to_string())?
+        .is_some();
+    let list_already_saved = database
+        .get_setting_data(ADULT_PROVIDER_ENABLED_SETTING)
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if user_adjusted || list_already_saved {
+        database
+            .set_setting_data(ALL_ADULT_ENABLED_MARKER, "true")
+            .map_err(|error| error.to_string())?;
         return Ok(false);
     }
     let all = serde_json::to_string(ADULT_PROVIDER_KEYS).map_err(|error| error.to_string())?;
@@ -665,7 +693,11 @@ pub fn save_adult_provider_settings(
         ADULT_PROVIDER_ENABLED_SETTING,
         &serde_json::to_string(&normalized).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    // Record that the user set their own list, so the one-shot migration never
+    // re-enables a provider they chose to turn off.
+    db.set_setting_data(ADULT_PROVIDERS_USER_ADJUSTED_MARKER, "true")
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -758,9 +790,8 @@ mod tests {
     #[test]
     fn every_adult_provider_is_switched_on_once() {
         let db = crate::db::Database::new(":memory:").expect("test database");
-        // An older install had narrowed the adult list down to ThePornDB.
-        db.set_setting_data(super::ADULT_PROVIDER_ENABLED_SETTING, r#"["tpdb"]"#)
-            .expect("seed setting");
+        // An install that never saved an adult-provider list (no v1 migration,
+        // no user edit): the one-shot migration writes every provider on.
         let changed = super::enable_all_adult_providers_once(&db).expect("migration runs");
         assert_eq!(changed, !crate::edition::STORE_SAFE);
         if crate::edition::STORE_SAFE {
@@ -780,6 +811,75 @@ mod tests {
         assert!(!super::enable_all_adult_providers_once(&db).unwrap());
         assert!(!super::is_adult_provider_enabled(&db, "iafd").unwrap());
         assert!(super::enabled_extra_adult_provider_values(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn migration_preserves_a_pre_marker_narrowed_list() {
+        if crate::edition::STORE_SAFE {
+            return;
+        }
+        let db = crate::db::Database::new(":memory:").expect("test database");
+        // A Build 105/107 install narrowed the list to ThePornDB before the
+        // user-adjusted marker existed, so only the list is present. The v2
+        // migration must treat that saved list as the user's choice and leave
+        // it alone, never re-enabling the providers they turned off.
+        db.set_setting_data(super::ADULT_PROVIDER_ENABLED_SETTING, r#"["tpdb"]"#)
+            .expect("seed pre-marker narrowed list");
+        let changed = super::enable_all_adult_providers_once(&db).expect("migration runs");
+        assert!(!changed, "a pre-existing saved list is left untouched");
+        assert!(super::is_adult_provider_enabled(&db, "tpdb").unwrap());
+        for provider in super::EXTRA_ADULT_PROVIDER_KEYS {
+            assert!(
+                !super::is_adult_provider_enabled(&db, provider).unwrap(),
+                "{provider} stays off"
+            );
+        }
+        // And it never runs again.
+        assert!(!super::enable_all_adult_providers_once(&db).unwrap());
+    }
+
+    #[test]
+    fn fresh_install_enables_every_adult_provider_by_default() {
+        if crate::edition::STORE_SAFE {
+            return;
+        }
+        let db = crate::db::Database::new(":memory:").expect("test database");
+        // No adult-provider setting has been written yet, so the default must
+        // already treat every adult provider as enabled.
+        for provider in super::ADULT_PROVIDER_KEYS {
+            assert!(
+                super::is_adult_provider_enabled(&db, provider).unwrap(),
+                "{provider} is enabled by default"
+            );
+        }
+    }
+
+    #[test]
+    fn migration_keeps_a_user_disabled_provider_off() {
+        if crate::edition::STORE_SAFE {
+            return;
+        }
+        let db = crate::db::Database::new(":memory:").expect("test database");
+        // The user deliberately turned IAFD off through settings — this is what
+        // save_adult_provider_settings persists (the list plus the marker).
+        db.set_setting_data(
+            super::ADULT_PROVIDER_ENABLED_SETTING,
+            r#"["tpdb","stashdb","pgma","porn_site_nuxt","phoenixadult"]"#,
+        )
+        .expect("seed user list");
+        db.set_setting_data(super::ADULT_PROVIDERS_USER_ADJUSTED_MARKER, "true")
+            .expect("mark user-adjusted");
+
+        // The v2 migration has not run on this install, but it must not touch a
+        // user-set choice: IAFD stays off.
+        let changed = super::enable_all_adult_providers_once(&db).expect("migration runs");
+        assert!(!changed, "a user-adjusted list is left untouched");
+        assert!(
+            !super::is_adult_provider_enabled(&db, "iafd").unwrap(),
+            "iafd stays off"
+        );
+        // And it never runs again.
+        assert!(!super::enable_all_adult_providers_once(&db).unwrap());
     }
 
     #[test]

@@ -91,3 +91,13 @@ The first pre-beta of CinaVault Premium for Windows.
 - Docs are organized under `docs/`, with an index, and past build reports are moved to `docs/history/`.
 - A new README with architecture, scan, playback and release diagrams.
 - Old installers, build artifacts, test logs and one-off release workflows from builds 140 to 170 are removed; they remain in git history.
+
+## Unreleased — adult providers enabled by default (PR #183)
+
+### Added
+
+- **Per-item Check metadata, Unmatch, and Delete buttons on every library card.** Each poster card now has three controls you can reach while browsing (and from the detail panel): Check metadata re-fetches this one title through every enabled adult provider and updates the card in place; Unmatch clears the current match and falls the title back to its filename so the next scan can match it fresh, without touching the file; Delete removes it from the library, with a choice to also send the file to your system trash (recoverable). The buttons are keyboard-accessible, and pressing Delete on a focused card opens the delete prompt.
+
+### Fixed
+
+- **All adult metadata providers now enabled by default; existing installs are migrated once on upgrade.** The adult metadata scan previously only queried ThePornDB and StashDB, which need an API key, so a library with no keys got nothing even though every provider showed as enabled. The scan now runs the full enabled chain, including the keyless providers (IAFD, PhoenixAdult, PGMA, Porn Site Nuxt). Installs from an earlier build re-enable every adult provider once on next launch, without overriding any provider you deliberately turned off.
