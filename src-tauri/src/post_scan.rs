@@ -292,8 +292,7 @@ async fn run(state: State<'_, AppState>, ids: Vec<i64>, retry: Vec<i64>) -> Valu
             Ok(db) => crate::adult_attempts::pending_item_ids(&db),
             Err(_) => Vec::new(),
         };
-        let known: std::collections::BTreeSet<i64> =
-            lookups.iter().map(|item| item.id).collect();
+        let known: std::collections::BTreeSet<i64> = lookups.iter().map(|item| item.id).collect();
         let outstanding: Vec<i64> = pending_ids
             .into_iter()
             .filter(|id| !known.contains(id))
@@ -437,14 +436,12 @@ async fn run(state: State<'_, AppState>, ids: Vec<i64>, retry: Vec<i64>) -> Valu
                                         format!("Looking up adult metadata: {}", item.file_path),
                                     );
                                     let record = match state.db.lock() {
-                                        Ok(db) => {
-                                            crate::enrichment::load_library_item_record(&db, item.id)
-                                        }
+                                        Ok(db) => crate::enrichment::load_library_item_record(
+                                            &db, item.id,
+                                        ),
                                         Err(error) => {
-                                            adult_errors.push(format!(
-                                                "{}: {}",
-                                                item.file_path, error
-                                            ));
+                                            adult_errors
+                                                .push(format!("{}: {}", item.file_path, error));
                                             None
                                         }
                                     };
