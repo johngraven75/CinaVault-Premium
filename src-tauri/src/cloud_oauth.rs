@@ -690,6 +690,7 @@ pub fn cloud_oauth_connect(state: State<AppState>, provider: String) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::{is_placeholder, parse_callback_request, percent_decode, percent_encode, pkce_pair};
+    use base64::Engine as _;
     use sha2::Digest;
 
     #[test]
