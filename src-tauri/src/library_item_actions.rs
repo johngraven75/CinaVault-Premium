@@ -316,7 +316,10 @@ mod tests {
 
     #[test]
     fn filename_title_uses_the_stem() {
-        assert_eq!(filename_title(r"E:\Vids\Scene.One.2021.1080p.mp4"), "Scene.One.2021.1080p");
+        assert_eq!(
+            filename_title(r"E:\Vids\Scene.One.2021.1080p.mp4"),
+            "Scene.One.2021.1080p"
+        );
         assert_eq!(filename_title("/media/clip.mkv"), "clip");
     }
 
@@ -369,7 +372,17 @@ mod tests {
     fn read_match_row(
         db: &Database,
         id: i64,
-    ) -> (String, Option<String>, Option<String>, Option<String>, Option<i32>, Option<f64>, Option<String>, Option<String>, Option<String>) {
+    ) -> (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i32>,
+        Option<f64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         db.conn
             .query_row(
                 "SELECT title, overview, poster_path, backdrop_path, year, rating, genre, tmdb_id, imdb_id FROM media_items WHERE id = ?1",
