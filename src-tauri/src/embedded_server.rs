@@ -1656,20 +1656,36 @@ mod integration_tests {
             .unwrap()
             .to_string();
 
-        let started = Instant::now();
-        let local = client
-            .get(format!("{base}{stream_url}"))
-            .header("x-api-key", &fixture.api_key)
-            .send()
-            .await
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
-        assert_eq!(local.len(), 250_000);
+        // Loopback is exempt from the cap, so its steady-state transfer is
+        // near-instant; a single wall-clock sample is not a reliable witness
+        // on a loaded CI runner, where one scheduling stall can exceed the
+        // old 900 ms bound even though nothing is throttled. Fetch twice and
+        // judge the faster sample: a throttled stream takes about 1.5 s
+        // (250 KB at 1 Mbps after the 62.5 KB burst), so a throttled loopback
+        // cannot pass a 1,200 ms bound on either sample, while a one-off
+        // stall on the first sample cannot fail an exempt loopback. The
+        // message now also reports both samples: the previous failure
+        // reported only "loopback is exempt", which hid whether the fetch
+        // took 901 ms (a stall) or ~1.5 s (actually throttled).
+        let mut loopback_elapsed = Vec::new();
+        for _ in 0..2 {
+            let started = Instant::now();
+            let local = client
+                .get(format!("{base}{stream_url}"))
+                .header("x-api-key", &fixture.api_key)
+                .send()
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            assert_eq!(local.len(), 250_000);
+            loopback_elapsed.push(started.elapsed());
+        }
+        let fastest_loopback = loopback_elapsed.iter().min().unwrap();
         assert!(
-            started.elapsed() < Duration::from_millis(900),
-            "loopback is exempt"
+            *fastest_loopback < Duration::from_millis(1_200),
+            "loopback is exempt, loopback fetches took {loopback_elapsed:?}"
         );
 
         // 1 Mbps = 125 KB/s with a 62.5 KB burst: 250 KB takes about 1.5 s.
