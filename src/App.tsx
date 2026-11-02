@@ -29,6 +29,8 @@ import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
+import VaultLock from "./components/VaultLock";
+import { getVaultStatus, type VaultStatus } from "./services/vault";
 import FirstRunSetup from "./components/setup/FirstRunSetup";
 import LibraryPlayer from "./components/player/LibraryPlayer";
 // The agent (WebGL head + chat) loads only when it is switched on.
@@ -288,6 +290,26 @@ export default function App(): JSX.Element {
     [],
   );
   const aiAutopilotEnabled = settings.ai_media_autopilot_enabled !== "false";
+  const [vaultGate, setVaultGate] = useState<VaultStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getVaultStatus()
+      .then((status) => {
+        if (cancelled) return;
+        // Gate only on a true first run or a configured, locked vault.
+        // Legacy plaintext libraries keep opening normally.
+        if (status.needsSetup || (status.configured && !status.unlocked)) {
+          setVaultGate(status);
+        }
+      })
+      .catch(() => {
+        // If the vault commands are unavailable, do not block the app.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const saveState = useCallback(async () => {
     if (isSaving.current || !hasRestoredSettings.current) return;
@@ -555,7 +577,12 @@ export default function App(): JSX.Element {
                 style={{ transformPerspective: 1200 }}
               >
                 <span className="holo-route-veil" aria-hidden="true" />
-                {CurrentTabComponent ? (
+                {vaultGate ? (
+                  <VaultLock
+                    status={vaultGate}
+                    onUnlocked={() => window.location.reload()}
+                  />
+                ) : CurrentTabComponent ? (
                   <CurrentTabComponent />
                 ) : (
                   <div>Tab not found</div>

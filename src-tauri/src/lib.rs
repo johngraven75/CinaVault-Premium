@@ -96,6 +96,8 @@ mod subtitles;
 mod title_clean;
 mod vpn;
 mod vpn_profile_store;
+mod vault;
+mod vault_commands;
 
 use base64::Engine;
 use db::Database;
@@ -106,6 +108,7 @@ use tauri::Manager;
 pub struct AppState {
     pub db: Mutex<Database>,
     pub app_data_dir: PathBuf,
+    pub vault: Mutex<vault::VaultSession>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -131,11 +134,32 @@ pub fn run() {
                 std::fs::create_dir_all(app_dir.join("plugins").join(dir)).ok();
             }
 
-            let db_path = app_dir.join("cinavault.db");
-            let database = Database::new(db_path.to_str().unwrap())
-                .expect("Failed to initialize database");
-            server_lifecycle::configure(db_path.clone())
-                .expect("Failed to configure native server database");
+            // App Vault (passphrase-first): if a vault is configured, or
+            // this is a true first run (no vault, no library), start locked
+            // with an empty in-memory database and let the frontend vault
+            // gate drive setup/unlock. A legacy plaintext library keeps
+            // opening normally until an explicit migration, so existing
+            // users are never locked out by this change.
+            let vault_configured = vault::is_configured(&app_dir);
+            let legacy_plaintext = !vault_configured && app_dir.join("cinavault.db").is_file();
+            let vault_locked = vault_configured || !legacy_plaintext;
+            let (db_path, database) = if vault_locked {
+                let session_path = vault::session_db_path(&app_dir);
+                let _ = server_lifecycle::configure(session_path.clone());
+                (
+                    session_path,
+                    Database::new(":memory:")
+                        .expect("Failed to initialize locked placeholder database"),
+                )
+            } else {
+                let db_path = app_dir.join("cinavault.db");
+                let database = Database::new(db_path.to_str().unwrap())
+                    .expect("Failed to initialize database");
+                server_lifecycle::configure(db_path.clone())
+                    .expect("Failed to configure native server database");
+                (db_path, database)
+            };
+            let _ = db_path;
 
             // Recover the persistent Hugging Face credential on every launch if the DB
             // copy is missing. This keeps upgrades/reinstalls stable without embedding a
@@ -237,6 +261,7 @@ pub fn run() {
             app.manage(AppState {
                 db: Mutex::new(database),
                 app_data_dir: app_dir,
+                vault: Mutex::new(vault::VaultSession::default()),
             });
             content_rating::spawn_startup_refresh(app.handle().clone());
             post_scan::configure(app.handle().clone());
@@ -462,6 +487,14 @@ pub fn run() {
             get_system_info,
             pick_folder,
             pick_file,
+            vault_commands::vault_status,
+            vault_commands::vault_setup,
+            vault_commands::vault_unlock,
+            vault_commands::vault_lock,
+            vault_commands::vault_change_passphrase,
+            vault_commands::vault_export_backup,
+            vault_commands::vault_import_backup,
+            vault_commands::vault_migrate,
         ])
         .run(tauri::generate_context!())
         .expect("error while running CinaVault Premium");
