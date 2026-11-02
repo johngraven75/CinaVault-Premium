@@ -801,7 +801,9 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
                 totals.retry_ids.extend(report.retry_ids.iter().copied());
                 totals.missing_purged += report.missing_purged;
                 totals.missing_kept += report.missing_kept;
-                totals.missing_kept_ids.extend(report.missing_kept_ids.iter().copied());
+                totals
+                    .missing_kept_ids
+                    .extend(report.missing_kept_ids.iter().copied());
                 totals.errors.extend(
                     report
                         .errors
@@ -826,7 +828,16 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
             Err(error) => {
                 failed += 1;
                 totals.errors.push(format!("{}: {error}", source.name));
-                reports.push(source_report_json(source, "failed", 0, 0, 0, &[error], 0, 0));
+                reports.push(source_report_json(
+                    source,
+                    "failed",
+                    0,
+                    0,
+                    0,
+                    &[error],
+                    0,
+                    0,
+                ));
             }
         }
     }
@@ -1093,8 +1104,7 @@ mod tests {
     }
     #[test]
     fn rescan_purges_only_missing_rows_without_user_data() {
-        let root = std::env::temp_dir()
-            .join(format!("cinavault-missing-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("cinavault-missing-{}", std::process::id()));
         std::fs::create_dir_all(&root).expect("create test media directory");
         let kept_path = root.join("Kept.mkv");
         std::fs::write(&kept_path, b"test media").expect("create test media file");
@@ -1143,9 +1153,13 @@ mod tests {
             let rows = stmt
                 .query_map([], |row| row.get::<_, i64>(0))
                 .expect("query remaining");
-            rows.collect::<Result<Vec<_>, _>>().expect("collect remaining")
+            rows.collect::<Result<Vec<_>, _>>()
+                .expect("collect remaining")
         };
-        assert!(!remaining.contains(&gone), "untouched missing row must be gone");
+        assert!(
+            !remaining.contains(&gone),
+            "untouched missing row must be gone"
+        );
         assert_eq!(
             remaining,
             vec![present, watched, in_progress, saved, other_source]
@@ -1153,5 +1167,4 @@ mod tests {
 
         std::fs::remove_dir_all(root).ok();
     }
-
 }
