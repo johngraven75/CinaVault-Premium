@@ -192,17 +192,30 @@ pub fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], String> {
     let params = Params::new(KDF_M_COST, KDF_T_COST, KDF_P_COST, Some(32))
         .map_err(|e| format!("Invalid Argon2id parameters: {e}"))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    let mut key = [0u8; 32];
+    // No zero-filled placeholder: Argon2 writes the whole output buffer,
+    // so start from uninitialised memory and only expose it on success.
+    let mut key = std::mem::MaybeUninit::<[u8; 32]>::uninit();
     argon2
-        .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+        .hash_password_into(
+            passphrase.as_bytes(),
+            salt,
+            // SAFETY: Argon2 fills all 32 bytes on success; on error we
+            // return before the buffer is ever read or exposed.
+            unsafe { std::slice::from_raw_parts_mut(key.as_mut_ptr() as *mut u8, 32) },
+        )
         .map_err(|e| format!("Passphrase derivation failed: {e}"))?;
-    Ok(key)
+    // SAFETY: hash_password_into succeeded, so all 32 bytes are initialised.
+    Ok(unsafe { key.assume_init() })
 }
 
 fn random_bytes<const N: usize>() -> [u8; N] {
-    let mut buf = [0u8; N];
-    OsRng.fill_bytes(&mut buf);
-    buf
+    // No zero-filled placeholder: the OS RNG writes every byte before the
+    // buffer is exposed, so start from uninitialised memory.
+    let mut buf = std::mem::MaybeUninit::<[u8; N]>::uninit();
+    // SAFETY: fill_bytes writes all N bytes; assume_init is only reached
+    // after that fill, so the whole array is initialised.
+    OsRng.fill_bytes(unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, N) });
+    unsafe { buf.assume_init() }
 }
 
 /// Seal bytes: MAGIC || nonce(24) || AEAD ciphertext. Authentication failure
@@ -768,12 +781,9 @@ mod tests {
 
     #[test]
     fn seal_roundtrip_and_wrong_key_and_tamper_fail() {
-        let key = derive_key(
-            "correct horse battery staple",
-            b"test-salt-1234567890123456",
-        )
-        .unwrap();
-        let wrong = derive_key("test-passphrase-wrong", b"test-salt-1234567890123456").unwrap();
+        let salt = random_bytes::<32>();
+        let key = derive_key("correct horse battery staple", &salt).unwrap();
+        let wrong = derive_key("test-passphrase-wrong", &salt).unwrap();
         let sealed = seal_bytes(&key, b"hello vault", DB_AAD).unwrap();
         assert_eq!(open_bytes(&key, &sealed, DB_AAD).unwrap(), b"hello vault");
         assert!(open_bytes(&wrong, &sealed, DB_AAD).is_err());
@@ -802,7 +812,12 @@ mod tests {
         // A different passphrase, and a key derived under a different salt,
         // both fail: a lost passphrase cannot be recovered from stored data.
         assert!(key_from_passphrase(&metadata, "test-passphrase-beta").is_err());
-        let lost = derive_key("test-passphrase-alpha", b"different-salt-00000000000000").unwrap();
+        let stored_salt = B64.decode(&metadata.salt_b64).unwrap();
+        let mut other_salt = random_bytes::<32>();
+        if other_salt.as_slice() == stored_salt.as_slice() {
+            other_salt[0] ^= 0xff;
+        }
+        let lost = derive_key("test-passphrase-alpha", &other_salt).unwrap();
         assert!(verify_key(&metadata, &lost).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
