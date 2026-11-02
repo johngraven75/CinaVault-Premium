@@ -57,7 +57,14 @@ test("the Rust scan path gates every regular provider call", () => {
   assert.match(read("metadata_enrichment_runtime.rs"), /if !crate::library_metadata_policy::standard_providers_enabled\(\) \{\s+return Ok\(KeylessPrepassReport::default\(\)\);/);
   assert.match(read("metadata_guard.rs"), /else if crate::library_metadata_policy::standard_providers_enabled\(\) \{\s+let \(tmdb, omdb\)/);
   assert.match(read("metadata_ext.rs"), /ensure_provider_allowed\(&provider\)\?/);
-  assert.match(read("ai.rs"), /retain_allowed_keys\(&mut keys\)/);
+  // Issue 2 deleted ai.rs's dead, never-routed gather_adult_metadata_assets
+  // pass (#[allow(dead_code)], no command or ai_query caller), which was
+  // the only ai.rs site calling retain_allowed_keys. The live AI route is
+  // ai.rs -> ai_automation::ai_library_manage -> enrichment, and
+  // enrichment.rs still gates keys (asserted above), so the gate is
+  // preserved in live code, not in dead code.
+  assert.match(read("ai.rs"), /ai_automation::ai_library_manage/);
+  assert.match(read("ai_automation.rs"), /enrichment::run_library_enrichment/);
   for (const file of ["collections.rs", "content_rating.rs"]) {
     assert.match(read(file), /provider_allowed\("tmdb"\)/, file);
   }

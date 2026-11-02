@@ -1,21 +1,17 @@
 // CinaVault Premium — AI Diagnostics Module (HuggingFace Inference)
 use crate::enrichment::{classify_library_item, LibraryItemRecord, SourceKind};
 use crate::{task_progress, AppState};
-use rusqlite::params;
 use std::collections::{BTreeSet, HashMap};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 // Efficient multilingual instruction model selected for structured media-library work.
 const DEFAULT_MODEL: &str = "Qwen/Qwen3-4B-Instruct-2507";
 const ROUTING_MODEL: &str = "katanemo/Arch-Router-1.5B:hf-inference";
 const HF_BASE_URL: &str = "https://router.huggingface.co/v1/chat/completions";
-#[allow(dead_code)]
-static ADULT_GATHER_RUNNING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -260,8 +256,28 @@ fn extract_embedded_title(file_path: &str) -> Option<String> {
         .map(|line| line.to_string())
 }
 
+/// Issue 1: ffprobe is a blocking subprocess; call sites use this
+/// `spawn_blocking` wrapper instead of calling the sync helper directly
+/// on an async worker thread.
+/// Issue 2: the dead `gather_adult_metadata_assets` whole-library pass that
+/// used to sit below was deleted (it was never routed: no command or
+/// `ai_query` route called it). The live adult gather is
+/// `enrichment::gather_adult_metadata`, and it does not generate posters
+/// or chapter images — it saves provider posters and, as a fallback,
+/// promotes an existing chapter frame. The quick-action prompt below was
+/// corrected to say so.
+#[allow(dead_code)]
+async fn extract_embedded_title_async(file_path: &str) -> Option<String> {
+    let owned = file_path.to_string();
+    tokio::task::spawn_blocking(move || extract_embedded_title(&owned))
+        .await
+        .ok()
+        .flatten()
+}
+
 #[tauri::command]
 pub async fn ai_query(
+    app: AppHandle,
     state: State<'_, AppState>,
     prompt: String,
 ) -> Result<serde_json::Value, String> {
@@ -270,8 +286,12 @@ pub async fn ai_query(
         // Adult inventory must never fall through to the general-film gatherer.  The
         // dedicated command owns the provider allow-list, artwork persistence, and
         // sidecar contract used by the adult library UI.
+        // Issue 1: the adult route used to await the whole-library gather
+        // inline, which is the lockup this fix removes. It now starts a
+        // background job and returns the job start immediately; the
+        // frontend polls get_enrichment_job_status for the final report.
         AiQueryRoute::AdultMetadataGather => {
-            serde_json::to_value(crate::enrichment::gather_adult_metadata(state).await?)
+            serde_json::to_value(crate::enrichment_jobs::start_adult_metadata_job(&app))
                 .map_err(|error| error.to_string())
         }
         AiQueryRoute::SourceDiscovery => crate::scanner::discover_media_sources(state).await,
@@ -879,514 +899,6 @@ fn merge_remote_metadata(
     Some(merged)
 }
 
-#[allow(dead_code)]
-async fn gather_adult_metadata_assets(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    crate::edition::ensure_adult_allowed()?;
-    if ADULT_GATHER_RUNNING
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Ok(serde_json::json!({
-            "type": "adult_metadata_gather",
-            "status": "busy",
-            "message": "Adult metadata gather is already running. Please wait for completion.",
-        }));
-    }
-
-    let result = gather_adult_metadata_assets_inner(state).await;
-    ADULT_GATHER_RUNNING.store(false, Ordering::SeqCst);
-    result
-}
-
-/// One media_items row as read by the adult metadata gather pass.
-type AdultGatherRow = (
-    i64,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<i32>,
-    Option<f64>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    String,
-    Option<String>,
-    Option<String>,
-);
-
-#[allow(dead_code)]
-async fn gather_adult_metadata_assets_inner(
-    state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
-    let configured_adult_providers: Vec<String> = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db
-            .conn
-            .prepare("SELECT provider FROM api_keys")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?;
-        let mut providers = BTreeSet::new();
-
-        for provider in rows.filter_map(|r| r.ok()) {
-            let normalized = normalize_adult_provider_key(&provider);
-            if matches!(
-                normalized.as_str(),
-                "tpdb" | "stashdb" | "phoenixadult" | "iafd"
-            ) {
-                providers.insert(normalized);
-            }
-        }
-
-        providers.into_iter().collect()
-    };
-
-    let provider_keys: HashMap<String, String> = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db
-            .conn
-            .prepare("SELECT provider, api_key FROM api_keys")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|e| e.to_string())?;
-
-        let mut keys = HashMap::new();
-        for row in rows.filter_map(|r| r.ok()) {
-            let raw_key = row.0.to_lowercase();
-            let normalized_key = normalize_provider_key(&raw_key);
-            keys.insert(raw_key, row.1.clone());
-            keys.insert(normalized_key, row.1);
-        }
-        crate::library_metadata_policy::retain_allowed_keys(&mut keys);
-        keys
-    };
-    let tmdb_key = provider_keys.get("tmdb").cloned();
-    let omdb_key = provider_keys.get("omdb").cloned();
-    let stashdb_key = provider_keys.get("stashdb").cloned();
-
-    let media_items: Vec<AdultGatherRow> = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let mut stmt = db
-            .conn
-            .prepare(
-                "SELECT mi.id,
-                    mi.title,
-                    mi.file_path,
-                    mi.poster_path,
-                    mi.overview,
-                    mi.year,
-                    mi.rating,
-                    mi.genre,
-                    mi.tmdb_id,
-                    mi.imdb_id,
-                    mi.media_type,
-                    ms.name,
-                    ms.path
-             FROM media_items mi
-             LEFT JOIN media_sources ms ON ms.id = mi.source_id
-             WHERE mi.media_type IN ('adult', 'movie', 'video')
-             ORDER BY mi.date_added DESC",
-            )
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<i32>>(5)?,
-                    row.get::<_, Option<f64>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, String>(10)?,
-                    row.get::<_, Option<String>>(11)?,
-                    row.get::<_, Option<String>>(12)?,
-                ))
-            })
-            .map_err(|e| e.to_string())?;
-        rows.filter_map(|r| r.ok())
-            .filter(
-                |(
-                    _,
-                    title,
-                    file_path,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    media_type,
-                    source_name,
-                    source_path,
-                )| {
-                    is_adult_library_item(
-                        media_type,
-                        title,
-                        file_path,
-                        source_name.as_deref(),
-                        source_path.as_deref(),
-                    )
-                },
-            )
-            .collect()
-    };
-
-    let mut posters_updated = 0usize;
-    let mut chapters_generated_for_items = 0usize;
-    let mut chapter_images_generated = 0usize;
-    let mut items_needing_metadata = 0usize;
-    let mut items_reclassified_as_adult = 0usize;
-    let mut titles_refreshed_from_embedded = 0usize;
-    let mut metadata_items_enriched = 0usize;
-    let mut metadata_fields_updated = 0usize;
-    let mut sidecars_written = 0usize;
-    let mut skipped_missing_files = 0usize;
-    let mut skipped_non_video_items = 0usize;
-    let mut errors: Vec<String> = Vec::new();
-    let client = reqwest::Client::new();
-    let mut progress = task_progress::MetadataTaskGuard::start(
-        "adult_metadata_gather",
-        "Adult Metadata Gather",
-        media_items.len(),
-        "Preparing adult metadata gather",
-    );
-
-    for (
-        index,
-        (
-            id,
-            title,
-            file_path,
-            poster_path,
-            overview,
-            year,
-            rating,
-            genre,
-            tmdb_id,
-            imdb_id,
-            media_type,
-            source_name,
-            source_path,
-        ),
-    ) in media_items.iter().enumerate()
-    {
-        if task_progress::stop_requested() {
-            errors.push("Stopped by user before processing the next item".to_string());
-            break;
-        }
-        progress.update(
-            index + 1,
-            format!(
-                "Gathering metadata and poster artwork for {} of {}",
-                index + 1,
-                media_items.len()
-            ),
-        );
-        let media_path = std::path::Path::new(file_path);
-        if !media_path.exists() {
-            skipped_missing_files += 1;
-            continue;
-        }
-        if !is_adult_library_item(
-            media_type,
-            title,
-            file_path,
-            source_name.as_deref(),
-            source_path.as_deref(),
-        ) {
-            skipped_non_video_items += 1;
-            continue;
-        }
-
-        if media_type != "adult" {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
-            db.conn
-                .execute(
-                    "UPDATE media_items SET media_type = 'adult' WHERE id = ?1",
-                    params![id],
-                )
-                .map_err(|e| e.to_string())?;
-            items_reclassified_as_adult += 1;
-        }
-
-        let mut final_title = title.clone();
-        let mut final_overview = overview.clone();
-        let mut final_poster = poster_path.clone();
-        let mut final_year = *year;
-        let mut final_rating = *rating;
-        let mut final_genre = genre.clone();
-        let mut final_tmdb_id = tmdb_id.clone();
-        let mut final_imdb_id = imdb_id.clone();
-
-        if should_refresh_title_from_embedded(&final_title, file_path) {
-            if let Some(embedded_title) = extract_embedded_title(file_path) {
-                if !embedded_title.eq_ignore_ascii_case(&final_title) {
-                    let db = state.db.lock().map_err(|e| e.to_string())?;
-                    db.conn
-                        .execute(
-                            "UPDATE media_items SET title = ?1 WHERE id = ?2",
-                            params![embedded_title, id],
-                        )
-                        .map_err(|e| e.to_string())?;
-                    final_title = embedded_title;
-                    titles_refreshed_from_embedded += 1;
-                }
-            }
-        }
-
-        let has_overview = overview
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
-        if !has_overview {
-            items_needing_metadata += 1;
-        }
-
-        let has_poster = poster_path
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
-
-        if !has_poster {
-            if let Some(local_poster) = detect_local_poster(file_path) {
-                let db = state.db.lock().map_err(|e| e.to_string())?;
-                db.conn
-                    .execute(
-                        "UPDATE media_items SET poster_path = ?1 WHERE id = ?2",
-                        params![local_poster, id],
-                    )
-                    .map_err(|e| e.to_string())?;
-                posters_updated += 1;
-                final_poster = Some(local_poster);
-            }
-        }
-
-        let missing_genre = final_genre
-            .as_ref()
-            .map(|g| g.trim().is_empty())
-            .unwrap_or(true);
-        let should_upgrade_poster = should_prefer_remote_poster(final_poster.as_deref());
-        let needs_remote_metadata = !has_overview
-            || should_upgrade_poster
-            || final_year.is_none()
-            || final_rating.is_none()
-            || missing_genre
-            || final_tmdb_id
-                .as_deref()
-                .map(|v| v.trim().is_empty())
-                .unwrap_or(true)
-            || final_imdb_id
-                .as_deref()
-                .map(|v| v.trim().is_empty())
-                .unwrap_or(true);
-
-        if needs_remote_metadata
-            && (stashdb_key.is_some() || tmdb_key.is_some() || omdb_key.is_some())
-        {
-            let query_title = extract_embedded_title(file_path)
-                .filter(|embedded| !embedded.trim().is_empty())
-                .unwrap_or_else(|| final_title.clone());
-
-            let stashdb_meta = if let Some(key) = stashdb_key.as_deref() {
-                fetch_stashdb_metadata(&client, key, &query_title).await
-            } else {
-                None
-            };
-            let tmdb_meta = if let Some(key) = tmdb_key.as_deref() {
-                fetch_tmdb_metadata(&client, key, &query_title).await
-            } else {
-                None
-            };
-            let omdb_meta = if let Some(key) = omdb_key.as_deref() {
-                fetch_omdb_metadata(&client, key, &query_title).await
-            } else {
-                None
-            };
-            let stash_then_tmdb = merge_remote_metadata(stashdb_meta, tmdb_meta);
-            let remote_meta = merge_remote_metadata(stash_then_tmdb, omdb_meta);
-
-            if let Some(meta) = remote_meta {
-                let mut changed_fields = 0usize;
-
-                if should_refresh_title_from_embedded(title, file_path) {
-                    if let Some(new_title) = meta.title.filter(|v| !v.trim().is_empty()) {
-                        if !new_title.eq_ignore_ascii_case(&final_title) {
-                            final_title = new_title;
-                            changed_fields += 1;
-                        }
-                    }
-                }
-                if final_overview
-                    .as_ref()
-                    .map(|v| v.trim().is_empty())
-                    .unwrap_or(true)
-                {
-                    if let Some(new_overview) = meta.overview.filter(|v| !v.trim().is_empty()) {
-                        final_overview = Some(new_overview);
-                        changed_fields += 1;
-                    }
-                }
-                if should_prefer_remote_poster(final_poster.as_deref()) {
-                    if let Some(new_poster) = meta.poster_path.filter(|v| !v.trim().is_empty()) {
-                        if final_poster.as_deref() != Some(new_poster.as_str()) {
-                            final_poster = Some(new_poster);
-                            changed_fields += 1;
-                        }
-                    }
-                }
-                if final_year.is_none() {
-                    if let Some(new_year) = meta.year {
-                        final_year = Some(new_year);
-                        changed_fields += 1;
-                    }
-                }
-                if final_rating.is_none() {
-                    if let Some(new_rating) = meta.rating {
-                        final_rating = Some(new_rating);
-                        changed_fields += 1;
-                    }
-                }
-                if final_genre
-                    .as_ref()
-                    .map(|v| v.trim().is_empty())
-                    .unwrap_or(true)
-                {
-                    if let Some(new_genre) = meta.genre.filter(|v| !v.trim().is_empty()) {
-                        final_genre = Some(new_genre);
-                        changed_fields += 1;
-                    }
-                }
-                if final_tmdb_id
-                    .as_ref()
-                    .map(|v| v.trim().is_empty())
-                    .unwrap_or(true)
-                {
-                    if let Some(new_tmdb_id) = meta.tmdb_id.filter(|v| !v.trim().is_empty()) {
-                        final_tmdb_id = Some(new_tmdb_id);
-                        changed_fields += 1;
-                    }
-                }
-                if final_imdb_id
-                    .as_ref()
-                    .map(|v| v.trim().is_empty())
-                    .unwrap_or(true)
-                {
-                    if let Some(new_imdb_id) = meta.imdb_id.filter(|v| !v.trim().is_empty()) {
-                        final_imdb_id = Some(new_imdb_id);
-                        changed_fields += 1;
-                    }
-                }
-
-                if changed_fields > 0 {
-                    let db = state.db.lock().map_err(|e| e.to_string())?;
-                    db.conn
-                        .execute(
-                            "UPDATE media_items
-                         SET title = ?1,
-                             overview = ?2,
-                             poster_path = ?3,
-                             year = ?4,
-                             rating = ?5,
-                             genre = ?6,
-                             tmdb_id = ?7,
-                             imdb_id = ?8
-                         WHERE id = ?9",
-                            params![
-                                final_title,
-                                final_overview,
-                                final_poster,
-                                final_year,
-                                final_rating,
-                                final_genre,
-                                final_tmdb_id,
-                                final_imdb_id,
-                                id
-                            ],
-                        )
-                        .map_err(|e| e.to_string())?;
-                    metadata_items_enriched += 1;
-                    metadata_fields_updated += changed_fields;
-                }
-            }
-        }
-
-        if let Some(chapter_dir) = chapter_dir_for(file_path) {
-            let existing = count_existing_chapter_images(&chapter_dir);
-            if existing == 0 {
-                match crate::chapters::generate_chapter_thumbs(
-                    file_path.clone(),
-                    None,
-                    Some(300),
-                    None,
-                )
-                .await
-                {
-                    Ok(thumbs) if !thumbs.is_empty() => {
-                        chapters_generated_for_items += 1;
-                        chapter_images_generated += thumbs.len();
-                    }
-                    Ok(_) => {}
-                    Err(e) => errors.push(format!("{title}: {e}")),
-                }
-            }
-        }
-
-        match write_metadata_sidecar(
-            file_path,
-            &final_title,
-            final_overview.as_ref(),
-            final_poster.as_ref(),
-            final_year,
-            final_rating,
-            final_genre.as_ref(),
-            final_tmdb_id.as_ref(),
-            final_imdb_id.as_ref(),
-        ) {
-            Ok(true) => sidecars_written += 1,
-            Ok(false) => {}
-            Err(e) => errors.push(format!("{title}: sidecar write failed: {e}")),
-        }
-    }
-
-    progress.finish(format!(
-        "Adult metadata gather complete: {posters_updated} posters updated, {sidecars_written} sidecars written"
-    ));
-
-    Ok(serde_json::json!({
-        "type": "adult_metadata_gather",
-        "status": "success",
-        "configured_adult_providers": configured_adult_providers,
-        "provider_count": configured_adult_providers.len(),
-        "items_scanned": media_items.len(),
-        "items_reclassified_as_adult": items_reclassified_as_adult,
-        "titles_refreshed_from_embedded": titles_refreshed_from_embedded,
-        "metadata_items_enriched": metadata_items_enriched,
-        "metadata_fields_updated": metadata_fields_updated,
-        "sidecars_written": sidecars_written,
-        "posters_updated": posters_updated,
-        "chapter_sets_generated": chapters_generated_for_items,
-        "chapter_images_generated": chapter_images_generated,
-        "chapter_generation_skipped_after_limit": 0,
-        "items_needing_metadata": items_needing_metadata,
-        "skipped_missing_files": skipped_missing_files,
-        "skipped_non_video_items": skipped_non_video_items,
-        "note": "Adult metadata gather now supports legacy provider-key aliases, uses StashDB/TMDb/OMDb metadata when available, upgrades local poster placeholders to remote posters, writes sidecar files, and generates chapter images without a hard item cap.",
-        "errors": errors,
-    }))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1426,7 +938,7 @@ mod tests {
     #[test]
     fn adult_metadata_prompt_routes_to_adult_gather_before_generic_media_checks() {
         assert_eq!(
-            classify_ai_query_prompt("Run adult metadata gather for installed providers and generate posters and chapter images"),
+            classify_ai_query_prompt("Run adult metadata gather for installed providers and save provider posters and metadata"),
             AiQueryRoute::AdultMetadataGather
         );
     }

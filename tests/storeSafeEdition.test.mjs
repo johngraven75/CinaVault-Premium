@@ -50,8 +50,15 @@ test("the Store edition back end refuses adult sources, providers and commands",
   assert.match(read("src-tauri/src/edition.rs"), /STORE_SAFE: bool = cfg!\(feature = "store-safe"\)/);
   const guarded = {
     "src-tauri/src/lib.rs": [/if !edition::STORE_SAFE \{\s*match plugin_configs::ensure_adult_provider_configs/, /convert_entire_library_to_adult\([^)]*\) -> Result<serde_json::Value, String> \{\s*edition::ensure_adult_allowed\(\)\?/],
-    "src-tauri/src/enrichment.rs": [/pub async fn gather_adult_metadata\([^)]*\) -> Result<AdultMetadataReport, String> \{\s*crate::edition::ensure_adult_allowed\(\)\?/],
-    "src-tauri/src/ai.rs": [/async fn gather_adult_metadata_assets\([^)]*\) -> Result<serde_json::Value, String> \{\s*crate::edition::ensure_adult_allowed\(\)\?/],
+    // Issue 1 changed gather_adult_metadata to return a job start instead
+    // of the full report; it still refuses first with ensure_adult_allowed.
+    // Issue 2 deleted ai.rs's dead, never-routed gather_adult_metadata_assets
+    // pass; the live adult gather is enrichment::gather_adult_metadata_work,
+    // which also refuses first with ensure_adult_allowed (asserted here via
+    // enrichment.rs, plus the post-scan adult pass in post_scan.rs).
+    "src-tauri/src/enrichment.rs": [/pub async fn gather_adult_metadata\([^)]*\) -> Result<enrichment_jobs::EnrichmentJobStart, String> \{\s*crate::edition::ensure_adult_allowed\(\)\?/, /pub\(crate\) async fn gather_adult_metadata_work\([^)]*\) -> Result<AdultMetadataReport, String> \{\s*crate::edition::ensure_adult_allowed\(\)\?/],
+    "src-tauri/src/ai.rs": [/ai_automation::ai_library_manage/],
+    "src-tauri/src/post_scan.rs": [/crate::edition::ensure_adult_allowed\(\)\.is_ok\(\)/],
     "src-tauri/src/metadata_ext.rs": [/if crate::edition::STORE_SAFE \{\s*return Ok\(false\);/, /crate::edition::ensure_adult_allowed\(\)\?/],
     "src-tauri/src/db.rs": [/crate::edition::source_type_blocked\(&source_type\)/],
     "src-tauri/src/scanner.rs": [/crate::edition::source_type_blocked\(&source\.source_type\)/],
