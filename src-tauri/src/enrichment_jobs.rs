@@ -384,7 +384,7 @@ pub fn start_adult_metadata_job(app: &AppHandle) -> EnrichmentJobStart {
         };
         finish_job(&task_job_id, outcome);
     });
-    register_abort_handle(&job_id, task.abort_handle());
+    register_abort_handle(&job_id, task.inner().abort_handle());
     EnrichmentJobStart {
         job_id,
         kind: kind.as_str().to_string(),
@@ -426,7 +426,7 @@ pub fn start_library_enrichment_job(app: &AppHandle, rename_files: bool) -> Enri
         };
         finish_job(&task_job_id, outcome);
     });
-    register_abort_handle(&job_id, task.abort_handle());
+    register_abort_handle(&job_id, task.inner().abort_handle());
     EnrichmentJobStart {
         job_id,
         kind: kind.as_str().to_string(),

@@ -2230,18 +2230,20 @@ pub(crate) async fn enrich_adult_item(
         let db_result = {
             let db = state.db.lock().map_err(|err| err.to_string());
             match db {
-                Ok(db) => db.update_media_metadata_data(
-                    &item.file_path,
-                    update.title.as_deref(),
-                    update.overview.as_deref(),
-                    update.poster_path.as_deref(),
-                    update.year,
-                    update.rating,
-                    update.genre.as_deref(),
-                    update.tmdb_id.as_deref(),
-                    update.imdb_id.as_deref(),
-                    update.media_type.as_deref(),
-                ),
+                Ok(db) => db
+                    .update_media_metadata_data(
+                        &item.file_path,
+                        update.title.as_deref(),
+                        update.overview.as_deref(),
+                        update.poster_path.as_deref(),
+                        update.year,
+                        update.rating,
+                        update.genre.as_deref(),
+                        update.tmdb_id.as_deref(),
+                        update.imdb_id.as_deref(),
+                        update.media_type.as_deref(),
+                    )
+                    .map_err(|error| error.to_string()),
                 Err(err) => Err(err),
             }
         };

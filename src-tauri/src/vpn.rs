@@ -362,7 +362,11 @@ fn sha256_hex_of_file(path: &std::path::Path) -> Result<String, String> {
         .map_err(|error| format!("failed to read downloaded MSI for hashing: {error}"))?;
     let mut hasher = sha2::Sha256::new();
     hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 #[cfg(not(target_os = "windows"))]

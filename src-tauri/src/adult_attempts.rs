@@ -135,7 +135,7 @@ pub fn pending_item_ids(db: &crate::db::Database) -> Vec<i64> {
     }
     let mut stmt = match db.conn.prepare(
         "SELECT item_id FROM adult_enrichment_attempts
-         WHERE needs_retry = 1 ORDER BY last_attempt_at ASC",
+         WHERE needs_retry = 1 ORDER BY last_attempt_at ASC, item_id ASC",
     ) {
         Ok(stmt) => stmt,
         Err(_) => return Vec::new(),
@@ -205,7 +205,9 @@ mod tests {
         // A retry that still fails keeps the item pending and bumps the count.
         record_attempt(&db, 7, "/media/scene.mp4", OUTCOME_TIMEOUT, None).unwrap();
         assert_eq!(attempt_outcome(&db, 7), ("timeout".to_string(), 2, 1));
-        assert_eq!(pending_item_ids(&db), vec![7, 9]);
+        // Item 7 was just retried, so its last_attempt_at is newer than item 9's
+        // and oldest-last-attempt-first sorts it last.
+        assert_eq!(pending_item_ids(&db), vec![9, 7]);
 
         // A later complete record clears the pending flag but keeps history.
         record_attempt(&db, 7, "/media/scene.mp4", OUTCOME_SKIPPED_COMPLETE, None).unwrap();
