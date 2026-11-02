@@ -267,8 +267,7 @@ fn now_unix() -> i64 {
 fn load_tokens() -> Result<Option<TokenSet>, String> {
     match secure_credentials::get(TOKEN_ENTRY)? {
         Some(raw) => {
-            let tokens: TokenSet =
-                serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+            let tokens: TokenSet = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
             Ok(Some(tokens))
         }
         None => Ok(None),
@@ -301,10 +300,7 @@ pub fn revoke_and_clear() {
             .timeout(Duration::from_secs(15))
             .build();
         if let Ok(client) = client {
-            let result = client
-                .post(REVOKE_URL)
-                .form(&[("token", token)])
-                .send();
+            let result = client.post(REVOKE_URL).form(&[("token", token)]).send();
             if let Err(error) = result {
                 log::warn!("Google token revocation failed (clearing anyway): {error}");
             }
@@ -352,9 +348,9 @@ fn exchange_code(client_id: &str, code: &str, verifier: &str) -> Result<TokenSet
             response.status()
         ));
     }
-    let body: TokenResponse = response
-        .json()
-        .map_err(|error| format!("Google token exchange returned an unreadable response: {error}"))?;
+    let body: TokenResponse = response.json().map_err(|error| {
+        format!("Google token exchange returned an unreadable response: {error}")
+    })?;
     let expires_in = body.expires_in.unwrap_or(3600).max(60);
     Ok(TokenSet {
         access_token: body.access_token,
@@ -380,9 +376,9 @@ fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<TokenSet, Stri
             response.status()
         ));
     }
-    let body: TokenResponse = response
-        .json()
-        .map_err(|error| format!("Google token refresh returned an unreadable response: {error}"))?;
+    let body: TokenResponse = response.json().map_err(|error| {
+        format!("Google token refresh returned an unreadable response: {error}")
+    })?;
     let expires_in = body.expires_in.unwrap_or(3600).max(60);
     Ok(TokenSet {
         access_token: body.access_token,
@@ -417,10 +413,7 @@ fn drive_about(access_token: &str) -> AboutOutcome {
         return AboutOutcome::Unauthorized;
     }
     if !response.status().is_success() {
-        return AboutOutcome::Transient(format!(
-            "Drive check failed (HTTP {})",
-            response.status()
-        ));
+        return AboutOutcome::Transient(format!("Drive check failed (HTTP {})", response.status()));
     }
     let body: Value = match response.json() {
         Ok(body) => body,
@@ -643,7 +636,9 @@ pub fn cloud_oauth_connect(state: State<AppState>, provider: String) -> Result<V
         normalized.as_str(),
         "googledrive" | "google_drive" | "google drive" | "gdrive"
     ) {
-        return Err(format!("Unsupported cloud provider for Google OAuth: {provider}"));
+        return Err(format!(
+            "Unsupported cloud provider for Google OAuth: {provider}"
+        ));
     }
     let client_id = resolve_client_id()?;
     // Bind FIRST so the redirect cannot arrive before the listener exists.
@@ -689,7 +684,9 @@ pub fn cloud_oauth_connect(state: State<AppState>, provider: String) -> Result<V
 
 #[cfg(test)]
 mod tests {
-    use super::{is_placeholder, parse_callback_request, percent_decode, percent_encode, pkce_pair};
+    use super::{
+        is_placeholder, parse_callback_request, percent_decode, percent_encode, pkce_pair,
+    };
     use base64::Engine as _;
     use sha2::Digest;
 
@@ -699,8 +696,7 @@ mod tests {
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let mut hasher = sha2::Sha256::new();
         hasher.update(verifier.as_bytes());
-        let challenge =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize());
+        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize());
         assert_eq!(challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
         // And our own generator always yields a 43-char verifier.
         let (generated_verifier, generated_challenge) = pkce_pair();
@@ -719,8 +715,7 @@ mod tests {
     #[test]
     fn callback_parsing_accepts_code_and_rejects_denial() {
         let (code, state) =
-            parse_callback_request("GET /auth/callback?code=abc123&state=xyz HTTP/1.1")
-                .unwrap();
+            parse_callback_request("GET /auth/callback?code=abc123&state=xyz HTTP/1.1").unwrap();
         assert_eq!(code, "abc123");
         assert_eq!(state, "xyz");
         assert!(parse_callback_request(
@@ -734,7 +729,9 @@ mod tests {
     fn placeholders_are_never_valid_client_ids() {
         assert!(is_placeholder("cinavault-gdrive-client"));
         assert!(is_placeholder("cinavault-onedrive-client"));
-        assert!(!is_placeholder("1234567890-abcdef.apps.googleusercontent.com"));
+        assert!(!is_placeholder(
+            "1234567890-abcdef.apps.googleusercontent.com"
+        ));
     }
 
     #[test]
