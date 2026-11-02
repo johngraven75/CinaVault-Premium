@@ -492,6 +492,7 @@ mod tests {
         let state_a = AppState {
             db: std::sync::Mutex::new(db_a),
             app_data_dir: pc_a.clone(),
+            vault: std::sync::Mutex::new(crate::vault::VaultSession::default()),
         };
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let counts = runtime.block_on(export(&state_a, None)).unwrap();

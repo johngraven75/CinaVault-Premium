@@ -3,7 +3,7 @@ import "./styles/poster-card-standard.css";
 import "./styles/media-row-poster-final-fix.css";
 import "./styles/media-card-hard-fix.css";
 import "./styles/media-card-final-standard.css";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -29,6 +29,8 @@ import PluginsTab from "./components/tabs/PluginsTab";
 import AIDiagnosticsTab from "./components/tabs/AIDiagnosticsTab";
 import HFModelsTab from "./components/tabs/HFModelsTab";
 import SettingsTab from "./components/tabs/SettingsTab";
+import VaultLock from "./components/VaultLock";
+import { getVaultStatus, type VaultStatus } from "./services/vault";
 import FirstRunSetup from "./components/setup/FirstRunSetup";
 import LibraryPlayer from "./components/player/LibraryPlayer";
 // The agent (WebGL head + chat) loads only when it is switched on.
@@ -288,6 +290,26 @@ export default function App(): JSX.Element {
     [],
   );
   const aiAutopilotEnabled = settings.ai_media_autopilot_enabled !== "false";
+  const [vaultGate, setVaultGate] = useState<VaultStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getVaultStatus()
+      .then((status) => {
+        if (cancelled) return;
+        // Gate only on a true first run or a configured, locked vault.
+        // Legacy plaintext libraries keep opening normally.
+        if (status.needsSetup || (status.configured && !status.unlocked)) {
+          setVaultGate(status);
+        }
+      })
+      .catch(() => {
+        // If the vault commands are unavailable, do not block the app.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const saveState = useCallback(async () => {
     if (isSaving.current || !hasRestoredSettings.current) return;
@@ -445,6 +467,20 @@ export default function App(): JSX.Element {
   const shell = useShellPreferences(settings, featureSettings);
   const CurrentTabComponent = TAB_COMPONENTS[activeTab];
 
+  let workspaceContent: JSX.Element;
+  if (vaultGate) {
+    workspaceContent = (
+      <VaultLock
+        status={vaultGate}
+        onUnlocked={() => window.location.reload()}
+      />
+    );
+  } else if (CurrentTabComponent) {
+    workspaceContent = <CurrentTabComponent />;
+  } else {
+    workspaceContent = <div>Tab not found</div>;
+  }
+
   return (
     <MotionConfig reducedMotion={shell.reduceMotion ? "always" : "user"}>
     <div className="app-shell cv-app min-h-screen overflow-hidden bg-[#02040a] text-cv-text">
@@ -555,11 +591,7 @@ export default function App(): JSX.Element {
                 style={{ transformPerspective: 1200 }}
               >
                 <span className="holo-route-veil" aria-hidden="true" />
-                {CurrentTabComponent ? (
-                  <CurrentTabComponent />
-                ) : (
-                  <div>Tab not found</div>
-                )}
+                {workspaceContent}
               </motion.section>
             </AnimatePresence>
           </div>

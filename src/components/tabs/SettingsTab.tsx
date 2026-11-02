@@ -27,6 +27,7 @@ import {
   Wand2,
 } from "lucide-react";
 import TabBanner from "../experience/TabBanner";
+import VaultPanel from "../VaultPanel";
 import { openFirstRunSetup } from "../setup/FirstRunSetup";
 import { BUILD_INFO } from "../../buildInfo";
 import {
@@ -603,6 +604,7 @@ export default function SettingsTab() {
               </div>
             </>
           )}
+          <VaultPanel />
         </motion.div>
       </div>
       </div>
