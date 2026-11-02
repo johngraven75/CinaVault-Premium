@@ -94,10 +94,10 @@ mod post_scan;
 mod poster_sync;
 mod subtitles;
 mod title_clean;
-mod vpn;
-mod vpn_profile_store;
 mod vault;
 mod vault_commands;
+mod vpn;
+mod vpn_profile_store;
 
 use base64::Engine;
 use db::Database;
