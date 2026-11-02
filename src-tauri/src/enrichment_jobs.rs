@@ -396,10 +396,7 @@ pub fn start_adult_metadata_job(app: &AppHandle) -> EnrichmentJobStart {
 /// Start a library-enrichment job (keyless prepass + enrichment). Returns
 /// immediately; poll `get_enrichment_job_status` for progress and the final
 /// report.
-pub fn start_library_enrichment_job(
-    app: &AppHandle,
-    rename_files: bool,
-) -> EnrichmentJobStart {
+pub fn start_library_enrichment_job(app: &AppHandle, rename_files: bool) -> EnrichmentJobStart {
     let kind = EnrichmentJobKind::LibraryEnrichment;
     let job_id = match claim_job(kind) {
         Ok(job_id) => job_id,
@@ -515,8 +512,7 @@ mod tests {
             "no job has run yet in a fresh registry"
         );
 
-        let first = claim_job(EnrichmentJobKind::AdultMetadata)
-            .expect("first claim succeeds");
+        let first = claim_job(EnrichmentJobKind::AdultMetadata).expect("first claim succeeds");
         assert!(active_job_running());
 
         let busy = claim_job(EnrichmentJobKind::LibraryEnrichment)
@@ -537,22 +533,21 @@ mod tests {
         assert_eq!(finished.status, "completed");
         assert_eq!(finished.percent, 100);
         assert_eq!(
-            finished.result.and_then(|value| value
-                .get("type")
-                .and_then(|value| value.as_str())
-                .map(str::to_string))
+            finished
+                .result
+                .and_then(|value| value
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string))
                 .as_deref(),
             Some("adult_metadata_gather")
         );
 
         // A finished job no longer blocks the slot.
-        let second = claim_job(EnrichmentJobKind::LibraryEnrichment)
-            .expect("claim after finish succeeds");
+        let second =
+            claim_job(EnrichmentJobKind::LibraryEnrichment).expect("claim after finish succeeds");
         assert_ne!(second, first);
         finish_job(&second, Err("simulated failure".to_string()));
-        assert_eq!(
-            get_enrichment_job_status(Some(second)).status,
-            "failed"
-        );
+        assert_eq!(get_enrichment_job_status(Some(second)).status, "failed");
     }
 }
