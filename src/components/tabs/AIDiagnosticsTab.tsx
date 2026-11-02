@@ -1,5 +1,5 @@
 // CinaVault Premium — AI Diagnostics Tab
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "framer-motion";
 import {
@@ -18,6 +18,12 @@ import {
   metadataTaskPopupVisible,
   MetadataTaskProgress,
 } from "../../utils/metadataTaskProgress";
+import {
+  fetchEnrichmentJobStatus,
+  isEnrichmentJobStart,
+  pollEnrichmentJob,
+  type EnrichmentJobStart,
+} from "../../utils/enrichmentJob";
 import {
   Brain,
   Send,
@@ -87,6 +93,7 @@ type AdultMetadataGatherResult = {
   metadata_fields_updated?: number;
   sidecars_written?: number;
   posters_updated?: number;
+  posters_from_chapter_frames?: number;
   chapter_sets_generated?: number;
   chapter_images_generated?: number;
   items_needing_metadata?: number;
@@ -189,7 +196,7 @@ function formatAdultMetadataGatherMessage(
   label: string,
   result: AdultMetadataGatherResult,
 ): string {
-  return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, posters ${result.posters_updated || 0}, sidecars ${result.sidecars_written || 0}`;
+  return `${label}: scanned ${result.items_scanned || 0}, enriched ${result.metadata_items_enriched || 0}, updated ${result.metadata_fields_updated || 0} fields, posters ${result.posters_updated || 0}, chapter-frame posters ${result.posters_from_chapter_frames || 0}, sidecars ${result.sidecars_written || 0}`;
 }
 
 function formatBulkMetadataPostMessage(
@@ -215,6 +222,7 @@ function formatResultSummary(result: any) {
         metadata_items_enriched: result.metadata_items_enriched,
         metadata_fields_updated: result.metadata_fields_updated,
         posters_updated: result.posters_updated,
+        posters_from_chapter_frames: result.posters_from_chapter_frames,
         sidecars_written: result.sidecars_written,
         chapter_sets_generated: result.chapter_sets_generated,
         chapter_images_generated: result.chapter_images_generated,
@@ -287,6 +295,15 @@ export default function AIDiagnosticsTab() {
   >([]);
   const [metadataProgress, setMetadataProgress] =
     useState<MetadataTaskProgress | null>(null);
+  // Issue 1: the id of a background enrichment job this tab is following.
+  // While set, the tab's Query/quick-action buttons are NOT held disabled:
+  // the job runs server-side and the user can navigate the library freely.
+  // The Stop button stays available via this id.
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  // Monotonic token: bumping it invalidates any in-flight poll loop
+  // (unmount, or a newer job superseding an older one).
+  const jobPollTokenRef = useRef(0);
+  const jobResumeAttemptedRef = useRef(false);
 
   const loadAiConfig = useCallback(async () => {
     try {
@@ -616,6 +633,94 @@ export default function AIDiagnosticsTab() {
     showFinishedProgress(label, message);
   };
 
+  // Issue 1: follow a started (or busy) enrichment job in the background.
+  // The start invoke already returned, so this never blocks the UI: it is
+  // a chain of 1s-apart status polls that mirrors progress into the popup
+  // and, on completion, delivers the full report to handleTrackedResult
+  // exactly as the old synchronous invoke used to.
+  const trackEnrichmentJob = useCallback(
+    async (start: EnrichmentJobStart, label: string, query: string) => {
+      const token = ++jobPollTokenRef.current;
+      setActiveJobId(start.job_id);
+      if (start.status === "busy") {
+        addStatusMessage(
+          `${label} is already running; following the active job instead of starting a second one.`,
+        );
+      }
+      try {
+        const finished = await pollEnrichmentJob(invoke, start.job_id, {
+          intervalMs: 1000,
+          onProgress: (status) => {
+            if (jobPollTokenRef.current !== token) return;
+            setMetadataProgress({
+              active: status.status === "running",
+              task:
+                status.kind === "adult_metadata"
+                  ? "adult_metadata_gather"
+                  : "library_enrichment",
+              label,
+              current: status.current,
+              total: status.total,
+              percent: status.percent,
+              message: status.message,
+            });
+          },
+        });
+        if (jobPollTokenRef.current !== token) return;
+        await handleTrackedResult(label, query, finished.result ?? finished);
+      } catch (error) {
+        if (jobPollTokenRef.current !== token) return;
+        addStatusMessage(`${label} stopped: ${error}`);
+        showFinishedProgress(label, `${label} stopped: ${error}`);
+      } finally {
+        if (jobPollTokenRef.current === token) setActiveJobId(null);
+      }
+    },
+    [addStatusMessage, handleTrackedResult],
+  );
+
+  // Issue 1: a job outlives tab navigation (it runs server-side). When this
+  // tab mounts, resume following a still-running job instead of leaving the
+  // user with no completion signal. Runs once per mount.
+  useEffect(() => {
+    if (jobResumeAttemptedRef.current) return;
+    jobResumeAttemptedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await fetchEnrichmentJobStatus(invoke);
+        if (cancelled || status.status !== "running" || !status.job_id) return;
+        void trackEnrichmentJob(
+          {
+            job_id: status.job_id,
+            kind: status.kind,
+            status: "started",
+            message: status.message,
+          },
+          status.kind === "adult_metadata"
+            ? "Adult Metadata Gather"
+            : "Enrich Library Metadata",
+          status.kind === "adult_metadata"
+            ? "Run adult metadata gather"
+            : "Enrich Library Metadata",
+        );
+      } catch {
+        // No job to resume; the tab simply starts clean.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trackEnrichmentJob]);
+
+  // Invalidate any in-flight poll loop when the tab unmounts. The job
+  // itself keeps running server-side; remounting resumes following it.
+  useEffect(() => {
+    return () => {
+      jobPollTokenRef.current += 1;
+    };
+  }, []);
+
   const runQuery = async () => {
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
@@ -662,8 +767,16 @@ export default function AIDiagnosticsTab() {
       setAiProcessing(true);
       addStatusMessage(`Running: ${label}...`);
       try {
-        const result = await invoke<AdultMetadataGatherResult>("gather_adult_metadata");
-        await handleTrackedResult(label, cleanPrompt, result);
+        const started = await invoke<EnrichmentJobStart>("gather_adult_metadata");
+        // Issue 1: the invoke returns immediately with a job start now.
+        // Do not hold the Query button (or the tab) hostage for the whole
+        // gather; follow the job in the background instead. The finally
+        // block below still clears aiProcessing and the prompt.
+        if (isEnrichmentJobStart(started)) {
+          void trackEnrichmentJob(started, label, cleanPrompt);
+          return;
+        }
+        await handleTrackedResult(label, cleanPrompt, started);
       } catch (e) {
         const errResult = { status: "error", message: String(e) };
         setAiResult(errResult);
@@ -688,6 +801,19 @@ export default function AIDiagnosticsTab() {
     addStatusMessage(`AI processing: ${cleanPrompt.substring(0, 50)}...`);
     try {
       const result = await invoke<any>("ai_query", { prompt: cleanPrompt });
+      // Issue 1: the adult route of ai_query now returns a job start
+      // instead of awaiting the whole gather. Release the buttons and
+      // follow the job in the background; other routes return final
+      // results as before and fall through unchanged.
+      if (isEnrichmentJobStart(result)) {
+        setAiProcessing(false);
+        setPrompt("");
+        addStatusMessage(
+          "Adult metadata gather started in the background; library navigation stays available while it runs.",
+        );
+        void trackEnrichmentJob(result, "Adult Metadata Gather", cleanPrompt);
+        return;
+      }
       setAiResult(result);
       setHistory((prev) => [
         { query: cleanPrompt, result, time: new Date().toLocaleTimeString() },
@@ -778,6 +904,17 @@ export default function AIDiagnosticsTab() {
     addStatusMessage(`Running: ${action.label}...`);
     try {
       const result = await action.runNow();
+      // Issue 1: job-backed actions (Enrich Library Metadata, Enrich +
+      // Normalize Filenames, Adult Metadata Gather) return a job start
+      // immediately now. Release the buttons and follow the job in the
+      // background instead of awaiting the whole library pass; the
+      // finally block still clears aiProcessing. A second start while a
+      // job runs returns "busy" and simply follows the active job.
+      if (isEnrichmentJobStart(result)) {
+        setAiProcessing(false);
+        void trackEnrichmentJob(result, action.label, action.q);
+        return;
+      }
       await handleTrackedResult(action.label, action.q, result);
     } catch (e) {
       addStatusMessage(`${action.label} failed: ${e}`);
@@ -851,7 +988,7 @@ export default function AIDiagnosticsTab() {
     {
       label: "Adult Metadata Gather",
       icon: Sparkles,
-      q: "Run adult metadata gather for installed providers and generate posters and chapter images",
+      q: "Run adult metadata gather for installed providers and save provider posters and metadata",
       progressTask: "adult_metadata_gather",
       runNow: () => invoke("gather_adult_metadata"),
     },
@@ -983,7 +1120,7 @@ export default function AIDiagnosticsTab() {
             >
               <Sparkles size={14} /> Inference
             </button>
-            {aiProcessing && (
+            {(aiProcessing || activeJobId) && (
               <button
                 onClick={() => void stopAiAgent()}
                 className="cv-btn cv-btn-danger"

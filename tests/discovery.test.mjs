@@ -8,6 +8,7 @@ import {
   carouselStep,
   continueWatchingItems,
   genreRadioQueue,
+  hasUsableFilePath,
   isOnWatchlist,
   itemMediaIds,
   newReleasesMessage,
@@ -60,6 +61,43 @@ test("discovery entries become cards with their copies and reason", () => {
   assert.deepEqual(card.item.copies.map((copy) => copy.id), [7, 9]);
   assert.equal(card.reason, "Because you watched Heat");
   assert.deepEqual(itemMediaIds(card.item), [7, 9]);
+});
+
+test("shelves drop entries with no usable file path", () => {
+  const entry = (id, title, file_path, copies) => ({
+    work_key: `k${id}`,
+    primary: media(id, title, { file_path }),
+    copies: copies ?? [],
+    copy_count: Math.max(1, (copies ?? []).length),
+    source_ids: [],
+    reason: "test",
+    score: 1,
+  });
+  const cards = toShelfItems([
+    entry(1, "Good", "C:/m/Good.mkv"),
+    entry(2, "Blank", "", []),
+    entry(3, "Spaces", "   ", [
+      { id: 3, file_path: "  ", source_id: null, file_size: null, resolution: null },
+    ]),
+    // Blank primary, but a usable copy: still a library title.
+    entry(4, "Moved", "", [
+      { id: 4, file_path: "D:/m/Moved.mkv", source_id: 1, file_size: 10, resolution: "1080p" },
+    ]),
+  ]);
+  assert.deepEqual(cards.map((card) => card.item.title), ["Good", "Moved"]);
+  assert.equal(hasUsableFilePath({ file_path: "" }), false);
+  assert.equal(hasUsableFilePath({ file_path: "  " }), false);
+  assert.equal(hasUsableFilePath({ file_path: "", copies: [{ file_path: "x.mkv" }] }), true);
+});
+
+test("continue watching drops rows with no usable file path", () => {
+  const progress = (media_id) => ({ media_id, position: 60, duration: 600, finished: false, updated_at: "" });
+  const cards = continueWatchingItems([
+    { item: media(1, "Keep"), progress: progress(1) },
+    { item: media(2, "Gone", { file_path: "" }), progress: progress(2) },
+    { item: media(3, "Spaces", { file_path: "  ", copies: [] }), progress: progress(3) },
+  ]);
+  assert.deepEqual(cards.map((card) => card.item.title), ["Keep"]);
 });
 
 test("continue watching cards carry progress, resume point and time left", () => {

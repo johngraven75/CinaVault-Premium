@@ -4,9 +4,10 @@
 //! card, and everything respects the active profile from user_data.
 //!
 //! Trending uses TMDB's weekly trending list when a TMDB key is configured,
-//! matched against the library by TMDB id or cleaned title + year and cached
-//! for six hours. Without a key, or when TMDB cannot be reached and nothing is
-//! cached, it ranks the library by recent plays on this PC instead.
+//! matched against the library by TMDB id when the library copy carries one,
+//! otherwise by cleaned title + exact year, and cached for six hours.
+//! Without a key, or when TMDB cannot be reached and nothing is cached, it
+//! ranks the library by recent plays on this PC instead.
 
 use crate::db::{Database, MediaItem};
 use crate::feature_flags;
@@ -427,8 +428,11 @@ fn type_compatible(trending_type: &str, group: &str) -> bool {
     }
 }
 
-/// Library works on TMDB's trending list, in trending order. A work matches by
-/// TMDB id, or by cleaned title with a year within one (or no year on either side).
+/// Library works on TMDB's trending list, in trending order. A work matches
+/// by TMDB id when it carries one: a different TMDB id never falls back to
+/// a title match, so a same-name remake cannot stand in for the trending
+/// title. A work with no TMDB id matches only on cleaned title plus the
+/// exact year: a missing year or a neighbouring year does not match.
 pub fn match_trending(trending: &[TrendingTitle], works: &[UnifiedEntry]) -> Vec<DiscoveryEntry> {
     struct Candidate<'a> {
         work: &'a UnifiedEntry,
@@ -470,17 +474,15 @@ pub fn match_trending(trending: &[TrendingTitle], works: &[UnifiedEntry]) -> Vec
             .filter(|candidate| type_compatible(&title.media_type, &candidate.group))
             .filter(|candidate| !used.contains(candidate.work.work_key.as_str()))
             .filter(|candidate| {
-                if candidate.tmdb_ids.contains(&id) {
-                    return true;
+                if !candidate.tmdb_ids.is_empty() {
+                    // An identified library copy: its own TMDB id decides.
+                    return candidate.tmdb_ids.contains(&id);
                 }
                 if wanted.is_empty() || candidate.normalized.title != wanted {
                     return false;
                 }
                 let year = candidate.work.primary.year.or(candidate.normalized.year);
-                match (year, title.year) {
-                    (Some(a), Some(b)) => (a - b).abs() <= 1,
-                    _ => true,
-                }
+                matches!((year, title.year), (Some(a), Some(b)) if a == b)
             })
             .collect();
         if matches.is_empty() {
@@ -626,6 +628,15 @@ pub fn works_in_genre(works: &[UnifiedEntry], genre: &str) -> Vec<UnifiedEntry> 
 
 // --------------------------------------------------------- data access ----
 
+/// A work is only a library title when at least one copy names a file.
+/// A work whose primary and every copy have a blank file_path is not
+/// playable and must never reach a shelf as a suggestion.
+pub fn work_has_usable_file_path(work: &UnifiedEntry) -> bool {
+    let usable = |path: &str| !path.trim().is_empty();
+    usable(&work.primary.file_path)
+        || work.copies.iter().any(|copy| usable(&copy.file_path))
+}
+
 /// The active profile's library as works: store-safe builds and restricted
 /// profiles never see adult titles.
 fn load_works(db: &Database, collapse_shows: bool) -> Result<Vec<UnifiedEntry>, String> {
@@ -641,7 +652,10 @@ fn load_works(db: &Database, collapse_shows: bool) -> Result<Vec<UnifiedEntry>, 
             !(adult && (restricted || crate::edition::STORE_SAFE))
         })
         .collect();
-    let works = library_unify::group_items(items);
+    let works: Vec<UnifiedEntry> = library_unify::group_items(items)
+        .into_iter()
+        .filter(work_has_usable_file_path)
+        .collect();
     Ok(if collapse_shows {
         collapse_episodes(works)
     } else {
@@ -1278,15 +1292,35 @@ mod tests {
     }
 
     #[test]
-    fn trending_matches_by_tmdb_id_or_clean_title_and_year() {
+    fn trending_matches_by_tmdb_id_or_exact_title_and_year() {
         let mut by_id = item(1, "Some Odd Local Name", "Sci-Fi", 2021, 8.0);
         by_id.tmdb_id = Some("11".into());
         let by_title = item(2, "The.Matrix.1999.1080p.BluRay", "Action", 1999, 8.7);
-        let wrong_year = item(3, "Matrix", "Action", 2021, 5.0);
-        let mut episode = test_item(4, "Severance S01E02", "C:/tv/sev2.mkv", "episode");
+        // Same cleaned title and year as the trending title, but the library
+        // copy is identified as a different TMDB title: the id decides, so
+        // it must not stand in for trending id 11.
+        let mut other_id = item(3, "Dune", "Sci-Fi", 2021, 7.0);
+        other_id.tmdb_id = Some("12".into());
+        // Same cleaned title as a trending title, but the year is off by one:
+        // the old within-one-year rule matched this; the exact rule must not.
+        let off_by_one = item(4, "Heat", "Crime", 1996, 7.5);
+        // Same cleaned title, but no year on the library side: the old
+        // missing-year rule matched this; the exact rule must not.
+        let no_year = test_item(5, "Alien", "C:/m/alien.mkv", "movie");
+        let mut episode = test_item(6, "Severance S01E02", "C:/tv/sev2.mkv", "episode");
         episode.genre = Some("Drama".into());
-        let first_episode = test_item(5, "Severance S01E01", "C:/tv/sev1.mkv", "episode");
-        let library = works(vec![by_id, by_title, wrong_year, episode, first_episode]);
+        episode.year = Some(2022);
+        let mut first_episode = test_item(7, "Severance S01E01", "C:/tv/sev1.mkv", "episode");
+        first_episode.year = Some(2022);
+        let library = works(vec![
+            by_id,
+            by_title,
+            other_id,
+            off_by_one,
+            no_year,
+            episode,
+            first_episode,
+        ]);
         let trending = vec![
             TrendingTitle {
                 tmdb_id: 22,
@@ -1316,6 +1350,20 @@ mod tests {
                 year: None,
                 rank: 4,
             },
+            TrendingTitle {
+                tmdb_id: 8,
+                media_type: "movie".into(),
+                title: "Heat".into(),
+                year: Some(1995),
+                rank: 5,
+            },
+            TrendingTitle {
+                tmdb_id: 9,
+                media_type: "movie".into(),
+                title: "Alien".into(),
+                year: Some(1979),
+                rank: 6,
+            },
         ];
         let matched = match_trending(&trending, &library);
         assert_eq!(
@@ -1327,6 +1375,29 @@ mod tests {
             ]
         );
         assert_eq!(matched[2].reason, "#3 trending this week");
+    }
+
+    #[test]
+    fn works_without_a_usable_file_path_never_reach_a_shelf() {
+        let mut blank = item(1, "Blank", "Drama", 2000, 7.0);
+        blank.file_path = "   ".into();
+        // A work whose primary copy lost its path but keeps a good copy is
+        // still a library title: the usable copy decides, not the primary.
+        let mut blank_primary = item(2, "Shared", "Drama", 2000, 7.0);
+        blank_primary.file_path = String::new();
+        let good_copy = item(3, "Shared", "Drama", 2000, 7.0);
+        let library = works(vec![blank, blank_primary, good_copy]);
+        let usable: Vec<&str> = library
+            .iter()
+            .filter(|work| work_has_usable_file_path(work))
+            .map(|work| work.primary.title.as_str())
+            .collect();
+        assert_eq!(usable, vec!["Shared"]);
+        let blank_work = library
+            .iter()
+            .find(|work| work.primary.title == "Blank")
+            .expect("blank work grouped");
+        assert!(!work_has_usable_file_path(blank_work));
     }
 
     #[test]

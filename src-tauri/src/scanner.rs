@@ -44,6 +44,13 @@ struct ScanDirectoryReport {
     /// Rows already in the library that still have no poster or no provider
     /// match, so the post-scan lookup tries them again.
     retry_ids: Vec<i64>,
+    /// Rows for this source whose file is gone and which carried no user
+    /// data, so the scan deleted them (see `purge_missing_files`).
+    missing_purged: u64,
+    /// Rows for this source whose file is gone but which carry user data,
+    /// so the scan kept them; their ids are in `missing_kept_ids`.
+    missing_kept: u64,
+    missing_kept_ids: Vec<i64>,
     errors: Vec<String>,
 }
 
@@ -270,6 +277,8 @@ fn source_report_json(
     added: u64,
     updated: u64,
     errors: &[String],
+    missing_purged: u64,
+    missing_kept: u64,
 ) -> serde_json::Value {
     serde_json::json!({
         "source_id": source.id,
@@ -280,8 +289,84 @@ fn source_report_json(
         "found": found,
         "added": added,
         "updated": updated,
+        "missing_purged": missing_purged,
+        "missing_kept": missing_kept,
         "errors": errors,
     })
+}
+
+/// What reconciling one source's rows against the disk found.
+#[derive(Debug, Default, PartialEq)]
+struct MissingFiles {
+    /// Rows deleted: missing from disk and carrying no user data.
+    purged: u64,
+    /// Rows kept despite a missing file, because deleting them would
+    /// destroy user data (see `purge_missing_files`).
+    kept_ids: Vec<i64>,
+}
+
+/// Deletes this source's rows whose file no longer exists, but only when
+/// the row carries no user data: unwatched, not a favorite, no playback
+/// progress and not on any watchlist. A missing file on a row the user
+/// watched, favorited, saved or resumed is kept — deleting it would
+/// silently destroy that history — and its id is reported so the scan
+/// result surfaces it instead of hiding it. Rows found by this scan are
+/// never stat-checked: the walk just proved they exist.
+fn purge_missing_files(
+    db: &crate::db::Database,
+    source_id: i64,
+    found: &HashSet<String>,
+) -> Result<MissingFiles, String> {
+    let rows: Vec<(i64, String, bool, bool)> = {
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT id, file_path, watched, favorite FROM media_items
+                 WHERE source_id = ?1 ORDER BY id",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![source_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                    row.get::<_, bool>(3)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    let mut out = MissingFiles::default();
+    for (id, file_path, watched, favorite) in rows {
+        if found.contains(&file_path) || Path::new(&file_path).exists() {
+            continue;
+        }
+        let has_user_data = watched
+            || favorite
+            || db
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM playback_progress WHERE media_id = ?1)
+                     OR EXISTS(SELECT 1 FROM watchlist WHERE media_id = ?1)",
+                    rusqlite::params![id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|error| error.to_string())?;
+        if has_user_data {
+            out.kept_ids.push(id);
+            continue;
+        }
+        db.conn
+            .execute(
+                "DELETE FROM media_items WHERE id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|error| error.to_string())?;
+        out.purged += 1;
+    }
+    Ok(out)
 }
 
 fn looks_like_media_directory(path: &Path) -> bool {
@@ -578,6 +663,32 @@ fn scan_directory(
         }
     }
 
+    // Reconcile this source's rows against the disk: files deleted or moved
+    // since the last scan otherwise keep appearing on the shelves. Skipped
+    // when the scan was cancelled, because the found set is then partial
+    // and rows not yet visited would look missing.
+    if !CANCEL_FLAG.load(Ordering::Relaxed) {
+        if let Some(source_id) = source.id {
+            let db = state.db.lock().map_err(|error| error.to_string())?;
+            let found: HashSet<String> = collection
+                .files
+                .iter()
+                .map(|(file_path, _, _)| file_path.clone())
+                .collect();
+            match purge_missing_files(&db, source_id, &found) {
+                Ok(missing) => {
+                    report.missing_purged = missing.purged;
+                    report.missing_kept = missing.kept_ids.len() as u64;
+                    report.missing_kept_ids = missing.kept_ids;
+                }
+                Err(error) => report.errors.push(format!(
+                    "missing-file reconciliation failed for {}: {error}",
+                    source.name
+                )),
+            }
+        }
+    }
+
     let result = {
         let db = state.db.lock().map_err(|error| error.to_string())?;
         db.conn.execute(
@@ -661,7 +772,7 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         }
         if !source.enabled {
             skipped += 1;
-            reports.push(source_report_json(source, "disabled", 0, 0, 0, &[]));
+            reports.push(source_report_json(source, "disabled", 0, 0, 0, &[], 0, 0));
             continue;
         }
         if crate::edition::source_type_blocked(&source.source_type) {
@@ -673,6 +784,8 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
                 0,
                 0,
                 &[],
+                0,
+                0,
             ));
             continue;
         }
@@ -686,6 +799,9 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
                 totals.nfo_applied += report.nfo_applied;
                 totals.added_ids.extend(report.added_ids.iter().copied());
                 totals.retry_ids.extend(report.retry_ids.iter().copied());
+                totals.missing_purged += report.missing_purged;
+                totals.missing_kept += report.missing_kept;
+                totals.missing_kept_ids.extend(report.missing_kept_ids.iter().copied());
                 totals.errors.extend(
                     report
                         .errors
@@ -703,12 +819,14 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
                     report.added,
                     report.updated,
                     &report.errors,
+                    report.missing_purged,
+                    report.missing_kept,
                 ));
             }
             Err(error) => {
                 failed += 1;
                 totals.errors.push(format!("{}: {error}", source.name));
-                reports.push(source_report_json(source, "failed", 0, 0, 0, &[error]));
+                reports.push(source_report_json(source, "failed", 0, 0, 0, &[error], 0, 0));
             }
         }
     }
@@ -727,6 +845,9 @@ pub async fn scan_sources(state: State<'_, AppState>) -> Result<serde_json::Valu
         "total_found": totals.found,
         "total_added": totals.added,
         "total_updated": totals.updated,
+        "total_missing_purged": totals.missing_purged,
+        "total_missing_kept": totals.missing_kept,
+        "missing_kept_ids": totals.missing_kept_ids,
         "nfo_applied": totals.nfo_applied,
         "post_scan": post_scan,
         "sources_total": sources.len(),
@@ -776,6 +897,9 @@ pub async fn scan_single_source(
         "total_found": report.found,
         "total_added": report.added,
         "total_updated": report.updated,
+        "missing_purged": report.missing_purged,
+        "missing_kept": report.missing_kept,
+        "missing_kept_ids": report.missing_kept_ids,
         "nfo_applied": report.nfo_applied,
         "post_scan": post_scan,
         "errors": report.errors,
@@ -850,8 +974,8 @@ pub async fn apply_embedded_titles(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_media_files, discover_and_add_sources, needs_metadata_retry, scanned_identity,
-        scanned_media_type, should_index_path, title_from_filename, ExistingRow,
+        collect_media_files, discover_and_add_sources, needs_metadata_retry, purge_missing_files,
+        scanned_identity, scanned_media_type, should_index_path, title_from_filename, ExistingRow,
     };
     use crate::db::{Database, MediaSource};
     use std::path::{Path, PathBuf};
@@ -967,4 +1091,67 @@ mod tests {
 
         std::fs::remove_dir_all(root).ok();
     }
+    #[test]
+    fn rescan_purges_only_missing_rows_without_user_data() {
+        let root = std::env::temp_dir()
+            .join(format!("cinavault-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create test media directory");
+        let kept_path = root.join("Kept.mkv");
+        std::fs::write(&kept_path, b"test media").expect("create test media file");
+
+        let database = Database::new(":memory:").expect("create in-memory database");
+        crate::user_data::ensure_tables(&database).expect("create user tables");
+        database
+            .conn
+            .execute(
+                "INSERT INTO media_sources (id, path, source_type, name) VALUES (1, ?1, 'folder', 'Movies'), (2, ?2, 'folder', 'Other')",
+                rusqlite::params![root.to_string_lossy(), "/nonexistent-root"],
+            )
+            .expect("insert test sources");
+        let insert = |title: &str, file_path: &str, watched: bool, source_id: i64| -> i64 {
+            database
+                .conn
+                .execute(
+                    "INSERT INTO media_items (title, file_path, media_type, watched, date_added, source_id) VALUES (?1, ?2, 'movie', ?3, '2026-01-01T00:00:00Z', ?4)",
+                    rusqlite::params![title, file_path, watched, source_id],
+                )
+                .expect("insert test row");
+            database.conn.last_insert_rowid()
+        };
+        let present = insert("Kept", &kept_path.to_string_lossy(), false, 1);
+        let gone = insert("Gone", "/nonexistent/Gone.mkv", false, 1);
+        let watched = insert("Watched", "/nonexistent/Watched.mkv", true, 1);
+        let in_progress = insert("In Progress", "/nonexistent/Progress.mkv", false, 1);
+        let saved = insert("Saved", "/nonexistent/Saved.mkv", false, 1);
+        // A missing row on another source is not this scan's business.
+        let other_source = insert("Other", "/nonexistent/Other.mkv", false, 2);
+        crate::user_data::save_progress(&database, 1, in_progress, 60.0, 600.0)
+            .expect("save progress");
+        crate::user_data::toggle_watchlist(&database, 1, saved).expect("save watchlist");
+
+        let mut found = std::collections::HashSet::new();
+        found.insert(kept_path.to_string_lossy().to_string());
+        let missing = purge_missing_files(&database, 1, &found).expect("reconcile");
+        assert_eq!(missing.purged, 1);
+        assert_eq!(missing.kept_ids, vec![watched, in_progress, saved]);
+
+        let remaining: Vec<i64> = {
+            let mut stmt = database
+                .conn
+                .prepare("SELECT id FROM media_items ORDER BY id")
+                .expect("prepare remaining query");
+            let rows = stmt
+                .query_map([], |row| row.get::<_, i64>(0))
+                .expect("query remaining");
+            rows.collect::<Result<Vec<_>, _>>().expect("collect remaining")
+        };
+        assert!(!remaining.contains(&gone), "untouched missing row must be gone");
+        assert_eq!(
+            remaining,
+            vec![present, watched, in_progress, saved, other_source]
+        );
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
 }

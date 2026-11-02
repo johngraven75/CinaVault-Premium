@@ -1,6 +1,7 @@
 // CinaVault Premium — shared Tauri v2 backend for desktop and Android
 // Build identity is sourced from build-version.json through build_identity.
 
+mod adult_attempts;
 mod adult_site_provider;
 mod agent_avatar;
 mod ai;
@@ -23,6 +24,7 @@ mod feature_flags;
 mod enrichment {
     include!(concat!(env!("OUT_DIR"), "/enrichment_atomic.rs"));
 }
+mod enrichment_jobs;
 mod iptv;
 mod jellyfin;
 mod library_artifacts;
@@ -414,6 +416,7 @@ pub fn run() {
             vpn::run_antivirus_scan,
             vpn::update_av_signatures,
             vpn::install_security_tools,
+            vpn::vpn_install_wireguard,
             ai::ai_query,
             agent_avatar::agent_avatar_get,
             agent_avatar::agent_avatar_save,
@@ -441,6 +444,7 @@ pub fn run() {
             convert_entire_library_to_adult,
             task_progress::get_metadata_task_progress,
             task_progress::stop_ai_agent,
+            enrichment_jobs::get_enrichment_job_status,
             cloud_storage::cloud_auth_start,
             cloud_storage::cloud_disconnect,
             cloud_storage::cloud_sync,
@@ -540,7 +544,16 @@ async fn convert_entire_library_to_adult(
             .map_err(|error| error.to_string())?
     };
 
-    let enrichment = enrichment::gather_adult_metadata(state).await?;
+    // Issue 1: the conversion still needs the gather report inline for its
+    // own response, so it runs the synchronous work function directly — but
+    // never on top of a running background job.
+    if crate::enrichment_jobs::active_job_running() {
+        return Err(
+            "An enrichment job is already running; wait for it to finish before converting the library."
+                .to_string(),
+        );
+    }
+    let enrichment = enrichment::gather_adult_metadata_work(state).await?;
     Ok(serde_json::json!({
         "type": "entire_library_adult_conversion",
         "status": "success",

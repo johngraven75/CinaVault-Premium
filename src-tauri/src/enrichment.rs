@@ -1,11 +1,11 @@
 use crate::library_artifacts::sidecar_poster_path_for_video;
-use crate::{task_progress, AppState};
+use crate::{enrichment_jobs, task_progress, AppState};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceKind {
@@ -65,6 +65,52 @@ pub struct ProviderMatch {
     pub imdb_id: Option<String>,
 }
 
+/// Issue 1: an item counts as already complete — and is skipped before any
+/// remote fetch — when it already has a non-blank overview, a *local* poster
+/// path, and a year or genre. A remote (http/https) poster does NOT count:
+/// those items still need the sidecar migration the loops perform. Skipping
+/// is a deliberate trade-off: a "complete" item could theoretically still gain
+/// a marginally better title from a provider, but re-querying every complete
+/// item on every run is exactly the whole-library stall this fix removes.
+/// Single-item checks remain available for individual refreshes.
+pub fn item_metadata_complete(item: &LibraryItemRecord) -> bool {
+    let overview_ok = item
+        .overview
+        .as_deref()
+        .map(|value| !value.trim().is_empty() && !value.eq_ignore_ascii_case("N/A"))
+        .unwrap_or(false);
+    let poster_ok = item
+        .poster_path
+        .as_deref()
+        .map(|value| {
+            let value = value.trim();
+            !value.is_empty()
+                && !value.starts_with("http://")
+                && !value.starts_with("https://")
+        })
+        .unwrap_or(false);
+    let year_or_genre = item.year.is_some()
+        || item
+            .genre
+            .as_deref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+    overview_ok && poster_ok && year_or_genre
+}
+
+/// Issue 1: ffprobe is a blocking subprocess. Running it on an async worker
+/// thread stalls that worker for the whole subprocess lifetime, so the
+/// async call sites use this `spawn_blocking` wrapper instead. If the job is
+/// aborted while ffprobe runs, the blocking thread still finishes on its own
+/// (ffprobe itself is short-lived); the awaited result is simply dropped.
+async fn extract_embedded_title_async(file_path: &str) -> Option<String> {
+    let owned = file_path.to_string();
+    tokio::task::spawn_blocking(move || extract_embedded_title(&owned))
+        .await
+        .ok()
+        .flatten()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenameDecision {
     pub allow_rename: bool,
@@ -99,6 +145,7 @@ pub struct LibraryEnrichmentReport {
     pub low_confidence_metadata_only: usize,
     pub skipped_missing_files: usize,
     pub skipped_non_video_items: usize,
+    pub skipped_complete: usize,
     pub posters_downloaded: usize,
     pub sidecars_written: usize,
     pub provider_errors: Vec<String>,
@@ -401,6 +448,7 @@ pub async fn run_library_enrichment(
         low_confidence_metadata_only: 0,
         skipped_missing_files: 0,
         skipped_non_video_items: 0,
+        skipped_complete: 0,
         posters_downloaded: 0,
         sidecars_written: 0,
         provider_errors: Vec::new(),
@@ -445,18 +493,40 @@ pub async fn run_library_enrichment(
             continue;
         }
 
-        let embedded_title = extract_embedded_title(&item.file_path);
+        // Rename mode still needs a provider match to judge rename
+        // confidence, so skip-complete applies to metadata-only runs only.
+        if mode == EnrichmentMode::MetadataOnly && item_metadata_complete(&item) {
+            report.skipped_complete += 1;
+            continue;
+        }
+
+        let embedded_title = extract_embedded_title_async(&item.file_path).await;
         let source_kind = classify_library_item(&item);
-        let queries = build_query_candidates(&item, embedded_title.clone());
-        let remote_provider = resolve_provider_match(
-            &client,
-            &provider_keys,
-            source_kind.clone(),
-            &queries,
-            &item.file_path,
-            &mut report.provider_errors,
+        let mut queries = build_query_candidates(&item, embedded_title.clone());
+        queries.truncate(enrichment_jobs::MAX_QUERY_CANDIDATES_PER_ITEM);
+        let remote_provider = match tokio::time::timeout(
+            std::time::Duration::from_secs(enrichment_jobs::ITEM_TIMEOUT_SECS),
+            resolve_provider_match(
+                &client,
+                &provider_keys,
+                source_kind.clone(),
+                &queries,
+                &item.file_path,
+                &mut report.provider_errors,
+            ),
         )
-        .await;
+        .await
+        {
+            Ok(provider) => provider,
+            Err(_) => {
+                report.provider_errors.push(format!(
+                    "item_timeout/{}: provider phase exceeded {}s; item will be retried on the next run",
+                    item.file_path,
+                    enrichment_jobs::ITEM_TIMEOUT_SECS
+                ));
+                continue;
+            }
+        };
         let local_title_provider = (source_kind != SourceKind::AdultVideo)
             .then(|| {
                 local_embedded_title_match(embedded_title.as_deref())
@@ -681,23 +751,56 @@ async fn resolve_provider_match(
     _file_path: &str,
     provider_errors: &mut Vec<String>,
 ) -> Option<ProviderMatch> {
+    // Issue 2: best adult match seen so far across queries (see below).
+    let mut best_adult_match: Option<ProviderMatch> = None;
     for query in queries {
+        // Issue 1: cancellation used to be checked only between items, so a
+        // stop request waited out every provider call for the current item.
+        // Checking here (and before each provider below) bounds the wait to
+        // one provider call, itself bounded by the per-provider timeout.
+        if task_progress::stop_requested() {
+            return None;
+        }
         let mut matches = Vec::new();
         match source_kind {
             SourceKind::AdultVideo => {
                 if let Some(key) = provider_keys.get("tpdb") {
-                    match fetch_tpdb_metadata(client, key, query).await {
-                        Ok(Some(result)) => matches.push(result),
-                        Ok(None) => {}
-                        Err(err) => provider_errors.push(format!("tpdb/{query}: {err}")),
+                    if task_progress::stop_requested() {
+                        return None;
+                    }
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(enrichment_jobs::PROVIDER_TIMEOUT_SECS),
+                        fetch_tpdb_metadata(client, key, query),
+                    )
+                    .await
+                    {
+                        Ok(Ok(Some(result))) => matches.push(result),
+                        Ok(Ok(None)) => {}
+                        Ok(Err(err)) => provider_errors.push(format!("tpdb/{query}: {err}")),
+                        Err(_) => provider_errors.push(format!(
+                            "tpdb/{query}: provider timed out after {}s",
+                            enrichment_jobs::PROVIDER_TIMEOUT_SECS
+                        )),
                     }
                 }
                 if let Some(key) = provider_keys.get("stashdb") {
-                    match fetch_stashdb_metadata(client, key, query).await {
-                        Ok(Some(result)) => matches.push(result),
-                        Ok(None) => {}
-                        Err(err) => provider_errors.push(format!("stashdb/{query}: {err}")),
-                }
+                    if task_progress::stop_requested() {
+                        return None;
+                    }
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(enrichment_jobs::PROVIDER_TIMEOUT_SECS),
+                        fetch_stashdb_metadata(client, key, query),
+                    )
+                    .await
+                    {
+                        Ok(Ok(Some(result))) => matches.push(result),
+                        Ok(Ok(None)) => {}
+                        Ok(Err(err)) => provider_errors.push(format!("stashdb/{query}: {err}")),
+                        Err(_) => provider_errors.push(format!(
+                            "stashdb/{query}: provider timed out after {}s",
+                            enrichment_jobs::PROVIDER_TIMEOUT_SECS
+                        )),
+                    }
                 }
             }
             SourceKind::StandardVideo
@@ -716,12 +819,35 @@ async fn resolve_provider_match(
         }
 
         let merged = matches.into_iter().reduce(merge_provider_matches);
-        if merged.as_ref().and_then(|m| m.title.as_ref()).is_some() {
-            return merged;
+        if let Some(merged) = merged.filter(|m| m.title.is_some()) {
+            // Issue 2: for adult items, a title-only match must not stop the
+            // search when a later query (or, in the gather, a later provider)
+            // could still supply a poster. Previously the first title match
+            // returned immediately, so a TPDB title-only match suppressed a
+            // StashDB/Nuxt poster. Keep the best title match and try the
+            // remaining queries; return early only once title AND poster are
+            // both present. Standard items keep the old first-title behaviour.
+            if source_kind == SourceKind::AdultVideo
+                && merged
+                    .poster_path
+                    .as_deref()
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+            {
+                best_adult_match = Some(match best_adult_match {
+                    Some(best) => merge_provider_matches(best, merged),
+                    None => merged,
+                });
+                continue;
+            }
+            return Some(match best_adult_match {
+                Some(best) => merge_provider_matches(merged, best),
+                None => merged,
+            });
         }
     }
 
-    None
+    best_adult_match
 }
 
 /// ThePornDB is an authenticated adult-only scene source.  Search results are
@@ -799,17 +925,41 @@ async fn fetch_standard_metadata(
     matches: &mut Vec<ProviderMatch>,
 ) {
     if let Some(key) = provider_keys.get("tmdb") {
-        match fetch_tmdb_metadata(client, key, query).await {
-            Ok(Some(result)) => matches.push(result),
-            Ok(None) => {}
-            Err(err) => provider_errors.push(format!("tmdb/{query}: {err}")),
+        if task_progress::stop_requested() {
+            return;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(enrichment_jobs::PROVIDER_TIMEOUT_SECS),
+            fetch_tmdb_metadata(client, key, query),
+        )
+        .await
+        {
+            Ok(Ok(Some(result))) => matches.push(result),
+            Ok(Ok(None)) => {}
+            Ok(Err(err)) => provider_errors.push(format!("tmdb/{query}: {err}")),
+            Err(_) => provider_errors.push(format!(
+                "tmdb/{query}: provider timed out after {}s",
+                enrichment_jobs::PROVIDER_TIMEOUT_SECS
+            )),
         }
     }
     if let Some(key) = provider_keys.get("omdb") {
-        match fetch_omdb_metadata(client, key, query).await {
-            Ok(Some(result)) => matches.push(result),
-            Ok(None) => {}
-            Err(err) => provider_errors.push(format!("omdb/{query}: {err}")),
+        if task_progress::stop_requested() {
+            return;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(enrichment_jobs::PROVIDER_TIMEOUT_SECS),
+            fetch_omdb_metadata(client, key, query),
+        )
+        .await
+        {
+            Ok(Ok(Some(result))) => matches.push(result),
+            Ok(Ok(None)) => {}
+            Ok(Err(err)) => provider_errors.push(format!("omdb/{query}: {err}")),
+            Err(_) => provider_errors.push(format!(
+                "omdb/{query}: provider timed out after {}s",
+                enrichment_jobs::PROVIDER_TIMEOUT_SECS
+            )),
         }
     }
 }
@@ -1611,6 +1761,10 @@ pub struct AdultMetadataReport {
     metadata_items_enriched: usize,
     metadata_fields_updated: usize,
     posters_updated: usize,
+    /// Posters promoted from an existing chapter frame when no provider
+    /// poster existed (Issue 2 fallback; never overwrites a provider poster).
+    posters_from_chapter_frames: usize,
+    skipped_complete: usize,
     sidecars_written: usize,
     configured_adult_providers: Vec<String>,
     provider_count: usize,
@@ -1619,8 +1773,532 @@ pub struct AdultMetadataReport {
 
 /// Dedicated command for gathering metadata specifically for adult media items.
 /// Uses TPDB, StashDB, and any other configured adult providers.
+///
+/// Issue 1: this command no longer runs the gather inline. It claims the
+/// single enrichment-job slot and returns an `EnrichmentJobStart`
+/// immediately; the gather itself runs on a background task (see
+/// `gather_adult_metadata_work` and `crate::enrichment_jobs`). Poll
+/// `get_enrichment_job_status` for progress and the final report, which has
+/// exactly the shape this command used to return. A second start while a
+/// job runs returns `status: "busy"` with the running job's id.
 #[tauri::command]
 pub async fn gather_adult_metadata(
+    app: AppHandle,
+) -> Result<enrichment_jobs::EnrichmentJobStart, String> {
+    crate::edition::ensure_adult_allowed()?;
+    Ok(enrichment_jobs::start_adult_metadata_job(&app))
+}
+
+// ── Issue 2: shared per-item adult enrichment ─────────────────────────────
+//
+// The adult gather and the post-scan adult pass used to be two different
+// implementations of the same job: the gather looped whole-library with
+// TPDB/StashDB + the extra-adult batch, while post-scan fell back to the
+// single-item check (verbatim title only, DB-only writes, no NFO, and a
+// sidecar-only poster with no app-cache fallback). `enrich_adult_item` is
+// the one implementation both paths now call, so a newly scanned adult
+// item gets exactly the gather's treatment: embedded-title + library-title
+// queries, cross-provider merging until title AND poster are found,
+// `save_remote_poster` (sidecar, with the app artwork cache as fallback),
+// a chapter-frame poster fallback, NFO + DB writes, and a durable attempt
+// record. It never loops over the library itself: callers own iteration,
+// progress, and the Issue 1 job guard, so this function cannot reintroduce
+// an inline whole-library loop.
+
+/// Terminal outcome of one `enrich_adult_item` call. Callers map outcomes
+/// to their own counters; the attempt record is written here, not by the
+/// caller, so the gather and post-scan cannot disagree about retry state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AdultItemOutcome {
+    /// Not a video library item; nothing was attempted.
+    SkippedNonVideo,
+    /// The video file was not on disk; nothing was attempted.
+    SkippedMissingFile,
+    /// Already satisfies the Issue 1 skip-complete rule.
+    SkippedComplete,
+    /// No provider matched and no poster fallback applied.
+    NoMatch,
+    /// The remote phase exceeded `ITEM_TIMEOUT_SECS`; nothing was written.
+    Timeout,
+    /// A DB write failed after the NFO write (or the NFO path itself could
+    /// not be evaluated); the error string is in the outcome.
+    Failed(String),
+    /// Metadata and/or a poster were saved.
+    Enriched {
+        /// Provider fields actually written (as in the old gather counts).
+        fields_updated: usize,
+        /// A new local poster was attached (provider poster, app-cache
+        /// fallback, or chapter frame).
+        poster_saved: bool,
+        /// The saved poster came from a chapter frame, not a provider.
+        poster_from_chapter_frame: bool,
+        /// Still no poster after every fallback (retryable via attempts).
+        poster_missing: bool,
+        /// The NFO sidecar write succeeded.
+        sidecar_written: bool,
+    },
+}
+
+/// The keyed adult providers that have a key and are switched on, plus the
+/// enabled keyless extra-adult providers. Shared by the gather and the
+/// post-scan adult pass so both query the same provider set.
+pub(crate) fn load_adult_provider_deps(
+    db: &crate::db::Database,
+) -> Result<
+    (
+        HashMap<String, String>,
+        HashMap<String, String>,
+    ),
+    String,
+> {
+    let mut provider_keys = load_provider_keys(db)?;
+    provider_keys.retain(|provider, _| {
+        crate::metadata_ext::is_adult_provider_enabled(db, provider).unwrap_or(false)
+    });
+    // Every enabled adult provider beyond ThePornDB and StashDB — the
+    // keyless ones (IAFD, PhoenixAdult, PGMA, Porn Site Nuxt) — runs as a
+    // fallback when the keyed providers miss or are not configured.
+    let extra_adult = crate::metadata_ext::enabled_extra_adult_provider_values(db)?;
+    Ok((provider_keys, extra_adult))
+}
+
+/// One library row as a `LibraryItemRecord`, for the post-scan adult pass
+/// (which starts from item ids, not from a whole-library query).
+pub(crate) fn load_library_item_record(
+    db: &crate::db::Database,
+    id: i64,
+) -> Option<LibraryItemRecord> {
+    let mut stmt = db.conn.prepare(
+        "SELECT mi.id, mi.title, mi.file_path, mi.media_type, mi.overview, \
+         mi.poster_path, mi.year, mi.rating, mi.genre, mi.tmdb_id, mi.imdb_id, \
+         ms.name, ms.path \
+         FROM media_items mi \
+         LEFT JOIN media_sources ms ON ms.id = mi.source_id \
+         WHERE mi.id = ?1",
+    ).ok()?;
+    let mut rows = stmt.query_map(rusqlite::params![id], |row| {
+        Ok(LibraryItemRecord {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            file_path: row.get(2)?,
+            media_type: row.get(3)?,
+            overview: row.get(4)?,
+            poster_path: row.get(5)?,
+            year: row.get(6)?,
+            rating: row.get(7)?,
+            genre: row.get(8)?,
+            tmdb_id: row.get(9)?,
+            imdb_id: row.get(10)?,
+            source_name: row.get(11)?,
+            source_path: row.get(12)?,
+        })
+    }).ok()?;
+    rows.next()?.ok()
+}
+
+/// True when a provider match is usable as a complete match: it has both a
+/// title and a poster. Title-only matches keep the search going.
+fn provider_match_complete(provider: &ProviderMatch) -> bool {
+    provider
+        .title
+        .as_deref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+        && provider
+            .poster_path
+            .as_deref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+}
+
+/// The item's poster as stored today, when it is already a local file.
+/// Remote URLs do not count: they still need the sidecar migration below.
+fn local_poster_path(item: &LibraryItemRecord) -> Option<String> {
+    item.poster_path.clone().filter(|path| {
+        let trimmed = path.trim();
+        !trimmed.is_empty()
+            && !trimmed.starts_with("http://")
+            && !trimmed.starts_with("https://")
+    })
+}
+
+/// True when the chapter-frame fallback may run: the update brings no
+/// poster and the item has no local poster of its own. A real provider
+/// poster is never overwritten by a frame, and an existing local poster is
+/// never replaced by one either.
+fn needs_poster_fallback(
+    item: &LibraryItemRecord,
+    update_poster_path: Option<&str>,
+) -> bool {
+    update_poster_path
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(true)
+        && local_poster_path(item).is_none()
+}
+
+/// Promotes one existing chapter frame to the item's poster sidecar, as a
+/// last resort when no provider poster exists. The middle frame is used:
+/// the first frame is commonly a black frame or a title card, and the
+/// middle frame is the most representative still available. The frame bytes
+/// go through the same validated, atomic sidecar write as a downloaded
+/// poster, and a valid sidecar that already exists on disk is kept instead
+/// of being overwritten by the frame. Returns `None` when no usable frame
+/// exists; it never generates frames — frame generation stays with the
+/// chapter-thumbs step, and this only reuses frames that are already there.
+fn promote_chapter_frame_poster(video_path: &str) -> Result<Option<String>, String> {
+    let dir = crate::chapters::default_chapter_dir(video_path);
+    if !std::path::Path::new(&dir).exists() {
+        return Ok(None);
+    }
+    let mut frames: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+        .map_err(|error| format!("chapter frames unreadable: {error}"))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("chapter_"))
+                .unwrap_or(false)
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "png"))
+                    .unwrap_or(false)
+        })
+        .collect();
+    frames.sort();
+    let Some(frame) = frames.get(frames.len() / 2).cloned() else {
+        return Ok(None);
+    };
+    let extension = frame
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("jpg");
+    let bytes = std::fs::read(&frame).map_err(|error| format!("chapter frame unreadable: {error}"))?;
+    Ok(Some(write_poster_sidecar_bytes(
+        video_path, extension, &bytes,
+    )?))
+}
+
+/// Enriches one adult item: resolve, merge, poster, fallback, NFO, DB,
+/// attempt record. See the section header for the contract shared by the
+/// gather and post-scan. Provider errors are appended to `provider_errors`
+/// (never swallowed); a DB write failure is additionally returned as
+/// `AdultItemOutcome::Failed` so the caller can count it, and the attempt
+/// record for it stays retryable.
+pub(crate) async fn enrich_adult_item(
+    state: &State<'_, AppState>,
+    client: &reqwest::Client,
+    provider_keys: &HashMap<String, String>,
+    extra_adult: &HashMap<String, String>,
+    item: &LibraryItemRecord,
+    provider_errors: &mut Vec<String>,
+) -> AdultItemOutcome {
+    if !is_video_library_item(item) {
+        record_adult_attempt(state, item, crate::adult_attempts::OUTCOME_SKIPPED_NON_VIDEO, None, provider_errors);
+        return AdultItemOutcome::SkippedNonVideo;
+    }
+    if !Path::new(&item.file_path).exists() {
+        record_adult_attempt(state, item, crate::adult_attempts::OUTCOME_SKIPPED_MISSING, None, provider_errors);
+        return AdultItemOutcome::SkippedMissingFile;
+    }
+    if item_metadata_complete(item) {
+        record_adult_attempt(state, item, crate::adult_attempts::OUTCOME_SKIPPED_COMPLETE, None, provider_errors);
+        return AdultItemOutcome::SkippedComplete;
+    }
+
+    let embedded_title = extract_embedded_title_async(&item.file_path).await;
+    let mut queries = build_query_candidates(item, embedded_title.clone());
+    queries.truncate(enrichment_jobs::MAX_QUERY_CANDIDATES_PER_ITEM);
+
+    // The whole remote phase for one item is bounded (Issue 1). Errors
+    // collected inside the timeout are kept in a local vec and appended
+    // afterwards, so the timeout future borrows a local instead of the
+    // caller's vec across the await boundary.
+    let mut remote_errors: Vec<String> = Vec::new();
+    let remote_provider = match tokio::time::timeout(
+        std::time::Duration::from_secs(enrichment_jobs::ITEM_TIMEOUT_SECS),
+        async {
+            let mut remote = resolve_provider_match(
+                client,
+                provider_keys,
+                SourceKind::AdultVideo,
+                &queries,
+                &item.file_path,
+                &mut remote_errors,
+            )
+            .await;
+
+            // Issue 2: the extra-adult chain used to run only when the
+            // keyed providers missed entirely, so a TPDB title-only match
+            // suppressed a later Nuxt poster. It now also runs when the
+            // match so far has no poster, and its fields are merged into
+            // the existing match (first non-blank field wins) instead of
+            // replacing it. The loop stops once title AND poster are both
+            // present. IAFD, PhoenixAdult, and PGMA return no poster by
+            // construction, so a merged match can still end posterless —
+            // that is what the chapter-frame fallback below is for.
+            if !extra_adult.is_empty()
+                && remote
+                    .as_ref()
+                    .map(|provider| !provider_match_complete(provider))
+                    .unwrap_or(true)
+            {
+                for query in &queries {
+                    if task_progress::stop_requested() {
+                        break;
+                    }
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(
+                            enrichment_jobs::PROVIDER_TIMEOUT_SECS,
+                        ),
+                        crate::metadata::fetch_adult_metadata_for_batch(
+                            client,
+                            extra_adult,
+                            query,
+                            &item.file_path,
+                            &mut remote_errors,
+                        ),
+                    )
+                    .await
+                    {
+                        Ok(Some((_provider, found))) => {
+                            let found = ProviderMatch {
+                                title: found.title,
+                                overview: found.overview,
+                                poster_path: found.poster_path,
+                                year: found.year,
+                                rating: found.rating,
+                                genre: found.genre,
+                                tmdb_id: found.tmdb_id,
+                                imdb_id: found.imdb_id,
+                            };
+                            remote = Some(match remote {
+                                Some(existing) => merge_provider_matches(existing, found),
+                                None => found,
+                            });
+                            if remote
+                                .as_ref()
+                                .map(provider_match_complete)
+                                .unwrap_or(false)
+                            {
+                                break;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(_) => {
+                            remote_errors.push(format!(
+                                "extra_adult/{query}: provider chain timed out after {}s",
+                                enrichment_jobs::PROVIDER_TIMEOUT_SECS
+                            ));
+                        }
+                    }
+                }
+            }
+
+            remote
+        },
+    )
+    .await
+    {
+        Ok(provider) => {
+            provider_errors.extend(remote_errors);
+            provider
+        }
+        Err(_) => {
+            provider_errors.extend(remote_errors);
+            provider_errors.push(format!(
+                "item_timeout/{}: provider phase exceeded {}s; item will be retried on the next run",
+                item.file_path,
+                enrichment_jobs::ITEM_TIMEOUT_SECS
+            ));
+            record_adult_attempt(state, item, crate::adult_attempts::OUTCOME_TIMEOUT, None, provider_errors);
+            return AdultItemOutcome::Timeout;
+        }
+    };
+
+    let mut update = remote_provider
+        .as_ref()
+        .map(|provider| build_metadata_update(item, provider, &SourceKind::AdultVideo))
+        .unwrap_or_default();
+
+    // Issue 2: the gather used to download posters with the sidecar-only
+    // helper, so a poster failed outright on a read-only folder or NAS
+    // share. `save_remote_poster` keeps the sidecar first and falls back
+    // to the app artwork cache, exactly like the library-enrichment loop.
+    let mut poster_saved = false;
+    let poster_candidate = update.poster_path.clone().or_else(|| {
+        item.poster_path
+            .clone()
+            .filter(|path| path.starts_with("http://") || path.starts_with("https://"))
+    });
+    if let Some(remote_url) = poster_candidate {
+        if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
+            match save_remote_poster(
+                client,
+                &remote_url,
+                &item.file_path,
+                &state.app_data_dir,
+                item.id,
+            )
+            .await
+            {
+                Ok(local_path) => {
+                    if update.poster_path.is_none() {
+                        update.changed_fields += 1;
+                    }
+                    update.poster_path = Some(local_path);
+                    poster_saved = true;
+                }
+                Err(err) => {
+                    provider_errors.push(format!("poster/{}: {}", item.file_path, err));
+                    // Issue 2 correction: a failed download must not leave
+                    // the remote URL in the update. The old gather wrote it
+                    // to the NFO and the DB anyway, which breaks the adult
+                    // rule that only verified local posters are stored (the
+                    // single-item check clears it on failure for the same
+                    // reason). Clearing it also lets the chapter-frame
+                    // fallback below run, and keeps skip-complete honest:
+                    // a remote poster never counts as complete, so the next
+                    // run retries the migration instead of believing the
+                    // item already has a poster.
+                    if update
+                        .poster_path
+                        .as_deref()
+                        .map(|value| {
+                            value.starts_with("http://") || value.starts_with("https://")
+                        })
+                        .unwrap_or(false)
+                    {
+                        update.poster_path = None;
+                        update.changed_fields = update.changed_fields.saturating_sub(1);
+                    }
+                }
+            }
+        }
+    }
+
+    // Issue 2: chapter-frame fallback. Only when no provider poster was
+    // saved and the item has no local poster; never overwrites either.
+    let mut poster_from_chapter_frame = false;
+    if needs_poster_fallback(item, update.poster_path.as_deref()) {
+        match promote_chapter_frame_poster(&item.file_path) {
+            Ok(Some(local_path)) => {
+                if update.poster_path.is_none() {
+                    update.changed_fields += 1;
+                }
+                update.poster_path = Some(local_path);
+                poster_saved = true;
+                poster_from_chapter_frame = true;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                provider_errors.push(format!("chapter_frame/{}: {}", item.file_path, err));
+            }
+        }
+    }
+
+    let poster_missing =
+        update.poster_path.is_none() && local_poster_path(item).is_none();
+
+    let mut sidecar_written = false;
+    if update.changed_fields > 0 || update.poster_path.is_some() {
+        let nfo_title = update.title.as_deref().unwrap_or(&item.title);
+        match write_nfo_sidecar(
+            &item.file_path,
+            nfo_title,
+            update.year.or(item.year),
+            update.overview.as_deref().or(item.overview.as_deref()),
+            update.rating.or(item.rating),
+            update.genre.as_deref().or(item.genre.as_deref()),
+            update.tmdb_id.as_deref().or(item.tmdb_id.as_deref()),
+            update.imdb_id.as_deref().or(item.imdb_id.as_deref()),
+            update.poster_path.as_deref(),
+        ) {
+            Ok(()) => sidecar_written = true,
+            Err(err) => {
+                provider_errors.push(format!("nfo/{}: {}", item.file_path, err));
+            }
+        }
+    }
+
+    // Issue 2: a DB write failure used to be swallowed (`let _ =`), so a
+    // failed item looked enriched and was never retried. It is now a
+    // `Failed` outcome with a retryable attempt record; the NFO above was
+    // already written, and the next run rewrites the DB row (skip-complete
+    // cannot skip it, because the DB row is still incomplete).
+    if update.changed_fields > 0 {
+        let db_result = {
+            let db = state.db.lock().map_err(|err| err.to_string());
+            match db {
+                Ok(db) => db.update_media_metadata_data(
+                    &item.file_path,
+                    update.title.as_deref(),
+                    update.overview.as_deref(),
+                    update.poster_path.as_deref(),
+                    update.year,
+                    update.rating,
+                    update.genre.as_deref(),
+                    update.tmdb_id.as_deref(),
+                    update.imdb_id.as_deref(),
+                    update.media_type.as_deref(),
+                ),
+                Err(err) => Err(err),
+            }
+        };
+        if let Err(err) = db_result.map_err(|error| error.to_string()) {
+            // The message is NOT pushed here: it travels in the Failed
+            // outcome and the caller pushes it exactly once.
+            let message = format!("db/{}: {}", item.file_path, err);
+            record_adult_attempt(state, item, crate::adult_attempts::OUTCOME_FAILED, Some(&message), provider_errors);
+            return AdultItemOutcome::Failed(message);
+        }
+    }
+
+    let fields_updated = update.changed_fields;
+    if remote_provider.is_none() && !poster_saved {
+        record_adult_attempt(state, item, crate::adult_attempts::OUTCOME_NO_MATCH, None, provider_errors);
+        return AdultItemOutcome::NoMatch;
+    }
+    let outcome_str = if poster_missing {
+        crate::adult_attempts::OUTCOME_ENRICHED_POSTER_MISSING
+    } else {
+        crate::adult_attempts::OUTCOME_ENRICHED
+    };
+    record_adult_attempt(state, item, outcome_str, None, provider_errors);
+    AdultItemOutcome::Enriched {
+        fields_updated,
+        poster_saved,
+        poster_from_chapter_frame,
+        poster_missing,
+        sidecar_written,
+    }
+}
+
+/// Best-effort attempt recording for one item. A recording failure never
+/// fails the enrichment itself; it is appended to `provider_errors` so it
+/// is visible in the job report instead of disappearing silently.
+fn record_adult_attempt(
+    state: &State<'_, AppState>,
+    item: &LibraryItemRecord,
+    outcome: &str,
+    last_error: Option<&str>,
+    provider_errors: &mut Vec<String>,
+) {
+    let result = state
+        .db
+        .lock()
+        .map_err(|err| err.to_string())
+        .and_then(|db| crate::adult_attempts::record_attempt(&db, item.id, &item.file_path, outcome, last_error));
+    if let Err(err) = result {
+        provider_errors.push(format!("attempt_record/{}: {}", item.file_path, err));
+    }
+}
+
+
+/// Synchronous gather implementation. Runs inside a background job started
+/// by `gather_adult_metadata` (or, for the one-shot library conversion, by
+/// `convert_entire_library_to_adult`, which first checks the job guard).
+pub(crate) async fn gather_adult_metadata_work(
     state: State<'_, AppState>,
 ) -> Result<AdultMetadataReport, String> {
     crate::edition::ensure_adult_allowed()?;
@@ -1660,14 +2338,9 @@ pub async fn gather_adult_metadata(
         let items = rows
             .collect::<Result<Vec<_>, _>>()
             .map_err(|err| err.to_string())?;
-        let mut provider_keys = load_provider_keys(&db)?;
-        provider_keys.retain(|provider, _| {
-            crate::metadata_ext::is_adult_provider_enabled(&db, provider).unwrap_or(false)
-        });
-        // Every enabled adult provider beyond ThePornDB and StashDB — the
-        // keyless ones (IAFD, PhoenixAdult, PGMA, Porn Site Nuxt) — runs as a
-        // fallback when the keyed providers miss or are not configured.
-        let extra_adult = crate::metadata_ext::enabled_extra_adult_provider_values(&db)?;
+        // Issue 2: the post-scan adult pass loads the same provider set
+        // through this helper, so the two paths cannot drift apart.
+        let (provider_keys, extra_adult) = load_adult_provider_deps(&db)?;
         (items, provider_keys, extra_adult)
     };
 
@@ -1691,6 +2364,8 @@ pub async fn gather_adult_metadata(
         metadata_items_enriched: 0,
         metadata_fields_updated: 0,
         posters_updated: 0,
+        posters_from_chapter_frames: 0,
+        skipped_complete: 0,
         sidecars_written: 0,
         provider_count: configured_adult_providers.len(),
         configured_adult_providers: configured_adult_providers.clone(),
@@ -1702,132 +2377,87 @@ pub async fn gather_adult_metadata(
         .build()
         .map_err(|err| err.to_string())?;
 
-    for item in items {
+    // Issue 1: previously this gather never started a MetadataTaskGuard, so
+    // the UI sat on the frontend's local "Starting..." message for the whole
+    // run. The guard also gives get_enrichment_job_status its live progress.
+    let mut progress = task_progress::MetadataTaskGuard::start(
+        "adult_metadata_gather",
+        "Adult Metadata Gather",
+        items.len(),
+        "Preparing adult metadata gather",
+    );
+    let total_items = items.len();
+    let mut stopped = false;
+    for (index, item) in items.into_iter().enumerate() {
         if task_progress::stop_requested() {
             report
                 .provider_errors
                 .push("Stopped by user before processing the next item".to_string());
+            stopped = true;
             break;
         }
-        if !is_video_library_item(&item) {
-            continue;
-        }
-        let source = Path::new(&item.file_path);
-        if !source.exists() {
-            continue;
-        }
-
-        let embedded_title = extract_embedded_title(&item.file_path);
-        let queries = build_query_candidates(&item, embedded_title.clone());
-        let mut remote_provider = resolve_provider_match(
+        progress.update(
+            index + 1,
+            format!(
+                "Gathering adult metadata for {} of {}",
+                index + 1,
+                total_items
+            ),
+        );
+        // Issue 2: the whole per-item pipeline now lives in
+        // `enrich_adult_item`, shared with the post-scan adult pass. The
+        // gather only maps outcomes to report counters here.
+        match enrich_adult_item(
+            &state,
             &client,
             &provider_keys,
-            SourceKind::AdultVideo,
-            &queries,
-            &item.file_path,
+            &extra_adult,
+            &item,
             &mut report.provider_errors,
         )
-        .await;
-
-        // ThePornDB and StashDB need a key and may be unset or miss. Fall back
-        // to every other enabled adult provider (IAFD, PhoenixAdult, PGMA,
-        // Porn Site Nuxt), which work with no key, so the gather still fills
-        // metadata out of the box.
-        if remote_provider.is_none() && !extra_adult.is_empty() {
-            for query in &queries {
-                if let Some((_provider, found)) = crate::metadata::fetch_adult_metadata_for_batch(
-                    &client,
-                    &extra_adult,
-                    query,
-                    &item.file_path,
-                    &mut report.provider_errors,
-                )
-                .await
-                {
-                    remote_provider = Some(ProviderMatch {
-                        title: found.title,
-                        overview: found.overview,
-                        poster_path: found.poster_path,
-                        year: found.year,
-                        rating: found.rating,
-                        genre: found.genre,
-                        tmdb_id: found.tmdb_id,
-                        imdb_id: found.imdb_id,
-                    });
-                    break;
+        .await
+        {
+            AdultItemOutcome::SkippedNonVideo
+            | AdultItemOutcome::SkippedMissingFile
+            | AdultItemOutcome::NoMatch
+            | AdultItemOutcome::Timeout => {}
+            AdultItemOutcome::SkippedComplete => {
+                report.skipped_complete += 1;
+            }
+            AdultItemOutcome::Failed(error) => {
+                report.provider_errors.push(error);
+            }
+            AdultItemOutcome::Enriched {
+                fields_updated,
+                poster_saved,
+                poster_from_chapter_frame,
+                poster_missing: _,
+                sidecar_written,
+            } => {
+                if fields_updated > 0 {
+                    report.metadata_items_enriched += 1;
+                    report.metadata_fields_updated += fields_updated;
+                }
+                if poster_saved && poster_from_chapter_frame {
+                    report.posters_from_chapter_frames += 1;
+                } else if poster_saved {
+                    report.posters_updated += 1;
+                }
+                if sidecar_written {
+                    report.sidecars_written += 1;
                 }
             }
-        }
-
-        let Some(provider) = remote_provider else {
-            continue;
-        };
-
-        let mut update = build_metadata_update(&item, &provider, &SourceKind::AdultVideo);
-
-        let poster_candidate = update.poster_path.clone().or_else(|| {
-            item.poster_path
-                .clone()
-                .filter(|path| path.starts_with("http://") || path.starts_with("https://"))
-        });
-        if let Some(remote_url) = poster_candidate {
-            if remote_url.starts_with("http://") || remote_url.starts_with("https://") {
-                match download_poster_to_sidecar(&client, &remote_url, &item.file_path).await {
-                    Ok(local_path) => {
-                        if update.poster_path.is_none() {
-                            update.changed_fields += 1;
-                        }
-                        update.poster_path = Some(local_path);
-                        report.posters_updated += 1;
-                    }
-                    Err(err) => {
-                        report
-                            .provider_errors
-                            .push(format!("poster/{}: {}", item.file_path, err));
-                    }
-                }
-            }
-        }
-
-        if update.changed_fields > 0 || update.poster_path.is_some() {
-            let nfo_title = update.title.as_deref().unwrap_or(&item.title);
-            if let Err(err) = write_nfo_sidecar(
-                &item.file_path,
-                nfo_title,
-                update.year.or(item.year),
-                update.overview.as_deref().or(item.overview.as_deref()),
-                update.rating.or(item.rating),
-                update.genre.as_deref().or(item.genre.as_deref()),
-                update.tmdb_id.as_deref().or(item.tmdb_id.as_deref()),
-                update.imdb_id.as_deref().or(item.imdb_id.as_deref()),
-                update.poster_path.as_deref(),
-            ) {
-                report
-                    .provider_errors
-                    .push(format!("nfo/{}: {}", item.file_path, err));
-            } else {
-                report.sidecars_written += 1;
-            }
-        }
-
-        if update.changed_fields > 0 {
-            let db = state.db.lock().map_err(|err| err.to_string())?;
-            let _ = db.update_media_metadata_data(
-                &item.file_path,
-                update.title.as_deref(),
-                update.overview.as_deref(),
-                update.poster_path.as_deref(),
-                update.year,
-                update.rating,
-                update.genre.as_deref(),
-                update.tmdb_id.as_deref(),
-                update.imdb_id.as_deref(),
-                update.media_type.as_deref(),
-            );
-            report.metadata_items_enriched += 1;
-            report.metadata_fields_updated += update.changed_fields;
         }
     }
+
+    progress.finish(if stopped {
+        "Adult metadata gather stopped by user".to_string()
+    } else {
+        format!(
+            "Adult metadata gather complete: {} items enriched, {} skipped as complete, {} posters from chapter frames",
+            report.metadata_items_enriched, report.skipped_complete, report.posters_from_chapter_frames
+        )
+    });
 
     Ok(report)
 }
@@ -2134,6 +2764,217 @@ mod tests {
             safe_rename_target(&source, "My Movie (2024)"),
             RenameTarget::Collision(_)
         ));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod issue1_tests {
+    use super::{item_metadata_complete, LibraryItemRecord};
+
+    fn item_with(
+        overview: Option<&str>,
+        poster_path: Option<&str>,
+        year: Option<i32>,
+        genre: Option<&str>,
+    ) -> LibraryItemRecord {
+        LibraryItemRecord {
+            id: 1,
+            title: "Some Title".to_string(),
+            file_path: "/media/some-title.mkv".to_string(),
+            media_type: "adult".to_string(),
+            overview: overview.map(str::to_string),
+            poster_path: poster_path.map(str::to_string),
+            year,
+            rating: None,
+            genre: genre.map(str::to_string),
+            tmdb_id: None,
+            imdb_id: None,
+            source_name: None,
+            source_path: None,
+        }
+    }
+
+    #[test]
+    fn complete_item_has_overview_local_poster_and_year() {
+        assert!(item_metadata_complete(&item_with(
+            Some("A synopsis"),
+            Some("/media/some-title-poster.jpg"),
+            Some(2024),
+            None,
+        )));
+    }
+
+    #[test]
+    fn genre_substitutes_for_year_but_neither_does_not() {
+        assert!(item_metadata_complete(&item_with(
+            Some("A synopsis"),
+            Some("/media/some-title-poster.jpg"),
+            None,
+            Some("Drama"),
+        )));
+        assert!(!item_metadata_complete(&item_with(
+            Some("A synopsis"),
+            Some("/media/some-title-poster.jpg"),
+            None,
+            None,
+        )));
+    }
+
+    #[test]
+    fn remote_poster_does_not_count_as_complete() {
+        // Remote posters still need the sidecar migration the loops do.
+        assert!(!item_metadata_complete(&item_with(
+            Some("A synopsis"),
+            Some("https://example.invalid/poster.jpg"),
+            Some(2024),
+            Some("Drama"),
+        )));
+    }
+
+    #[test]
+    fn blank_overview_or_n_a_overview_does_not_count_as_complete() {
+        assert!(!item_metadata_complete(&item_with(
+            None,
+            Some("/media/some-title-poster.jpg"),
+            Some(2024),
+            Some("Drama"),
+        )));
+        assert!(!item_metadata_complete(&item_with(
+            Some("N/A"),
+            Some("/media/some-title-poster.jpg"),
+            Some(2024),
+            Some("Drama"),
+        )));
+    }
+}
+
+#[cfg(test)]
+mod issue2_tests {
+    use super::{
+        local_poster_path, merge_provider_matches, needs_poster_fallback,
+        promote_chapter_frame_poster, provider_match_complete, LibraryItemRecord, ProviderMatch,
+    };
+    use std::fs;
+
+    fn item_with_poster(poster_path: Option<&str>) -> LibraryItemRecord {
+        LibraryItemRecord {
+            id: 1,
+            title: "Some Scene".to_string(),
+            file_path: "/media/some-scene.mp4".to_string(),
+            media_type: "adult".to_string(),
+            overview: None,
+            poster_path: poster_path.map(str::to_string),
+            year: None,
+            rating: None,
+            genre: None,
+            tmdb_id: None,
+            imdb_id: None,
+            source_name: None,
+            source_path: None,
+        }
+    }
+
+    fn jpeg_bytes(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::DynamicImage::new_rgb8(width, height)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+            .expect("fixture JPEG should encode");
+        bytes
+    }
+
+    #[test]
+    fn merging_fills_a_title_only_match_with_a_later_providers_poster() {
+        let title_only = ProviderMatch {
+            title: Some("Some Scene".to_string()),
+            overview: Some("Synopsis".to_string()),
+            ..ProviderMatch::default()
+        };
+        let poster_only = ProviderMatch {
+            poster_path: Some("https://example.invalid/poster.jpg".to_string()),
+            ..ProviderMatch::default()
+        };
+        let merged = merge_provider_matches(title_only, poster_only);
+        assert!(provider_match_complete(&merged));
+        assert_eq!(merged.title.as_deref(), Some("Some Scene"));
+        assert_eq!(
+            merged.poster_path.as_deref(),
+            Some("https://example.invalid/poster.jpg")
+        );
+    }
+
+    #[test]
+    fn title_only_or_poster_only_matches_are_not_complete() {
+        assert!(!provider_match_complete(&ProviderMatch {
+            title: Some("Some Scene".to_string()),
+            ..ProviderMatch::default()
+        }));
+        assert!(!provider_match_complete(&ProviderMatch {
+            poster_path: Some("https://example.invalid/poster.jpg".to_string()),
+            ..ProviderMatch::default()
+        }));
+        assert!(!provider_match_complete(&ProviderMatch::default()));
+    }
+
+    #[test]
+    fn chapter_frame_fallback_runs_only_without_any_poster() {
+        let no_poster = item_with_poster(None);
+        assert!(needs_poster_fallback(&no_poster, None));
+        assert!(needs_poster_fallback(&no_poster, Some("  ")));
+        assert!(!needs_poster_fallback(&no_poster, Some("/media/poster.jpg")));
+
+        let local_poster = item_with_poster(Some("/media/some-scene-poster.jpg"));
+        assert!(!needs_poster_fallback(&local_poster, None));
+        // A remote URL is not a local poster, so the fallback may still run
+        // (it is what migrates the item to a local poster).
+        let remote_poster = item_with_poster(Some("https://example.invalid/poster.jpg"));
+        assert!(needs_poster_fallback(&remote_poster, None));
+        assert_eq!(local_poster_path(&remote_poster), None);
+        assert_eq!(
+            local_poster_path(&local_poster).as_deref(),
+            Some("/media/some-scene-poster.jpg")
+        );
+    }
+
+    #[test]
+    fn chapter_frame_fallback_promotes_the_middle_frame_as_a_sidecar() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-chapter-poster-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Scene.mp4");
+        fs::write(&video, b"video").expect("video should be created");
+        let chapters = dir.join("Scene_chapters");
+        fs::create_dir_all(&chapters).expect("chapters dir should be created");
+        let first = jpeg_bytes(20, 20);
+        let middle = jpeg_bytes(30, 30);
+        let last = jpeg_bytes(40, 40);
+        fs::write(chapters.join("chapter_0000.jpg"), &first).expect("frame should be written");
+        fs::write(chapters.join("chapter_0001.jpg"), &middle).expect("frame should be written");
+        fs::write(chapters.join("chapter_0002.jpg"), &last).expect("frame should be written");
+
+        let poster = promote_chapter_frame_poster(&video.to_string_lossy())
+            .expect("promotion should succeed")
+            .expect("a middle frame should be promoted");
+        assert!(poster.ends_with("Scene-poster.jpg"));
+        assert_eq!(fs::read(&poster).unwrap(), middle);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn chapter_frame_fallback_returns_none_without_frames() {
+        let dir =
+            std::env::temp_dir().join(format!("cinavault-chapter-none-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        let video = dir.join("Scene.mp4");
+        fs::write(&video, b"video").expect("video should be created");
+
+        assert_eq!(
+            promote_chapter_frame_poster(&video.to_string_lossy())
+                .expect("missing chapter dir should not be an error"),
+            None
+        );
 
         let _ = fs::remove_dir_all(dir);
     }

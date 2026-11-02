@@ -178,6 +178,200 @@ const EXIT_NO_HANDSHAKE: i32 = 12;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 const EXIT_UAC_DECLINED: i32 = 1223;
 
+/// Exit codes the WireGuard MSI install reports back to the app. These are
+/// distinct from the tunnel-service codes above (10/11/12): installing the
+/// official client creates no tunnel service, so 10/11/12 can only arise on a
+/// later `vpn_connect`, never from the MSI install itself. They are listed in
+/// `install_error_message` anyway so the frontend can explain them with one
+/// error map if an install-then-connect flow fails at the connect step.
+const EXIT_DOWNLOAD_FAILED: i32 = 20;
+const EXIT_SIGNATURE_OR_HASH_FAILED: i32 = 21;
+const EXIT_MSI_INSTALL_FAILED: i32 = 22;
+const EXIT_POST_INSTALL_NOT_FOUND: i32 = 23;
+
+/// Pinned official Windows MSI, verified 2026-11-01 against the official
+/// download listing at https://download.wireguard.com/windows-client/
+/// (linked from https://www.wireguard.com/install/), which lists
+/// `wireguard-amd64-1.1.1.msi` as the current amd64 MSI. This deliberately
+/// differs from the build-time staging script
+/// `scripts/prepare-wireguard.ps1`, which still defaults to
+/// `wireguard-amd64-1.1.msi`; bumping that script is a follow-up, not part
+/// of this runtime-install change (see MANIFEST.md).
+const WIREGUARD_MSI_VERSION: &str = "1.1.1";
+const WIREGUARD_MSI_URL: &str =
+    "https://download.wireguard.com/windows-client/wireguard-amd64-1.1.1.msi";
+
+/// Expected SHA-256 of the pinned MSI.
+///
+/// UNVERIFIED / NOT PINNED (intentionally `None`): WireGuard publishes no
+/// SHA-256 for its Windows MSIs on wireguard.com or on the download listing.
+/// Its published verification mechanism is the Authenticode signature on the
+/// MSI plus the signify-signed BLAKE2b file list (`latest.sig`) its own
+/// updater checks. Inventing a hash here would be worse than none at all: a
+/// wrong pinned hash would brick every install, and a hash copied from a
+/// third-party page would prove nothing about the official file. So the
+/// install gate is: (a) HTTPS download from the official URL above,
+/// (b) mandatory Authenticode check (status `Valid`, signer subject contains
+/// `WireGuard`) before `msiexec /i` runs, and (c) the SHA-256 actually
+/// computed for the downloaded file is returned in the success response for
+/// audit. When an official SHA-256 is ever published, set this to
+/// `Some("<64 lowercase hex>")` and the hash comparison below becomes a
+/// hard gate (mismatch -> exit 21, install never runs).
+const WIREGUARD_MSI_EXPECTED_SHA256: Option<&str> = None;
+
+/// The MSI itself is a few MB; refuse anything implausibly large rather
+/// than writing an unbounded download to disk.
+const WIREGUARD_MSI_MAX_BYTES: usize = 100 * 1024 * 1024;
+
+/// First Program Files `wireguard.exe` that passes the same
+/// publisher/product/signature/size verification as the bundled engine.
+/// This is the "installed" engine; `wireguard_executable` additionally
+/// accepts the bundled exe, which is why the two must not be conflated.
+#[allow(dead_code)]
+fn installed_engine_path(app: &AppHandle) -> Option<PathBuf> {
+    let mut candidates = vec![];
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        candidates.push(
+            PathBuf::from(program_files)
+                .join("WireGuard")
+                .join("wireguard.exe"),
+        );
+    }
+    if let Some(program_files) = std::env::var_os("ProgramFiles(x86)") {
+        candidates.push(
+            PathBuf::from(program_files)
+                .join("WireGuard")
+                .join("wireguard.exe"),
+        );
+    }
+    // `official_engine` returns false on non-Windows, so this is None there.
+    let _ = app;
+    candidates.into_iter().find(|path| official_engine(path))
+}
+
+/// "installed" only when the path is under a Program Files directory, the
+/// same test `vpn_status` uses for `engineReadiness.source`. Anything else
+/// that passes verification is the bundled engine, never the installed one.
+#[allow(dead_code)]
+fn engine_source_for_path(path: &std::path::Path) -> &'static str {
+    if path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .contains("program files")
+    {
+        "installed"
+    } else {
+        "bundled"
+    }
+}
+
+/// Human-readable, user-actionable message for an install-phase exit code.
+/// The command returns these as `WIREGUARD_<NAME> (<code>): <message>` so
+/// the frontend can recover the code without a second round-trip.
+#[allow(dead_code)]
+fn install_error_message(code: i32) -> String {
+    match code {
+        EXIT_INSTALL_FAILED => "WireGuard could not create the tunnel service. This step runs when connecting after install, not during the MSI install: check that the profile is valid and that no other VPN is using the same tunnel".into(),
+        EXIT_SERVICE_NOT_RUNNING => "WireGuard tunnel did not start after connecting; the tunnel service was removed".into(),
+        EXIT_NO_HANDSHAKE => "WireGuard tunnel started after connecting but the server never answered the handshake; the tunnel was removed. Check the endpoint, keys and that UDP traffic is allowed".into(),
+        EXIT_DOWNLOAD_FAILED => "The official WireGuard MSI could not be downloaded. Check the network connection and try again; CinaVault remains usable without it".into(),
+        EXIT_SIGNATURE_OR_HASH_FAILED => "The downloaded WireGuard MSI failed publisher signature or hash verification and was NOT installed. Delete any manually downloaded copy and retry from the official download only".into(),
+        EXIT_MSI_INSTALL_FAILED => "The official WireGuard installer (msiexec) failed. Try running the install again and, if it persists, install the MSI from wireguard.com manually and then retry CinaVault".into(),
+        EXIT_POST_INSTALL_NOT_FOUND => "The installer finished but no official WireGuard engine was found under Program Files afterwards, so the install is NOT treated as successful. If only the bundled engine is present, that is reported as \"bundled only\" and does not count as an installed client".into(),
+        EXIT_UAC_DECLINED => "Administrator approval was declined. Windows requires it to install WireGuard; CinaVault remains usable and you can retry the install at any time".into(),
+        other => format!("WireGuard installation failed with exit code {other}"),
+    }
+}
+
+#[allow(dead_code)]
+fn install_error(code: i32) -> String {
+    let name = match code {
+        EXIT_INSTALL_FAILED => "WIREGUARD_TUNNEL_SERVICE_FAILED",
+        EXIT_SERVICE_NOT_RUNNING => "WIREGUARD_TUNNEL_NOT_RUNNING",
+        EXIT_NO_HANDSHAKE => "WIREGUARD_NO_HANDSHAKE",
+        EXIT_DOWNLOAD_FAILED => "WIREGUARD_DOWNLOAD_FAILED",
+        EXIT_SIGNATURE_OR_HASH_FAILED => "WIREGUARD_SIGNATURE_OR_HASH_FAILED",
+        EXIT_MSI_INSTALL_FAILED => "WIREGUARD_MSI_INSTALL_FAILED",
+        EXIT_POST_INSTALL_NOT_FOUND => "WIREGUARD_POST_INSTALL_NOT_FOUND",
+        EXIT_UAC_DECLINED => "WIREGUARD_UAC_DECLINED",
+        _ => "WIREGUARD_INSTALL_FAILED",
+    };
+    format!("{name} ({code}): {}", install_error_message(code))
+}
+
+/// Classifies an `msiexec` exit code. 0 is success; 3010 is success with a
+/// reboot required (ERROR_SUCCESS_REBOOT_REQUIRED); 1223 surfaces when the
+/// UAC prompt is declined; anything else is a genuine installer failure,
+/// and the raw code is preserved in the error for diagnosis.
+#[allow(dead_code)]
+fn msiexec_outcome(code: Option<i32>) -> &'static str {
+    match code {
+        Some(0) => "success",
+        Some(3010) => "reboot_required",
+        Some(EXIT_UAC_DECLINED) => "uac_declined",
+        _ => "failed",
+    }
+}
+
+/// Builds the elevated install script. This is a real install
+/// (`msiexec /i`, quiet, no restart), NOT the `/a` administrative
+/// extraction that `scripts/prepare-wireguard.ps1` uses at build time to
+/// stage a bundled exe. The script exits with the msiexec exit code so
+/// `run_elevated` can classify it.
+#[allow(dead_code)]
+fn msiexec_install_script(msi_path: &str) -> String {
+    format!(
+        "$msi = {msi}\n$process = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait -PassThru -NoNewWindow\nexit $process.ExitCode\n",
+        msi = ps_literal(msi_path),
+    )
+}
+
+/// True when a pinned hash, if one is set, matches the computed hash. With
+/// no pinned hash (`None`, the current state — see
+/// `WIREGUARD_MSI_EXPECTED_SHA256`) there is nothing to compare against,
+/// so the gate passes and the caller must report `sha256Verified: false`
+/// rather than claim a hash check happened.
+#[allow(dead_code)]
+fn pinned_hash_gate_passes(expected: Option<&str>, actual: &str) -> bool {
+    expected.map_or(true, |expected| {
+        expected.eq_ignore_ascii_case(actual)
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn msi_signature_is_official(path: &std::path::Path) -> bool {
+    // An MSI has no useful VersionInfo product name to check, so unlike
+    // `official_engine` this checks only the Authenticode status and the
+    // signer subject — the part that actually proves WireGuard published it.
+    let escaped = path.to_string_lossy().replace('\'', "''");
+    let script = format!("$s=Get-AuthenticodeSignature -LiteralPath '{escaped}';if($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -match 'WireGuard'){{exit 0}}else{{exit 1}}");
+    hidden_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn msi_signature_is_official(_path: &std::path::Path) -> bool {
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn sha256_hex_of_file(path: &std::path::Path) -> Result<String, String> {
+    use sha2::Digest;
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("failed to read downloaded MSI for hashing: {error}"))?;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(&bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sha256_hex_of_file(_path: &std::path::Path) -> Result<String, String> {
+    Err("SHA-256 hashing of the WireGuard MSI is only available on Windows".into())
+}
+
 /// Builds the script that installs a tunnel service, waits for it to run and
 /// waits for a handshake logged after the install. Creating services and
 /// reading the WireGuard log both need administrator rights, so the whole
@@ -517,6 +711,194 @@ pub async fn install_security_tools(app: AppHandle) -> Result<serde_json::Value,
     }
 }
 
+/// Downloads, verifies and installs the official WireGuard Windows client.
+///
+/// Request: `{ "force": false }`. With `force: false` (the normal UI path)
+/// an already-installed, verified Program Files engine short-circuits with
+/// `status: "already_installed"` and no download, UAC prompt or reinstall.
+/// With `force: true` the MSI is (re)installed over the existing client.
+///
+/// Order of operations, each with its own error code:
+///  1. Download the pinned MSI over HTTPS (code 20 on failure).
+///  2. Verify its Authenticode signature (status `Valid`, signer `WireGuard`)
+///     and, if a SHA-256 is ever pinned, its hash (code 21). Nothing is
+///     installed if either check fails, and the temp file is deleted.
+///  3. Install elevated via the existing UAC pattern (`run_elevated` /
+///     `elevation_wrapper`): `msiexec /i <msi> /qn /norestart`. UAC declined
+///     is code 1223; any other msiexec failure is code 22 with the raw
+///     msiexec exit code preserved in the message.
+///  4. Verify the *installed* engine afterwards: a Program Files
+///     `wireguard.exe` passing `official_engine`. If only the bundled exe
+///     passes, the result is code 23 ("bundled only") — never reported as
+///     an installed client. There is no permanent WireGuard service to
+///     check: tunnel services (`WireGuardTunnel$<profile>`) are created
+///     per-profile at connect time by `vpn_connect`, not by the MSI install.
+///  5. On success the computed SHA-256 of the downloaded MSI is returned
+///     for audit; `sha256Verified` is true only when a pinned hash was set
+///     and matched (currently false — see `WIREGUARD_MSI_EXPECTED_SHA256`).
+///
+/// This command installs the client only. It does not create a profile,
+/// generate keys, or issue a server peer — that remains a follow-on and
+/// the existing BYO `.conf` import (`vpn_import_profile`) is untouched.
+#[tauri::command]
+pub async fn vpn_install_wireguard(
+    app: AppHandle,
+    force: bool,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return vpn_install_wireguard_windows(app, force).await;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, force);
+        Err("WireGuard installation is currently supported on Windows only".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn vpn_install_wireguard_windows(
+    app: AppHandle,
+    force: bool,
+) -> Result<serde_json::Value, String> {
+    if !force {
+        if let Some(engine) = installed_engine_path(&app) {
+            return Ok(serde_json::json!({
+                "status": "already_installed",
+                "alreadyInstalled": true,
+                "engine": engine.to_string_lossy(),
+                "engineSource": "installed",
+                "msiUrl": WIREGUARD_MSI_URL,
+                "message": "Official WireGuard client is already installed and verified; no download or reinstall was performed.",
+            }));
+        }
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let msi_path = std::env::temp_dir().join(format!(
+        "cinavault-wireguard-{}-wireguard-amd64-{}.msi",
+        stamp, WIREGUARD_MSI_VERSION
+    ));
+
+    let result = vpn_install_wireguard_download_and_install(&app, &msi_path).await;
+    // The MSI must never linger in temp, whatever happened above.
+    let _ = std::fs::remove_file(&msi_path);
+    result
+}
+
+#[cfg(target_os = "windows")]
+async fn vpn_install_wireguard_download_and_install(
+    app: &AppHandle,
+    msi_path: &std::path::Path,
+) -> Result<serde_json::Value, String> {
+    // (1) Download.
+    let response = reqwest::get(WIREGUARD_MSI_URL)
+        .await
+        .map_err(|error| {
+            format!(
+                "{} download error: {error}",
+                install_error(EXIT_DOWNLOAD_FAILED)
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "{} HTTP status {}",
+            install_error(EXIT_DOWNLOAD_FAILED),
+            response.status()
+        ));
+    }
+    let bytes = response.bytes().await.map_err(|error| {
+        format!(
+            "{} download error: {error}",
+            install_error(EXIT_DOWNLOAD_FAILED)
+        )
+    })?;
+    if bytes.is_empty() || bytes.len() > WIREGUARD_MSI_MAX_BYTES {
+        return Err(format!(
+            "{} unexpected MSI size {} bytes",
+            install_error(EXIT_DOWNLOAD_FAILED),
+            bytes.len()
+        ));
+    }
+    std::fs::write(msi_path, &bytes).map_err(|error| {
+        format!(
+            "{} failed to save MSI: {error}",
+            install_error(EXIT_DOWNLOAD_FAILED)
+        )
+    })?;
+
+    // (2) Verify BEFORE installing: Authenticode is mandatory; the hash
+    // comparison runs only when a hash is pinned (see the constant).
+    if !msi_signature_is_official(msi_path) {
+        return Err(install_error(EXIT_SIGNATURE_OR_HASH_FAILED));
+    }
+    let msi_sha256 = sha256_hex_of_file(msi_path).map_err(|error| {
+        format!(
+            "{} {}",
+            install_error(EXIT_SIGNATURE_OR_HASH_FAILED),
+            error
+        )
+    })?;
+    let sha256_verified = WIREGUARD_MSI_EXPECTED_SHA256.is_some()
+        && pinned_hash_gate_passes(WIREGUARD_MSI_EXPECTED_SHA256, &msi_sha256);
+    if !pinned_hash_gate_passes(WIREGUARD_MSI_EXPECTED_SHA256, &msi_sha256) {
+        return Err(format!(
+            "{} computed SHA-256 {msi_sha256} does not match the pinned hash",
+            install_error(EXIT_SIGNATURE_OR_HASH_FAILED)
+        ));
+    }
+
+    // (3) Elevated real install (msiexec /i), via the existing UAC pattern.
+    let code = run_elevated(&msiexec_install_script(&msi_path.to_string_lossy()))?;
+    match msiexec_outcome(code) {
+        "uac_declined" => return Err(install_error(EXIT_UAC_DECLINED)),
+        "failed" => {
+            return Err(format!(
+                "{} msiexec exit code {:?}",
+                install_error(EXIT_MSI_INSTALL_FAILED),
+                code
+            ))
+        }
+        _ => {}
+    }
+    let reboot_required = msiexec_outcome(code) == "reboot_required";
+
+    // (4) Verify the INSTALLED engine afterwards — Program Files only.
+    match installed_engine_path(app) {
+        Some(engine) => Ok(serde_json::json!({
+            "status": "installed",
+            "alreadyInstalled": false,
+            "version": WIREGUARD_MSI_VERSION,
+            "msiUrl": WIREGUARD_MSI_URL,
+            "msiSha256": msi_sha256,
+            "sha256Verified": sha256_verified,
+            "sha256Pinned": WIREGUARD_MSI_EXPECTED_SHA256.is_some(),
+            "signatureVerified": true,
+            "engine": engine.to_string_lossy(),
+            "engineSource": "installed",
+            "rebootRequired": reboot_required,
+            "message": if reboot_required {
+                "Official WireGuard client installed; a reboot is required to finish the installation."
+            } else {
+                "Official WireGuard client installed and verified under Program Files."
+            },
+        })),
+        None => {
+            if wireguard_executable(app).is_ok() {
+                Err(format!(
+                    "{} only the bundled engine was found (\"bundled only\"); the official client was not verified under Program Files",
+                    install_error(EXIT_POST_INSTALL_NOT_FOUND)
+                ))
+            } else {
+                Err(install_error(EXIT_POST_INSTALL_NOT_FOUND))
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn vpn_select_default(
     app: AppHandle,
@@ -588,8 +970,12 @@ where
 mod tests {
     use super::{
         connect_script, disconnect_script, elevation_wrapper, encode_powershell,
-        engine_metadata_is_official, ps_literal, run_autoconnect_attempt, tunnel_error,
-        EXIT_NO_HANDSHAKE, EXIT_UAC_DECLINED,
+        engine_metadata_is_official, engine_source_for_path, install_error_message,
+        msiexec_install_script, msiexec_outcome, pinned_hash_gate_passes, ps_literal,
+        run_autoconnect_attempt, tunnel_error, EXIT_DOWNLOAD_FAILED,
+        EXIT_MSI_INSTALL_FAILED, EXIT_NO_HANDSHAKE, EXIT_POST_INSTALL_NOT_FOUND,
+        EXIT_SIGNATURE_OR_HASH_FAILED, EXIT_UAC_DECLINED, WIREGUARD_MSI_EXPECTED_SHA256,
+        WIREGUARD_MSI_URL, WIREGUARD_MSI_VERSION,
     };
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -715,5 +1101,89 @@ mod tests {
     fn tunnel_errors_explain_what_failed() {
         assert!(tunnel_error(Some(EXIT_UAC_DECLINED), "home").contains("Administrator approval"));
         assert!(tunnel_error(Some(EXIT_NO_HANDSHAKE), "home").contains("handshake"));
+    }
+
+    #[test]
+    fn pinned_msi_is_the_current_official_amd64_release() {
+        // Verified 2026-11-01 against https://download.wireguard.com/windows-client/
+        // (linked from https://www.wireguard.com/install/).
+        assert_eq!(WIREGUARD_MSI_VERSION, "1.1.1");
+        assert_eq!(
+            WIREGUARD_MSI_URL,
+            "https://download.wireguard.com/windows-client/wireguard-amd64-1.1.1.msi"
+        );
+        // WireGuard publishes no SHA-256 for this MSI, so no hash is pinned
+        // here. Asserting None documents that gap instead of letting a
+        // guessed hash slip in; see WIREGUARD_MSI_EXPECTED_SHA256.
+        assert_eq!(WIREGUARD_MSI_EXPECTED_SHA256, None);
+    }
+
+    #[test]
+    fn install_script_uses_quiet_install_not_extraction() {
+        let script = msiexec_install_script(r"C:\Temp\wireguard-amd64-1.1.1.msi");
+        assert!(script.contains("msiexec.exe"));
+        assert!(script.contains("'/i'"));
+        assert!(script.contains("'/qn'"));
+        assert!(script.contains("'/norestart'"));
+        // /a is the build-time extraction mode in prepare-wireguard.ps1;
+        // it must never appear in the runtime install script.
+        assert!(!script.contains("'/a'"));
+    }
+
+    #[test]
+    fn msiexec_exit_codes_classify_success_reboot_uac_and_failure() {
+        assert_eq!(msiexec_outcome(Some(0)), "success");
+        assert_eq!(msiexec_outcome(Some(3010)), "reboot_required");
+        assert_eq!(msiexec_outcome(Some(EXIT_UAC_DECLINED)), "uac_declined");
+        assert_eq!(msiexec_outcome(Some(1603)), "failed");
+        assert_eq!(msiexec_outcome(None), "failed");
+    }
+
+    #[test]
+    fn install_errors_are_distinct_and_actionable() {
+        let download = install_error_message(EXIT_DOWNLOAD_FAILED);
+        let signature = install_error_message(EXIT_SIGNATURE_OR_HASH_FAILED);
+        let msi = install_error_message(EXIT_MSI_INSTALL_FAILED);
+        let post = install_error_message(EXIT_POST_INSTALL_NOT_FOUND);
+        let uac = install_error_message(EXIT_UAC_DECLINED);
+        assert!(download.contains("could not be downloaded"));
+        assert!(signature.contains("signature or hash"));
+        assert!(signature.contains("NOT installed"));
+        assert!(msi.contains("msiexec"));
+        assert!(post.contains("Program Files"));
+        assert!(post.contains("bundled only"));
+        assert!(uac.contains("Administrator approval"));
+        let unique: std::collections::HashSet<_> =
+            [download, signature, msi, post, uac].into_iter().collect();
+        assert_eq!(unique.len(), 5);
+    }
+
+    #[test]
+    fn pinned_hash_gate_only_enforces_a_hash_when_one_is_pinned() {
+        assert!(pinned_hash_gate_passes(None, "abc"));
+        assert!(pinned_hash_gate_passes(
+            Some("ABC"),
+            "abc"
+        ));
+        assert!(!pinned_hash_gate_passes(
+            Some("deadbeef"),
+            "abc"
+        ));
+    }
+
+    #[test]
+    fn engine_source_distinguishes_installed_from_bundled() {
+        assert_eq!(
+            engine_source_for_path(std::path::Path::new(
+                r"C:\Program Files\WireGuard\wireguard.exe"
+            )),
+            "installed"
+        );
+        assert_eq!(
+            engine_source_for_path(std::path::Path::new(
+                r"C:\CinaVault\resources\tools\wireguard\wireguard.exe"
+            )),
+            "bundled"
+        );
     }
 }

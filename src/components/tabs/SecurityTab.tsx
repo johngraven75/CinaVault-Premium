@@ -28,9 +28,25 @@ type VpnProfile = {
   is_default: boolean;
 };
 
+type VpnInstallResult = {
+  status: string;
+  alreadyInstalled?: boolean;
+  version?: string;
+  msiUrl?: string;
+  msiSha256?: string;
+  sha256Verified?: boolean;
+  sha256Pinned?: boolean;
+  signatureVerified?: boolean;
+  engine?: string;
+  engineSource?: string;
+  rebootRequired?: boolean;
+  message?: string;
+};
+
 type VpnStatus = {
   installed: boolean;
   engineBundled?: boolean;
+  engineReadiness?: { source?: string };
   connected: boolean;
   activeProfile?: string | null;
   profiles: VpnProfile[];
@@ -43,6 +59,9 @@ export default function SecurityTab() {
   const [vpnLoading, setVpnLoading] = useState(false);
   const [avScanning, setAvScanning] = useState(false);
   const [vpnInstalled, setVpnInstalled] = useState<boolean | null>(null);
+  const [vpnEngineBundled, setVpnEngineBundled] = useState(false);
+  const [installingWireGuard, setInstallingWireGuard] = useState(false);
+  const [installDetails, setInstallDetails] = useState("");
   const [profiles, setProfiles] = useState<VpnProfile[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("");
   const [vpnDetails, setVpnDetails] = useState("");
@@ -57,6 +76,10 @@ export default function SecurityTab() {
     try {
       const status = await invoke<VpnStatus>("vpn_status");
       setVpnInstalled(status.installed);
+      setVpnEngineBundled(
+        status.engineBundled === true ||
+          status.engineReadiness?.source === "bundled",
+      );
       setProfiles(status.profiles ?? []);
       setVpnDetails(status.details ?? "");
       if (status.startupStatus?.status === "failed") {
@@ -134,10 +157,71 @@ export default function SecurityTab() {
     }
   };
 
-  const installWireGuard = async () => {
-    const result = await invoke<{ status: string; message: string; officialDownload?: string }>("install_security_tools");
-    setVpnDetails(result.message);
-    if (result.officialDownload) window.open(result.officialDownload, "_blank", "noopener,noreferrer");
+  // Maps the backend's `WIREGUARD_<NAME> (<code>): <message>` errors to
+  // the one-line explanation shown in the UI. Codes 10/11/12 are connect
+  // steps (tunnel service / running / handshake) and can only surface if
+  // an install-then-connect flow fails at connect; 20-23 and 1223 are the
+  // install steps themselves. The raw backend string is kept as a suffix
+  // so no diagnostic detail is hidden.
+  const wireguardInstallErrorMessage = (error: unknown): string => {
+    const raw = String(error);
+    const match = raw.match(/\(\d+\)/);
+    const code = match ? Number(match[1]) : null;
+    const prefix =
+      code === 20
+        ? "Download failed — check your connection and try again."
+        : code === 21
+          ? "Signature or hash check failed — the installer was NOT installed. Retry from the official download only."
+          : code === 22
+            ? "The WireGuard installer failed — try again, or install the MSI from wireguard.com manually and retry."
+            : code === 23
+              ? "Installer finished but no official client was found under Program Files — this does not count as installed. A bundled-only engine is not an installed client."
+              : code === 1223
+                ? "Administrator approval was declined — Windows requires it to install WireGuard. CinaVault still works; retry when ready."
+                : code === 10
+                  ? "WireGuard could not create the tunnel service — check the profile and that no other VPN uses the same tunnel."
+                  : code === 11
+                    ? "WireGuard tunnel did not start; the tunnel service was removed."
+                    : code === 12
+                      ? "WireGuard tunnel started but the server never answered the handshake — check the endpoint, keys and UDP traffic."
+                      : null;
+    return prefix ? `${prefix} (${raw})` : raw;
+  };
+
+  const installWireGuard = async (force = false) => {
+    setInstallingWireGuard(true);
+    setVpnError("");
+    setInstallDetails(
+      "Downloading and verifying the official WireGuard client… Administrator approval will be requested; do not close CinaVault.",
+    );
+    try {
+      const result = await invoke<VpnInstallResult>("vpn_install_wireguard", { force });
+      if (result.status === "already_installed") {
+        setInstallDetails(
+          "Official WireGuard client is already installed and verified; no download or reinstall was performed.",
+        );
+        addStatusMessage("WireGuard already installed");
+      } else {
+        const shaNote =
+          result.sha256Verified
+            ? `SHA-256 verified (${result.msiSha256 ?? "unknown"})`
+            : result.sha256Pinned
+              ? "SHA-256 check failed to verify"
+              : `SHA-256 of the downloaded MSI (no official hash published to compare against): ${result.msiSha256 ?? "unknown"}`;
+        setInstallDetails(
+          `Official WireGuard ${result.version ?? ""} installed and verified under Program Files. ${shaNote}${result.rebootRequired ? " A reboot is required to finish the installation." : ""}`,
+        );
+        addStatusMessage(`WireGuard installed: ${result.engine ?? "Program Files"}`);
+      }
+      await checkVpnStatus();
+    } catch (error) {
+      const message = wireguardInstallErrorMessage(error);
+      setVpnError(message);
+      setInstallDetails("");
+      addStatusMessage(`WireGuard install failed: ${message}`);
+    } finally {
+      setInstallingWireGuard(false);
+    }
   };
 
   const disconnectVpn = async () => {
@@ -209,8 +293,12 @@ export default function SecurityTab() {
               <div className="text-sm text-cv-accent">{vpnLocation}</div>
             )}
             <div className="text-[10px] text-cv-subtext mt-1 flex items-center justify-center gap-1">
-              {vpnInstalled ? <CheckCircle size={11} /> : <AlertTriangle size={11} />}
-              {vpnInstalled ? "Official engine verified" : "Official engine unavailable"}
+              {vpnInstalled && !vpnEngineBundled ? <CheckCircle size={11} /> : <AlertTriangle size={11} />}
+              {vpnInstalled && !vpnEngineBundled
+                ? "Official client installed and verified"
+                : vpnInstalled
+                  ? "Bundled engine only — official client not installed"
+                  : "Official engine unavailable"}
             </div>
             {vpnDetails && <div className="text-[10px] text-cv-subtext mt-2">{vpnDetails}</div>}
             {vpnError && <div role="alert" className="mt-3 rounded border border-red-400/30 bg-red-400/10 p-2 text-xs text-red-200">{vpnError}</div>}
@@ -232,7 +320,21 @@ export default function SecurityTab() {
                 </button>
               )}
             </div>
-            {!vpnInstalled && <button onClick={installWireGuard} className="cv-btn cv-btn-secondary w-full">Install official WireGuard</button>}
+            {(!vpnInstalled || vpnEngineBundled) && (
+              <button
+                onClick={() => void installWireGuard(false)}
+                disabled={installingWireGuard || vpnLoading}
+                className="cv-btn cv-btn-secondary w-full"
+              >
+                {installingWireGuard ? <Loader size={14} className="animate-spin" /> : <Download size={14} />}
+                {installingWireGuard
+                  ? "Installing official WireGuard…"
+                  : vpnEngineBundled
+                    ? "Install official WireGuard client (bundled engine only)"
+                    : "Install official WireGuard client"}
+              </button>
+            )}
+            {installDetails && <div className="text-[10px] text-cv-subtext mt-2">{installDetails}</div>}
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" checked={autoConnect} onChange={(event) => setAutoConnect(event.target.checked)} />
               Connect this verified profile when CinaVault starts
