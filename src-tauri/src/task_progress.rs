@@ -90,9 +90,19 @@ pub fn get_metadata_task_progress() -> MetadataTaskProgress {
 #[tauri::command]
 pub fn stop_ai_agent() -> MetadataTaskProgress {
     cancellation_flag().store(true, Ordering::SeqCst);
+    // Issue 1: stopping used to wait out the current item's whole provider
+    // phase, because the flag was only checked between items. Aborting the
+    // background job's task drops a hanging provider call at its next await
+    // point and marks the job `cancelled` immediately, so polling never sees
+    // a stale `running` job. A write that already started (a short, scoped
+    // DB/NFO update) still runs to completion; anything not yet written is
+    // simply retried on the next run, because skip-complete only skips items
+    // whose metadata is already fully stored.
+    crate::enrichment_jobs::request_stop_active_job();
     let mut progress = lock_progress();
     if progress.active {
-        progress.message = "Stop requested; finishing the current item...".to_string();
+        progress.message = "Stop requested; the active job will stop at the next safe point..."
+            .to_string();
     }
     progress.clone()
 }

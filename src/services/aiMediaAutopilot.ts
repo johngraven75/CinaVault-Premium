@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { LibraryEnrichmentResult, MediaItem } from "../store/appStore";
+import {
+  fetchEnrichmentJobStatus,
+  pollEnrichmentJob,
+  type EnrichmentJobStart,
+} from "../utils/enrichmentJob";
 
 export interface AiMediaAutopilotOptions {
   enabled: () => boolean;
@@ -20,6 +25,31 @@ export interface AiMediaAutopilotCycle {
 
 const STARTUP_IDLE_DELAY_MS = 30_000;
 const REPAIR_SAMPLE_SIZE = 96;
+
+/**
+ * Issue 1: defer work to true idle. `requestIdleCallback` fires when the
+ * main thread is idle, or at the latest after `timeoutMs` — so a startup
+ * pass still runs even on a busy machine, just never ahead of idle work.
+ * Falls back to a plain timer where the API is unavailable (older
+ * WebViews), preserving the previous timing.
+ */
+function scheduleWhenIdle(callback: () => void, timeoutMs: number): () => void {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (
+      callback: () => void,
+      options?: { timeout: number },
+    ) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    const id = idleWindow.requestIdleCallback(callback, { timeout: timeoutMs });
+    return () => {
+      idleWindow.cancelIdleCallback?.(id);
+    };
+  }
+  const timer = window.setTimeout(callback, timeoutMs);
+  return () => window.clearTimeout(timer);
+}
 
 let cycleRunning = false;
 let cycleQueued = false;
@@ -90,6 +120,30 @@ async function runCycle(
   reason: string,
 ): Promise<AiMediaAutopilotCycle | null> {
   if (!options.enabled()) return null;
+  // Issue 1: never stack autopilot work on top of a manual enrichment job.
+  // The whole cycle is skipped (not queued: re-running immediately after
+  // the manual job would just stack again); the next interval or trigger
+  // retries. A backend hiccup here must not kill the cycle, hence the
+  // catch that treats an unreadable status as "no job running".
+  const activeJob = await fetchEnrichmentJobStatus(invoke).catch(() => null);
+  if (activeJob && activeJob.status === "running") {
+    options.addStatusMessage(
+      "AI Media Autopilot skipped: an enrichment job is already running (manual job takes precedence).",
+    );
+    return null;
+  }
+  // Issue 1: defer deferrable passes while the app is hidden. A hidden
+  // WebView pass would compete with whatever the user is doing elsewhere;
+  // the next interval retries when visible. Manual and source-added
+  // triggers are explicit and are not deferred.
+  if (
+    (reason === "startup idle health pass" ||
+      reason === "scheduled maintenance") &&
+    typeof document !== "undefined" &&
+    document.hidden
+  ) {
+    return null;
+  }
   if (cycleRunning) {
     cycleQueued = true;
     return null;
@@ -119,16 +173,36 @@ async function runCycle(
       );
     }
 
-    const enrichment = await invokeSafely<LibraryEnrichmentResult>(
+    // Issue 1: run_library_enrichment now returns a job start immediately
+    // instead of the finished report. A "busy" start means a manual job
+    // began between the cycle-start check above and this step; skip the
+    // enrichment step rather than stacking. Otherwise poll the job to
+    // completion (5s cadence; the poll is async, so it never blocks UI
+    // rendering) and report from the finished job's result.
+    const enrichmentStart = await invokeSafely<EnrichmentJobStart>(
       "run_library_enrichment",
       { renameFiles: false },
       warnings,
     );
-    enriched = Boolean(enrichment);
-    if (enrichment) {
-      options.addStatusMessage(
-        `Autopilot enrichment: ${enrichment.metadata_items_enriched || enrichment.metadata_updated || 0} items, ${enrichment.metadata_fields_updated || 0} fields, ${enrichment.posters_downloaded || 0} posters`,
-      );
+    if (enrichmentStart && enrichmentStart.status === "busy") {
+      warnings.push("enrichment skipped: an enrichment job is already running");
+    } else if (enrichmentStart) {
+      try {
+        const finished = await pollEnrichmentJob(invoke, enrichmentStart.job_id, {
+          intervalMs: 5000,
+        });
+        const enrichment = finished.result as
+          | LibraryEnrichmentResult
+          | undefined;
+        enriched = Boolean(enrichment);
+        if (enrichment) {
+          options.addStatusMessage(
+            `Autopilot enrichment: ${enrichment.metadata_items_enriched || enrichment.metadata_updated || 0} items, ${enrichment.metadata_fields_updated || 0} fields, ${enrichment.posters_downloaded || 0} posters`,
+          );
+        }
+      } catch (error) {
+        warnings.push(`enrichment job: ${messageFromError(error)}`);
+      }
     }
 
     await invokeSafely("purge_photo_items", undefined, warnings);
@@ -194,12 +268,15 @@ export function startAiMediaAutopilot(
   options: AiMediaAutopilotOptions,
 ): () => void {
   const intervalMinutes = Math.max(10, options.intervalMinutes || 30);
-  let startupTimer: number | null = null;
+  let cancelStartup: (() => void) | null = null;
 
   const scheduleStartupPass = () => {
-    if (startupTimer !== null) return;
-    startupTimer = window.setTimeout(() => {
-      startupTimer = null;
+    if (cancelStartup !== null) return;
+    // Issue 1: defer to true idle (or at most STARTUP_IDLE_DELAY_MS after
+    // library-ready), instead of a blind 30s timer that could fire
+    // mid-interaction.
+    cancelStartup = scheduleWhenIdle(() => {
+      cancelStartup = null;
       void runCycle(options, "startup idle health pass");
     }, STARTUP_IDLE_DELAY_MS);
   };
@@ -209,15 +286,17 @@ export function startAiMediaAutopilot(
   window.addEventListener("cinavault:library-ready", scheduleStartupPass, {
     once: true,
   });
-  const fallbackStartupTimer = window.setTimeout(scheduleStartupPass, 90_000);
+  const cancelFallbackStartup = scheduleWhenIdle(scheduleStartupPass, 90_000);
 
   const interval = window.setInterval(
     () => void runCycle(options, "scheduled maintenance"),
     intervalMinutes * 60 * 1000,
   );
 
+  // A new source still waits for idle before starting a cycle, for the
+  // same reason as the startup pass.
   const handleSourceAdded = () =>
-    window.setTimeout(
+    scheduleWhenIdle(
       () => void runCycle(options, "new media source detected"),
       STARTUP_IDLE_DELAY_MS,
     );
@@ -228,8 +307,8 @@ export function startAiMediaAutopilot(
   window.addEventListener("cinavault:ai-autopilot-run", handleManualRun);
 
   return () => {
-    if (startupTimer !== null) window.clearTimeout(startupTimer);
-    window.clearTimeout(fallbackStartupTimer);
+    cancelStartup?.();
+    cancelFallbackStartup();
     window.clearInterval(interval);
     window.removeEventListener("cinavault:library-ready", scheduleStartupPass);
     window.removeEventListener("cinavault:source-added", handleSourceAdded);
