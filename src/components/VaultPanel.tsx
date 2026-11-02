@@ -126,7 +126,7 @@ export default function VaultPanel() {
           Migrate plaintext library (explicit, backed up first)
         </button>
       </div>
-      {message && <div role="status">{message}</div>}
+      {message && <output>{message}</output>}
       {error && <div role="alert">{error}</div>}
     </div>
   );

@@ -17,16 +17,25 @@ export const VAULT_LOSS_WARNING =
 export default function VaultLock({
   status,
   onUnlocked,
-}: {
+}: Readonly<{
   status: VaultStatus;
   onUnlocked: () => void;
-}) {
+}>) {
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const isSetup = status.needsSetup;
+
+  let submitLabel: string;
+  if (busy) {
+    submitLabel = "Working…";
+  } else if (isSetup) {
+    submitLabel = "Set up vault";
+  } else {
+    submitLabel = "Unlock vault";
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -91,7 +100,7 @@ export default function VaultLock({
         )}
         {error && <div role="alert">{error}</div>}
         <button type="submit" disabled={busy}>
-          {busy ? "Working…" : isSetup ? "Set up vault" : "Unlock vault"}
+          {submitLabel}
         </button>
       </form>
       <p>

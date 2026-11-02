@@ -15,26 +15,26 @@ export type VaultStatus = {
   sealedDb: boolean;
 };
 
-export async function getVaultStatus(): Promise<VaultStatus> {
+export function getVaultStatus(): Promise<VaultStatus> {
   return invoke<VaultStatus>("vault_status");
 }
 
-export async function setupVault(
+export function setupVault(
   passphrase: string,
   confirm: string,
 ): Promise<VaultStatus> {
   return invoke<VaultStatus>("vault_setup", { passphrase, confirm });
 }
 
-export async function unlockVault(passphrase: string): Promise<VaultStatus> {
+export function unlockVault(passphrase: string): Promise<VaultStatus> {
   return invoke<VaultStatus>("vault_unlock", { passphrase });
 }
 
-export async function lockVault(): Promise<VaultStatus> {
+export function lockVault(): Promise<VaultStatus> {
   return invoke<VaultStatus>("vault_lock");
 }
 
-export async function changeVaultPassphrase(
+export function changeVaultPassphrase(
   oldPassphrase: string,
   newPassphrase: string,
   newConfirm: string,
@@ -46,14 +46,14 @@ export async function changeVaultPassphrase(
   });
 }
 
-export async function exportVaultBackup(
+export function exportVaultBackup(
   passphrase: string,
   exportPath: string,
 ): Promise<string> {
   return invoke<string>("vault_export_backup", { passphrase, exportPath });
 }
 
-export async function importVaultBackup(
+export function importVaultBackup(
   passphrase: string,
   backupPath: string,
   overwrite: boolean,
@@ -65,7 +65,7 @@ export async function importVaultBackup(
   });
 }
 
-export async function migrateVault(
+export function migrateVault(
   passphrase: string,
   confirm: string,
   backupPath: string,

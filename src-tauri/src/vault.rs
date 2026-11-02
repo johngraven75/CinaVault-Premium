@@ -62,6 +62,7 @@ use chacha20poly1305::{
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::{
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
 };
@@ -445,7 +446,7 @@ fn decrypt_artwork(app_dir: &Path, key: &[u8; 32]) -> Result<(), String> {
     for sealed_path in artwork_files(app_dir) {
         let name = sealed_path
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(OsStr::to_str)
             .unwrap_or("")
             .to_string();
         if !name.ends_with(SEALED_SUFFIX) {
@@ -477,7 +478,7 @@ fn seal_artwork(app_dir: &Path, key: &[u8; 32]) -> Result<(), String> {
     for plain_path in artwork_files(app_dir) {
         let name = plain_path
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(OsStr::to_str)
             .unwrap_or("")
             .to_string();
         if name.ends_with(SEALED_SUFFIX) || name.ends_with("tmp-vault") {

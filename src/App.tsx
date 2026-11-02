@@ -467,6 +467,20 @@ export default function App(): JSX.Element {
   const shell = useShellPreferences(settings, featureSettings);
   const CurrentTabComponent = TAB_COMPONENTS[activeTab];
 
+  let workspaceContent: JSX.Element;
+  if (vaultGate) {
+    workspaceContent = (
+      <VaultLock
+        status={vaultGate}
+        onUnlocked={() => window.location.reload()}
+      />
+    );
+  } else if (CurrentTabComponent) {
+    workspaceContent = <CurrentTabComponent />;
+  } else {
+    workspaceContent = <div>Tab not found</div>;
+  }
+
   return (
     <MotionConfig reducedMotion={shell.reduceMotion ? "always" : "user"}>
     <div className="app-shell cv-app min-h-screen overflow-hidden bg-[#02040a] text-cv-text">
@@ -577,16 +591,7 @@ export default function App(): JSX.Element {
                 style={{ transformPerspective: 1200 }}
               >
                 <span className="holo-route-veil" aria-hidden="true" />
-                {vaultGate ? (
-                  <VaultLock
-                    status={vaultGate}
-                    onUnlocked={() => window.location.reload()}
-                  />
-                ) : CurrentTabComponent ? (
-                  <CurrentTabComponent />
-                ) : (
-                  <div>Tab not found</div>
-                )}
+                {workspaceContent}
               </motion.section>
             </AnimatePresence>
           </div>
