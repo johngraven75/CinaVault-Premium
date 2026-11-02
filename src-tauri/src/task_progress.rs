@@ -101,8 +101,8 @@ pub fn stop_ai_agent() -> MetadataTaskProgress {
     crate::enrichment_jobs::request_stop_active_job();
     let mut progress = lock_progress();
     if progress.active {
-        progress.message = "Stop requested; the active job will stop at the next safe point..."
-            .to_string();
+        progress.message =
+            "Stop requested; the active job will stop at the next safe point...".to_string();
     }
     progress.clone()
 }
