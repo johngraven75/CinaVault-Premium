@@ -633,8 +633,7 @@ pub fn works_in_genre(works: &[UnifiedEntry], genre: &str) -> Vec<UnifiedEntry> 
 /// playable and must never reach a shelf as a suggestion.
 pub fn work_has_usable_file_path(work: &UnifiedEntry) -> bool {
     let usable = |path: &str| !path.trim().is_empty();
-    usable(&work.primary.file_path)
-        || work.copies.iter().any(|copy| usable(&copy.file_path))
+    usable(&work.primary.file_path) || work.copies.iter().any(|copy| usable(&copy.file_path))
 }
 
 /// The active profile's library as works: store-safe builds and restricted
