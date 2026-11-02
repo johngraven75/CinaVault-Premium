@@ -62,33 +62,45 @@ pub async fn ai_library_manage(
         )
     });
     if needs_enrichment {
-        let rename_files = requested.iter().any(|task| task == "normalize");
-        match enrichment::run_library_enrichment(state.clone(), rename_files).await {
-            Ok(report) => {
-                total_updated += report.metadata_fields_updated as u64;
-                results.insert(
-                    "enrichment".to_string(),
-                    serde_json::json!({
-                        "status": "ok",
-                        "items_scanned": report.items_scanned,
-                        "metadata_updated": report.metadata_updated,
-                        "metadata_items_enriched": report.metadata_items_enriched,
-                        "metadata_fields_updated": report.metadata_fields_updated,
-                        "posters_downloaded": report.posters_downloaded,
-                        "sidecars_written": report.sidecars_written,
-                        "files_renamed": report.files_renamed,
-                        "provider_errors": report.provider_errors,
-                    }),
-                );
+        // Issue 1: never stack a second whole-library loop on top of a
+        // running background job. The composite automation command itself
+        // stays synchronous (scan + duplicates still run inline); only its
+        // enrichment step is skipped, and the skip is reported, not hidden.
+        if crate::enrichment_jobs::active_job_running() {
+            errors.push("enrichment skipped: an enrichment job is already running".to_string());
+            results.insert(
+                "enrichment".to_string(),
+                serde_json::json!({ "status": "busy", "error": "an enrichment job is already running" }),
+            );
+        } else {
+            let rename_files = requested.iter().any(|task| task == "normalize");
+            match enrichment::run_library_enrichment(state.clone(), rename_files).await {
+                Ok(report) => {
+                    total_updated += report.metadata_fields_updated as u64;
+                    results.insert(
+                        "enrichment".to_string(),
+                        serde_json::json!({
+                            "status": "ok",
+                            "items_scanned": report.items_scanned,
+                            "metadata_updated": report.metadata_updated,
+                            "metadata_items_enriched": report.metadata_items_enriched,
+                            "metadata_fields_updated": report.metadata_fields_updated,
+                            "posters_downloaded": report.posters_downloaded,
+                            "sidecars_written": report.sidecars_written,
+                            "files_renamed": report.files_renamed,
+                            "provider_errors": report.provider_errors,
+                        }),
+                    );
+                }
+                Err(err) => {
+                    errors.push(format!("enrichment: {err}"));
+                    results.insert(
+                        "enrichment".to_string(),
+                        serde_json::json!({ "status": "error", "error": err }),
+                    );
+                }
             }
-            Err(err) => {
-                errors.push(format!("enrichment: {err}"));
-                results.insert(
-                    "enrichment".to_string(),
-                    serde_json::json!({ "status": "error", "error": err }),
-                );
-            }
-        }
+        } // close the else guarding the synchronous enrichment step
     }
 
     if requested.iter().any(|task| task == "duplicates") {

@@ -41,8 +41,24 @@ function trimTrailingPunctuation(text: string): string {
   return text.slice(0, end);
 }
 
+/**
+ * A card is only a library title when at least one copy names a file.
+ * Mirrors the back end's `work_has_usable_file_path` (discovery.rs). The
+ * browser cannot stat the disk, so this checks the path strings only: a
+ * blank primary path with a usable copy still counts, and a card with no
+ * usable path at all is not a suggestion, whatever the back end sent.
+ */
+export function hasUsableFilePath(item: Pick<MediaItem, "file_path" | "copies">): boolean {
+  if (typeof item.file_path === "string" && item.file_path.trim()) return true;
+  return (item.copies ?? []).some(
+    (copy) => typeof copy.file_path === "string" && Boolean(copy.file_path.trim()),
+  );
+}
+
 export function toShelfItems(entries: readonly DiscoveryEntryDto[]): ShelfItem[] {
-  return entries.map((entry) => ({ item: unifiedEntryToMediaItem(entry), reason: entry.reason || undefined }));
+  return entries
+    .map((entry) => ({ item: unifiedEntryToMediaItem(entry), reason: entry.reason || undefined }))
+    .filter(({ item }) => hasUsableFilePath(item));
 }
 
 /** Played fraction 0..1; 0 when the duration is unknown. */
@@ -60,7 +76,7 @@ function clock(seconds: number): string {
 }
 
 export function continueWatchingItems(rows: readonly ProgressItemDto[]): ShelfItem[] {
-  return rows.map(({ item, progress }) => {
+  return rows.filter(({ item }) => hasUsableFilePath(item)).map(({ item, progress }) => {
     const left = Math.max(0, progress.duration - progress.position);
     return {
       item,

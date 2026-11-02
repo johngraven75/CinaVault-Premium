@@ -3,7 +3,7 @@ use crate::metadata_keyless::{self, KeylessMetadataMatch};
 use crate::AppState;
 use serde::Serialize;
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Default)]
 struct MetadataUpdate {
@@ -240,6 +240,16 @@ async fn run_keyless_prepass(state: &State<'_, AppState>) -> Result<KeylessPrepa
     let mut report = KeylessPrepassReport::default();
 
     for item in items {
+        // Issue 1: the prepass runs inside the background job, so it must
+        // honour stop requests too; previously a stop waited out the whole
+        // sequential prepass before the enrichment loop ever saw it. The
+        // keyless client itself already carries a 20s request timeout.
+        if crate::task_progress::stop_requested() {
+            report
+                .provider_errors
+                .push("Stopped by user before processing the next keyless item".to_string());
+            break;
+        }
         match resolve_keyless_update(&client, &state.app_data_dir, &item, smart_match).await {
             Ok(Some(update)) => {
                 let changed = {
@@ -265,8 +275,27 @@ async fn run_keyless_prepass(state: &State<'_, AppState>) -> Result<KeylessPrepa
     Ok(report)
 }
 
+/// Issue 1: this command no longer runs enrichment inline. It claims the
+/// single enrichment-job slot and returns an `EnrichmentJobStart`
+/// immediately; the keyless prepass plus enrichment run on a background task
+/// (see `run_library_enrichment_work` and `crate::enrichment_jobs`). Poll
+/// `get_enrichment_job_status` for progress and the final report, which has
+/// exactly the shape this command used to return. A second start while a job
+/// runs returns `status: "busy"` with the running job's id.
 #[tauri::command]
 pub async fn run_library_enrichment(
+    app: AppHandle,
+    rename_files: bool,
+) -> Result<crate::enrichment_jobs::EnrichmentJobStart, String> {
+    Ok(crate::enrichment_jobs::start_library_enrichment_job(
+        &app,
+        rename_files,
+    ))
+}
+
+/// Synchronous implementation: keyless prepass, then library enrichment.
+/// Runs inside a background job started by `run_library_enrichment`.
+pub(crate) async fn run_library_enrichment_work(
     state: State<'_, AppState>,
     rename_files: bool,
 ) -> Result<crate::enrichment::LibraryEnrichmentReport, String> {
