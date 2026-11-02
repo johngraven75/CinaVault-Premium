@@ -23,6 +23,15 @@ logs/
 *.log
 npm-debug.log*
 
+# ── Installer and release archives (never commit a built installer) ──
+*.msi
+*.exe
+*.zip
+*.tar.gz
+*.dmg
+# Note: the two bundled-tool binaries fetched at build time are already
+# covered above by their explicit paths; no .exe or .msi is tracked today.
+
 # ── Local secrets and environment ──
 .env
 .env.*

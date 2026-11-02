@@ -1,5 +1,31 @@
 # CinaVault Premium documentation
 
+This index covers the guides in this folder. The root README is the
+starting point for the app itself; the project policies live at the
+repository root, not in this folder.
+
+## Project policies
+
+| Document | Topic |
+|---|---|
+| [../SECURITY.md](../SECURITY.md) | Supported version and private vulnerability reporting |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Branches, pull requests, and the validation gate |
+| [../AGENTS.md](../AGENTS.md) | Engineering rules for contributors |
+
+## Release identity
+
+`../build-version.json` is the authoritative version/build identity: the
+semantic version, display build, and release tag in that file must agree
+with `package.json`, `package-lock.json`, the Tauri config, and the Cargo
+manifest (enforced by `tests/buildNumberDriftGuard.test.mjs`). Docs must
+not rename a release on their own.
+
+Known label mismatch, flagged rather than silently renamed: the in-code
+release cycle still reads "Beta 1", while the latest published GitHub
+release is tagged `v2.1.7-beta-2`. The root README therefore uses the
+version and build number only. Resolving the mismatch is a
+version-identity change, not a docs edit.
+
 ## Guides
 
 | Document | Topic |
@@ -34,6 +60,16 @@
 | Folder | Contents |
 |---|---|
 | [research/](research/) | Provider research notes |
-| [promotions/](promotions/) | Promo video blueprints and assets |
-| [ai-diagnostics/](ai-diagnostics/) · [weekly-summaries/](weekly-summaries/) | Reports written by the scheduled maintenance workflows |
-| [history/](history/) | Past build audits, release notes, status reports and design plans, kept for reference |
+| [promotions/](promotions/) | Promo video blueprints and assets — see the size note below |
+| [ai-diagnostics/](ai-diagnostics/) · [weekly-summaries/](weekly-summaries/) | Reports written by the scheduled maintenance workflows; reference material, not current guides |
+| [history/](history/) | Past build audits, release notes, status reports and design plans, kept for reference — not current guides |
+
+## Size note (flagged, not changed here)
+
+`docs/promotions/` contains committed video, audio, and image assets
+totalling roughly 76 MB, including four promo videos of about 3–18 MB
+each. They are kept in this pull request: removing them would rewrite
+what the history folders document, and a snapshot push cannot delete
+tracked files in any case. A future cleanup should decide whether to
+move promo assets to a release attachment or Git LFS instead of keeping
+large binaries in the repository.

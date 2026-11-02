@@ -10,13 +10,34 @@
 </p>
 
 <p align="center">
-  <b>v2.1.7 Beta 1 · Build 217</b> · Tauri 2 · Rust · React 19 · SQLite
+  <b>v2.1.7 · Build 217</b> · Tauri 2 · Rust · React 19 · SQLite
 </p>
 
 ---
 
+## Latest release
+
+The latest published installer set is the GitHub prerelease
+[`v2.1.7-beta-2`](https://github.com/johngraven75/CinaVault-Premium/releases/tag/v2.1.7-beta-2)
+(Build 217): the NSIS installer, the MSI installer, and `SHA256SUMS.txt`.
+Those installers are currently **unsigned** — Windows SmartScreen will warn on
+first run — because the Azure Artifact Signing secrets are not configured
+(see [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md)).
+
+Features in open pull requests are **not** in this release. They ship only
+once their pull request is merged and a new release is published.
+
+> Version-label note: the in-code release cycle in `build-version.json` and
+> the Tauri window title still reads "Beta 1", while the published GitHub
+> release is tagged `v2.1.7-beta-2`. This README deliberately uses the
+> version and build number only, so it does not pick one label over the
+> other. Resolving that label mismatch needs a proper version-identity
+> change (and its drift-guard tests), not a docs edit, so it is flagged in
+> the cleanup pull request instead of being silently renamed here.
+
 ## Contents
 
+- [Latest release](#latest-release)
 - [Highlights](#highlights)
 - [Architecture](#architecture)
 - [How a library scan flows](#how-a-library-scan-flows)
@@ -27,6 +48,7 @@
 - [Build and release pipeline](#build-and-release-pipeline)
 - [Repository layout](#repository-layout)
 - [Documentation](#documentation)
+- [Security and contributing](#security-and-contributing)
 
 ## Highlights
 
@@ -212,7 +234,10 @@ Code signing is wired to Azure Artifact Signing and turns on as soon as the sign
 ├── contracts/              versioned front/back-end contract fixtures
 ├── plugins/                Jellyfin, Emby and Plex bridge manifests
 ├── public/                 branding (models are fetched, not committed)
-├── docs/                   guides, ADRs, research and build history
+├── docs/                   guides, ADRs, research, build history, weekly
+│                           summaries and generated maintenance reports
+├── build-version.json      authoritative version/build identity (see the
+│                           version-label note under Latest release)
 └── .github/                workflows, release triggers, templates
 ```
 
@@ -228,4 +253,18 @@ Code signing is wired to Azure Artifact Signing and turns on as soon as the sign
 | [docs/WIREGUARD_READINESS_AUTOCONNECT.md](docs/WIREGUARD_READINESS_AUTOCONNECT.md) | WireGuard remote access |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: branches, pull requests, validation gate |
 | [AGENTS.md](AGENTS.md) | Engineering rules for contributors |
+| [docs/ANDROID.md](docs/ANDROID.md) | Building this shared Tauri project for Android (not a separate Windows release) |
+| [docs/platform-parity.json](docs/platform-parity.json) | Feature parity across platforms (checked in CI) |
+
+## Security and contributing
+
+Report a vulnerability privately through the repository's **Security** tab —
+do not open a public issue for a security problem. See
+[SECURITY.md](SECURITY.md) for the supported version, what to include, and
+what the project will and will not do.
+
+Contributions go through branches and pull requests, with the validation
+gate green before merge, and must never commit secrets or signing
+credentials. See [CONTRIBUTING.md](CONTRIBUTING.md).
