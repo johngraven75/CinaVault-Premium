@@ -333,9 +333,7 @@ fn msiexec_install_script(msi_path: &str) -> String {
 /// rather than claim a hash check happened.
 #[allow(dead_code)]
 fn pinned_hash_gate_passes(expected: Option<&str>, actual: &str) -> bool {
-    expected.map_or(true, |expected| {
-        expected.eq_ignore_ascii_case(actual)
-    })
+    expected.map_or(true, |expected| expected.eq_ignore_ascii_case(actual))
 }
 
 #[cfg(target_os = "windows")]
@@ -785,7 +783,9 @@ async fn vpn_install_wireguard_windows(
 
     let result = vpn_install_wireguard_download_and_install(&app, &msi_path).await;
     // The MSI must never linger in temp, whatever happened above.
-    let _ = std::fs::remove_file(&msi_path);
+    // Async file API: this runs on an async worker, so a blocking
+    // std::fs::remove_file would stall it (Sonar S6981 on new code).
+    let _ = tokio::fs::remove_file(&msi_path).await;
     result
 }
 
@@ -795,14 +795,12 @@ async fn vpn_install_wireguard_download_and_install(
     msi_path: &std::path::Path,
 ) -> Result<serde_json::Value, String> {
     // (1) Download.
-    let response = reqwest::get(WIREGUARD_MSI_URL)
-        .await
-        .map_err(|error| {
-            format!(
-                "{} download error: {error}",
-                install_error(EXIT_DOWNLOAD_FAILED)
-            )
-        })?;
+    let response = reqwest::get(WIREGUARD_MSI_URL).await.map_err(|error| {
+        format!(
+            "{} download error: {error}",
+            install_error(EXIT_DOWNLOAD_FAILED)
+        )
+    })?;
     if !response.status().is_success() {
         return Err(format!(
             "{} HTTP status {}",
@@ -823,7 +821,9 @@ async fn vpn_install_wireguard_download_and_install(
             bytes.len()
         ));
     }
-    std::fs::write(msi_path, &bytes).map_err(|error| {
+    // Async file API: this runs on an async worker, so a blocking
+    // std::fs::write would stall it (Sonar S6981 on new code).
+    tokio::fs::write(msi_path, &bytes).await.map_err(|error| {
         format!(
             "{} failed to save MSI: {error}",
             install_error(EXIT_DOWNLOAD_FAILED)
@@ -835,13 +835,8 @@ async fn vpn_install_wireguard_download_and_install(
     if !msi_signature_is_official(msi_path) {
         return Err(install_error(EXIT_SIGNATURE_OR_HASH_FAILED));
     }
-    let msi_sha256 = sha256_hex_of_file(msi_path).map_err(|error| {
-        format!(
-            "{} {}",
-            install_error(EXIT_SIGNATURE_OR_HASH_FAILED),
-            error
-        )
-    })?;
+    let msi_sha256 = sha256_hex_of_file(msi_path)
+        .map_err(|error| format!("{} {}", install_error(EXIT_SIGNATURE_OR_HASH_FAILED), error))?;
     let sha256_verified = WIREGUARD_MSI_EXPECTED_SHA256.is_some()
         && pinned_hash_gate_passes(WIREGUARD_MSI_EXPECTED_SHA256, &msi_sha256);
     if !pinned_hash_gate_passes(WIREGUARD_MSI_EXPECTED_SHA256, &msi_sha256) {
@@ -972,10 +967,9 @@ mod tests {
         connect_script, disconnect_script, elevation_wrapper, encode_powershell,
         engine_metadata_is_official, engine_source_for_path, install_error_message,
         msiexec_install_script, msiexec_outcome, pinned_hash_gate_passes, ps_literal,
-        run_autoconnect_attempt, tunnel_error, EXIT_DOWNLOAD_FAILED,
-        EXIT_MSI_INSTALL_FAILED, EXIT_NO_HANDSHAKE, EXIT_POST_INSTALL_NOT_FOUND,
-        EXIT_SIGNATURE_OR_HASH_FAILED, EXIT_UAC_DECLINED, WIREGUARD_MSI_EXPECTED_SHA256,
-        WIREGUARD_MSI_URL, WIREGUARD_MSI_VERSION,
+        run_autoconnect_attempt, tunnel_error, EXIT_DOWNLOAD_FAILED, EXIT_MSI_INSTALL_FAILED,
+        EXIT_NO_HANDSHAKE, EXIT_POST_INSTALL_NOT_FOUND, EXIT_SIGNATURE_OR_HASH_FAILED,
+        EXIT_UAC_DECLINED, WIREGUARD_MSI_EXPECTED_SHA256, WIREGUARD_MSI_URL, WIREGUARD_MSI_VERSION,
     };
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -1161,14 +1155,8 @@ mod tests {
     #[test]
     fn pinned_hash_gate_only_enforces_a_hash_when_one_is_pinned() {
         assert!(pinned_hash_gate_passes(None, "abc"));
-        assert!(pinned_hash_gate_passes(
-            Some("ABC"),
-            "abc"
-        ));
-        assert!(!pinned_hash_gate_passes(
-            Some("deadbeef"),
-            "abc"
-        ));
+        assert!(pinned_hash_gate_passes(Some("ABC"), "abc"));
+        assert!(!pinned_hash_gate_passes(Some("deadbeef"), "abc"));
     }
 
     #[test]
