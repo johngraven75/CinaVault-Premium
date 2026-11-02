@@ -3,7 +3,7 @@ import "./styles/poster-card-standard.css";
 import "./styles/media-row-poster-final-fix.css";
 import "./styles/media-card-hard-fix.css";
 import "./styles/media-card-final-standard.css";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FC, JSX, WheelEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
