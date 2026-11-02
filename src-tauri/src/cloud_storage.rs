@@ -244,9 +244,7 @@ pub fn cloud_disconnect(state: State<AppState>, provider: String) -> Result<(), 
         // Remove sources cloud_sync created for this provider: the recorded
         // root, plus any source carrying cloud_sync's "googledrive — <name>"
         // naming (cloud_sync is the only creator of that pattern).
-        let sources = db
-            .get_sources_data()
-            .map_err(|error| error.to_string())?;
+        let sources = db.get_sources_data().map_err(|error| error.to_string())?;
         for source in sources {
             let is_recorded_root = recorded_root
                 .as_deref()
