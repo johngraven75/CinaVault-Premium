@@ -190,7 +190,14 @@ mod tests {
 
         assert!(pending_item_ids(&db).is_empty());
         record_attempt(&db, 7, "/media/scene.mp4", OUTCOME_NO_MATCH, None).unwrap();
-        record_attempt(&db, 9, "/media/other.mp4", OUTCOME_FAILED, Some("db locked")).unwrap();
+        record_attempt(
+            &db,
+            9,
+            "/media/other.mp4",
+            OUTCOME_FAILED,
+            Some("db locked"),
+        )
+        .unwrap();
         assert_eq!(pending_item_ids(&db), vec![7, 9]);
         assert_eq!(pending_count(&db), 2);
         assert_eq!(attempt_outcome(&db, 7), ("no_match".to_string(), 1, 1));
