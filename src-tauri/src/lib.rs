@@ -13,6 +13,7 @@ mod atomic_file;
 mod build_identity;
 mod casting;
 mod chapters;
+mod cloud_oauth;
 mod cloud_storage;
 mod db;
 mod downloads;
@@ -270,6 +271,7 @@ pub fn run() {
             db::update_media_item,
             db::delete_media_item,
             library_item_actions::metadata_unmatch_item,
+            library_item_actions::metadata_apply_match_item,
             library_item_actions::library_delete_item,
             db::purge_photo_items,
             db::search_media,
@@ -447,6 +449,8 @@ pub fn run() {
             cloud_storage::cloud_browse,
             cloud_storage::cloud_list_files,
             cloud_storage::cloud_get_status,
+            cloud_oauth::cloud_oauth_connect,
+            cloud_oauth::cloud_oauth_set_client_id,
             nas_devices::synology_connect,
             nas_devices::synology_disconnect,
             nas_devices::synology_get_status,

@@ -33,10 +33,14 @@ const ONEDRIVE_AUTH_URL =
 const ONEDRIVE_CLIENT_ID = "cinavault-onedrive-client";
 const ONEDRIVE_SCOPES = "Files.ReadWrite.All offline_access";
 const ONEDRIVE_REDIRECT = "http://localhost:19284/auth/callback";
-const GDRIVE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GDRIVE_CLIENT_ID = "cinavault-gdrive-client";
-const GDRIVE_SCOPES = "https://www.googleapis.com/auth/drive.readonly";
-const GDRIVE_REDIRECT = "http://localhost:19284/auth/callback";
+// Issue 6: Google Drive OAuth is backend-owned (src-tauri/src/cloud_oauth.rs).
+// There is deliberately NO client ID, auth URL, scope, or redirect constant
+// here any more: the old "cinavault-gdrive-client" value was a placeholder,
+// not a real Google client ID, and the auth URL it built was never opened.
+// The backend resolves a real client ID from runtime configuration / the OS
+// credential store, opens the browser itself, and listens on the loopback
+// redirect (http://localhost:19284/auth/callback). OneDrive/Dropbox below
+// are untouched by Issue 6 and keep their previous behaviour.
 const DROPBOX_AUTH_URL = "https://www.dropbox.com/oauth2/authorize";
 
 type CloudId = "onedrive" | "gdrive" | "dropbox";
@@ -148,6 +152,21 @@ export default function CloudNASTab() {
   const [wdError, setWdError] = useState<string | null>(null);
   const [wdLibrariesExpanded, setWdLibrariesExpanded] = useState(true);
 
+  // ── Cloud inline errors + Google client-ID setup (Issue 6) ──
+  // Errors render as inline text on the card itself, not only as an "Error"
+  // badge or a status-log line, so a failed sign-in always says why.
+  const [cloudErrors, setCloudErrors] = useState<Record<CloudId, string | null>>({
+    onedrive: null,
+    gdrive: null,
+    dropbox: null,
+  });
+  const setCloudError = (id: CloudId, message: string | null) =>
+    setCloudErrors((prev) => ({ ...prev, [id]: message }));
+  // null = not yet checked; false = checked and no client ID configured.
+  const [gdriveConfigured, setGdriveConfigured] = useState<boolean | null>(null);
+  const [gdriveClientId, setGdriveClientId] = useState("");
+  const [showGdriveClientIdForm, setShowGdriveClientIdForm] = useState(false);
+
   // ── Load persisted NAS status on mount ──
   useEffect(() => {
     invoke<{ connected: boolean; data?: any }>("synology_get_status")
@@ -181,6 +200,49 @@ export default function CloudNASTab() {
         }
       })
       .catch(() => {});
+
+    // Issue 6: validate Google Drive (and other providers) against the
+    // backend on mount. Persisted Zustand state is stale by design, and a
+    // stored Google record alone no longer counts as "connected" — the
+    // backend validates the token against Drive before reporting it.
+    invoke<{
+      connected: { provider?: string; method?: string; account?: string }[];
+      gdrive_oauth_configured?: boolean;
+      provider_errors?: Record<string, string>;
+    }>("cloud_get_status")
+      .then((res) => {
+        if (typeof res.gdrive_oauth_configured === "boolean") {
+          setGdriveConfigured(res.gdrive_oauth_configured);
+        }
+        const wasConnected =
+          useAppStore.getState().cloudServices["gdrive"]?.status === "connected";
+        const gdrive = (res.connected || []).find(
+          (r) => r.provider === "googledrive",
+        );
+        if (gdrive) {
+          setCloudService("gdrive", {
+            status: "connected",
+            account: gdrive.account || "Google Drive",
+          });
+          setCloudError("gdrive", null);
+        } else if (res.provider_errors?.googledrive) {
+          setCloudService("gdrive", { status: "error" });
+          setCloudError("gdrive", res.provider_errors.googledrive);
+        } else if (wasConnected) {
+          // The backend cleared a stale/invalid record: surface it as a
+          // true disconnection with a Reconnect path, not a silent badge.
+          setCloudService("gdrive", {
+            status: "disconnected",
+            account: undefined,
+            lastSync: undefined,
+          });
+          setCloudError(
+            "gdrive",
+            "Google Drive is no longer connected (the saved sign-in expired or was removed). Use Reconnect to sign in again.",
+          );
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // ════════════════════════════════════════════════════════════
@@ -200,6 +262,7 @@ export default function CloudNASTab() {
   const authenticateCloud = useCallback(
     async (id: CloudId, authUrl: string) => {
       const name = cloudName(id);
+      setCloudError(id, null);
       setCloudService(id, { status: "connecting" });
       addStatusMessage(`${name}: Starting authentication...`);
       try {
@@ -219,10 +282,13 @@ export default function CloudNASTab() {
           account: result.account || `${name} Account`,
           lastSync: new Date().toISOString(),
         });
+        setCloudError(id, null);
         addStatusMessage(`${name}: Connected as ${result.account || "user"}`);
       } catch (error) {
+        const message = errorText(error);
         setCloudService(id, { status: "error" });
-        addStatusMessage(`${name}: Connection failed — ${errorText(error)}`);
+        setCloudError(id, message);
+        addStatusMessage(`${name}: Connection failed — ${message}`);
       }
     },
     [setCloudService, addStatusMessage],
@@ -239,17 +305,94 @@ export default function CloudNASTab() {
     await authenticateCloud("onedrive", `${ONEDRIVE_AUTH_URL}?${params}`);
   }, [authenticateCloud]);
 
+  // Issue 6: real Google sign-in. The backend opens the browser, waits for
+  // the loopback callback, exchanges the code (PKCE), and stores tokens in
+  // the OS credential store. This command blocks until the user finishes in
+  // the browser (or 5 minutes pass), so the card stays "Connecting..." with
+  // a note to complete sign-in in the browser.
   const connectGDrive = useCallback(async () => {
-    const params = new URLSearchParams({
-      client_id: GDRIVE_CLIENT_ID,
-      response_type: "code",
-      redirect_uri: GDRIVE_REDIRECT,
-      scope: GDRIVE_SCOPES,
-      access_type: "offline",
-      prompt: "consent",
-    });
-    await authenticateCloud("gdrive", `${GDRIVE_AUTH_URL}?${params}`);
+    setCloudError("gdrive", null);
+    setShowGdriveClientIdForm(false);
+    setCloudService("gdrive", { status: "connecting" });
+    addStatusMessage(
+      "Google Drive: Opening Google sign-in in your browser — complete it there to connect.",
+    );
+    try {
+      const result = await invoke<{
+        success: boolean;
+        account?: string;
+        error?: string;
+      }>("cloud_oauth_connect", { provider: "googledrive" });
+      if (!result.success) {
+        throw new Error(result.error || "Google sign-in failed");
+      }
+      setCloudService("gdrive", {
+        status: "connected",
+        account: result.account || "Google Drive",
+        lastSync: new Date().toISOString(),
+      });
+      setCloudError("gdrive", null);
+      addStatusMessage(`Google Drive: Connected as ${result.account || "user"}`);
+    } catch (error) {
+      const message = errorText(error);
+      setCloudService("gdrive", { status: "error" });
+      setCloudError("gdrive", message);
+      // No real client ID configured: offer the input form right here.
+      if (message.includes("GDRIVE_NOT_CONFIGURED")) {
+        setShowGdriveClientIdForm(true);
+      }
+      addStatusMessage(`Google Drive: Connection failed — ${message}`);
+    }
+  }, [setCloudService, addStatusMessage]);
+
+  // Issue 6: DISTINCT Reconnect. It first clears the stale record (and, via
+  // the backend, revokes and clears the stored token and any media source
+  // cloud_sync added), then starts a fresh OAuth flow. This is what the old
+  // tab lacked entirely: there was no Reconnect button or handler at all.
+  const reconnectGDrive = useCallback(async () => {
+    setCloudError("gdrive", null);
+    setCloudService("gdrive", { status: "connecting" });
+    addStatusMessage("Google Drive: Clearing the old sign-in, then reconnecting...");
+    try {
+      await invoke("cloud_disconnect", { provider: "googledrive" });
+    } catch (error) {
+      const message = errorText(error);
+      setCloudService("gdrive", { status: "error" });
+      setCloudError("gdrive", message);
+      addStatusMessage(`Google Drive: Reconnect failed — ${message}`);
+      return;
+    }
+    await connectGDrive();
+  }, [connectGDrive, setCloudService, addStatusMessage]);
+
+  // Issue 6: local-folder fallback, ONLY under this explicit label. It reuses
+  // the old folder flow (cloud_auth_start) and performs no Google sign-in.
+  const connectLocalFolderGDrive = useCallback(async () => {
+    addStatusMessage(
+      "Google Drive: Using a local folder synchronized by the Google Drive desktop app (no Google sign-in).",
+    );
+    await authenticateCloud("gdrive", "");
   }, [authenticateCloud]);
+
+  // Issue 6: save a user-supplied client ID to the OS credential store via
+  // the backend. It is never written to a source file, the DB, or local
+  // storage. Alternatively, set CINAVAULT_GDRIVE_CLIENT_ID before launching.
+  const saveGdriveClientId = useCallback(async () => {
+    const clientId = gdriveClientId.trim();
+    if (!clientId) {
+      setCloudError("gdrive", "Paste a Google Cloud OAuth client ID first.");
+      return;
+    }
+    try {
+      await invoke("cloud_oauth_set_client_id", { clientId });
+      setGdriveConfigured(true);
+      setShowGdriveClientIdForm(false);
+      setCloudError("gdrive", null);
+      addStatusMessage("Google Drive: Client ID saved to the system keychain.");
+    } catch (error) {
+      setCloudError("gdrive", errorText(error));
+    }
+  }, [gdriveClientId, addStatusMessage]);
 
   const connectDropbox = useCallback(async () => {
     await authenticateCloud("dropbox", DROPBOX_AUTH_URL);
@@ -260,6 +403,7 @@ export default function CloudNASTab() {
       const name = cloudName(id);
       try {
         await invoke("cloud_disconnect", { provider: backendProvider(id) });
+        setCloudError(id, null);
         setCloudService(id, {
           status: "disconnected",
           account: undefined,
@@ -267,8 +411,10 @@ export default function CloudNASTab() {
         });
         addStatusMessage(`${name}: Disconnected`);
       } catch (error) {
+        const message = errorText(error);
         setCloudService(id, { status: "error" });
-        addStatusMessage(`${name}: Disconnect failed — ${errorText(error)}`);
+        setCloudError(id, message);
+        addStatusMessage(`${name}: Disconnect failed — ${message}`);
       }
     },
     [setCloudService, addStatusMessage],
@@ -284,12 +430,15 @@ export default function CloudNASTab() {
           path: "",
         });
         setCloudService(id, { lastSync: new Date().toISOString() });
+        setCloudError(id, null);
         addStatusMessage(
           `${name}: Sync complete${typeof result?.files_synced === "number" ? ` (${result.files_synced} files)` : ""}`,
         );
       } catch (error) {
+        const message = errorText(error);
         setCloudService(id, { status: "error" });
-        addStatusMessage(`${name}: Sync failed — ${errorText(error)}`);
+        setCloudError(id, message);
+        addStatusMessage(`${name}: Sync failed — ${message}`);
       }
     },
     [setCloudService, addStatusMessage],
@@ -308,8 +457,10 @@ export default function CloudNASTab() {
           `${name}: Found ${Array.isArray(result) ? result.length : 0} item(s)`,
         );
       } catch (error) {
+        const message = errorText(error);
         setCloudService(id, { status: "error" });
-        addStatusMessage(`${name}: Browse failed — ${errorText(error)}`);
+        setCloudError(id, message);
+        addStatusMessage(`${name}: Browse failed — ${message}`);
       }
     },
     [setCloudService, addStatusMessage],
@@ -565,6 +716,12 @@ export default function CloudNASTab() {
                 >
                   {svc.desc}
                 </p>
+                {cloudErrors[svc.id] && (
+                  <div className="flex items-start gap-2 p-2 mb-3 rounded-lg bg-red-500/10 text-red-400 text-[11px]">
+                    <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                    <span>{cloudErrors[svc.id]}</span>
+                  </div>
+                )}
                 {isConnected && state?.account && (
                   <div
                     className="text-[10px] mb-2 px-2 py-1.5 rounded-lg bg-white/5"
@@ -591,7 +748,13 @@ export default function CloudNASTab() {
                       ) : (
                         <LogIn size={12} />
                       )}
-                      {isConnecting ? "Connecting..." : "Connect"}
+                      {isConnecting
+                        ? "Connecting..."
+                        : svc.id === "gdrive" && state?.status === "error"
+                          ? "Reconnect"
+                          : svc.id === "gdrive"
+                            ? "Connect with Google"
+                            : "Connect"}
                     </button>
                   ) : (
                     <>
@@ -607,6 +770,15 @@ export default function CloudNASTab() {
                       >
                         <RefreshCw size={11} /> Sync
                       </button>
+                      {svc.id === "gdrive" && (
+                        <button
+                          onClick={reconnectGDrive}
+                          title="Clear the saved sign-in and sign in again"
+                          className="cv-btn text-[11px] py-2 flex items-center justify-center gap-1"
+                        >
+                          <RefreshCw size={11} /> Reconnect
+                        </button>
+                      )}
                       <button
                         onClick={() => disconnect(svc.id)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center bg-red-500/10 hover:bg-red-500/20 transition-colors"
@@ -616,6 +788,75 @@ export default function CloudNASTab() {
                     </>
                   )}
                 </div>
+                {svc.id === "gdrive" && !isConnected && (
+                  <div className="mt-2 space-y-2">
+                    <button
+                      onClick={connectLocalFolderGDrive}
+                      disabled={isConnecting}
+                      className="cv-btn text-[11px] py-2 w-full flex items-center justify-center gap-1 bg-white/5 disabled:opacity-50"
+                    >
+                      <FolderOpen size={11} /> Local folder (no Google sign-in)
+                    </button>
+                    {gdriveConfigured === false && !showGdriveClientIdForm && (
+                      <button
+                        onClick={() => setShowGdriveClientIdForm(true)}
+                        className="text-[11px] underline text-[var(--cv-subtext)] hover:text-[var(--cv-text)]"
+                      >
+                        Set Google client ID
+                      </button>
+                    )}
+                    {showGdriveClientIdForm && (
+                      <div className="p-3 rounded-xl border border-white/10 bg-white/3 space-y-2">
+                        <p
+                          className="text-[11px]"
+                          style={{ color: "var(--cv-subtext)" }}
+                        >
+                          Paste a Desktop-app OAuth client ID from Google
+                          Cloud (Drive API enabled, redirect URI{" "}
+                          <span className="font-mono">
+                            http://localhost:19284/auth/callback
+                          </span>{" "}
+                          registered). It is saved to the system keychain,
+                          never to a file or the database. You can also set{" "}
+                          <span className="font-mono">
+                            CINAVAULT_GDRIVE_CLIENT_ID
+                          </span>{" "}
+                          before launching instead.
+                        </p>
+                        <input
+                          type="text"
+                          value={gdriveClientId}
+                          onChange={(e) => setGdriveClientId(e.target.value)}
+                          placeholder="1234567890-abcdef.apps.googleusercontent.com"
+                          className="cv-input text-xs w-full"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={saveGdriveClientId}
+                            className="cv-btn text-xs flex items-center gap-1"
+                          >
+                            <LogIn size={12} /> Save client ID
+                          </button>
+                          <button
+                            onClick={() => setShowGdriveClientIdForm(false)}
+                            className="cv-btn text-xs bg-white/5"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {isConnecting && svc.id === "gdrive" && (
+                  <p
+                    className="text-[11px] mt-2"
+                    style={{ color: "var(--cv-subtext)" }}
+                  >
+                    Complete Google sign-in in your browser; this card updates
+                    when you finish (or after 5 minutes).
+                  </p>
+                )}
               </motion.div>
             );
           })}

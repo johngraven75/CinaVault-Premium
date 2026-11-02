@@ -25,6 +25,8 @@ import MeteorShower from "../effects/MeteorShower";
 import { isFeatureOn } from "../../features/featureFlags";
 import { playMedia } from "../../services/playback";
 import HoloCard from "../holo/HoloCard";
+import CardCornerMenu from "../CardCornerMenu";
+import MetadataLookupDialog from "../MetadataLookupDialog";
 import {
   HoloProgressBar,
   HoloSkeletonCard,
@@ -203,6 +205,7 @@ export default function HomeTab(): JSX.Element {
   const [metadataCheckId, setMetadataCheckId] = useState<number | null>(null);
   const [cardActionId, setCardActionId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
+  const [lookupItem, setLookupItem] = useState<MediaItem | null>(null);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const [unifiedView, setUnifiedView] = useState(false);
   const libraryLoadGenerationRef = useRef(0);
@@ -508,6 +511,26 @@ export default function HomeTab(): JSX.Element {
     }
   };
 
+  // Issue 5: Lookup entry point shared by the card corner menu and the
+  // detail panel. Items without a vault id cannot save a match, so they never
+  // open the dialog — same guard shape as handleUnmatch/handleCheckMetadata.
+  const handleLookup = (item: MediaItem) => {
+    if (!item.id) {
+      addStatusMessage(`Lookup skipped: ${item.title} has no vault id yet`);
+      return;
+    }
+    setLookupItem(item);
+  };
+
+  // Issue 5: an applied Lookup candidate refreshes exactly like a Check
+  // result, through applyUpdatedMediaItem.
+  const handleLookupApplied = (updated: Partial<MediaItem> & { id?: number }) => {
+    applyUpdatedMediaItem(updated);
+    addStatusMessage(
+      `Applied metadata match${updated.title ? ` for ${updated.title}` : ""}.`,
+    );
+  };
+
   const handleConfirmDelete = async (item: MediaItem, removeFile: boolean) => {
     if (!item.id) {
       addStatusMessage(`Delete skipped: ${item.title} has no vault id yet`);
@@ -652,7 +675,7 @@ export default function HomeTab(): JSX.Element {
           ) : libraryView === "card" ? (
             <div className="holo-grid">
               {filteredItems.map((item, index) => (
-                <MediaCard key={`${item.id || item.title}-${index}`} item={item} index={index} selected={selectedMedia !== null && (selectedMedia.id != null ? selectedMedia.id === item.id : selectedMedia === item)} checking={metadataCheckId === item.id} busy={cardActionId === item.id} onSelect={() => setSelectedMedia(item)} onPlay={() => void handlePlay(item)} onCheckMetadata={() => void handleCheckMetadata(item)} onUnmatch={() => void handleUnmatch(item)} onDelete={() => setPendingDelete(item)} />
+                <MediaCard key={`${item.id || item.title}-${index}`} item={item} index={index} selected={selectedMedia !== null && (selectedMedia.id != null ? selectedMedia.id === item.id : selectedMedia === item)} checking={metadataCheckId === item.id} busy={cardActionId === item.id} onSelect={() => setSelectedMedia(item)} onPlay={() => void handlePlay(item)} onCheckMetadata={() => void handleCheckMetadata(item)} onUnmatch={() => void handleUnmatch(item)} onDelete={() => setPendingDelete(item)} onLookup={() => handleLookup(item)} />
               ))}
             </div>
           ) : (
@@ -704,6 +727,7 @@ export default function HomeTab(): JSX.Element {
               <button type="button" onClick={() => void handlePlay(selectedMedia)} className="cyber-button"><Play size={14} /> Quick Play</button>
               <button type="button" onClick={() => void handleVerify(selectedMedia)} className="cyber-button"><CheckCircle size={14} /> Verify Signal</button>
               <button type="button" onClick={() => void handleCheckMetadata(selectedMedia)} disabled={metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60">{metadataCheckId === selectedMedia.id ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />} Check Metadata</button>
+              <button type="button" onClick={() => handleLookup(selectedMedia)} disabled={cardActionId === selectedMedia.id || metadataCheckId === selectedMedia.id} className="cyber-button is-amber disabled:opacity-60" aria-label={`Lookup metadata for ${selectedMedia.title}`}><Sparkles size={14} /> Lookup Metadata</button>
               <button type="button" onClick={() => void handleUnmatch(selectedMedia)} disabled={cardActionId === selectedMedia.id} className="cyber-button disabled:opacity-60" aria-label={`Unmatch ${selectedMedia.title}, keeps the file`}><Unlink size={14} /> Unmatch (keep file)</button>
               <button type="button" onClick={() => setPendingDelete(selectedMedia)} disabled={cardActionId === selectedMedia.id} className="cyber-button is-danger disabled:opacity-60" aria-label={`Delete ${selectedMedia.title}`}><Trash2 size={14} /> Delete</button>
               <WatchlistButton item={selectedMedia} className="cyber-button" />
@@ -719,6 +743,15 @@ export default function HomeTab(): JSX.Element {
       )}
       {libraryHasMore && !loading && !autoLoadingLibrary && (
         <div className="flex justify-center"><button type="button" onClick={() => void loadMoreMedia()} disabled={loadingMore} className="cyber-button">{loadingMore ? <RefreshCw size={14} className="animate-spin" /> : <ChevronDown size={14} />} {loadingMore ? "Compiling" : `Load Next ${LIBRARY_PAGE_SIZE}`}</button></div>
+      )}
+
+      {lookupItem && (
+        <MetadataLookupDialog
+          key={lookupItem.id ?? lookupItem.title}
+          item={lookupItem}
+          onClose={() => setLookupItem(null)}
+          onApplied={handleLookupApplied}
+        />
       )}
 
       {pendingDelete && (
@@ -778,7 +811,7 @@ function TerminalLine({ label, value }: { label: string; value: string }): JSX.E
   return <div className="terminal-line"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function MediaCard({ item, index, selected, checking, busy, onSelect, onPlay, onCheckMetadata, onUnmatch, onDelete }: { item: MediaItem; index: number; selected: boolean; checking: boolean; busy: boolean; onSelect: () => void; onPlay: () => void; onCheckMetadata: () => void; onUnmatch: () => void; onDelete: () => void }): JSX.Element {
+function MediaCard({ item, index, selected, checking, busy, onSelect, onPlay, onCheckMetadata, onUnmatch, onDelete, onLookup }: { item: MediaItem; index: number; selected: boolean; checking: boolean; busy: boolean; onSelect: () => void; onPlay: () => void; onCheckMetadata: () => void; onUnmatch: () => void; onDelete: () => void; onLookup: () => void }): JSX.Element {
   return (
     <HoloCard
       label={`${item.title}${item.year ? ` (${item.year})` : ""}`}
@@ -786,6 +819,15 @@ function MediaCard({ item, index, selected, checking, busy, onSelect, onPlay, on
       selected={selected}
       onSelect={onSelect}
       onDeleteKey={onDelete}
+      cornerMenu={
+        <CardCornerMenu
+          itemTitle={item.title}
+          disabled={checking || busy}
+          onUnmatch={onUnmatch}
+          onMatch={onCheckMetadata}
+          onLookup={onLookup}
+        />
+      }
       media={<MediaPosterImage path={item.poster_path || item.backdrop_path} alt={item.title} fallbackClassName="flex h-full w-full items-center justify-center" />}
       badges={
         <>

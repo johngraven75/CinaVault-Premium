@@ -21,6 +21,13 @@ export interface HoloCardProps {
   info: ReactNode;
   /** Actions revealed on hover or keyboard focus. */
   actions?: ReactNode;
+  /**
+   * Corner slot (Issue 5): a small always-visible control such as the card
+   * ⋮ menu. Rendered above the badge layer; the badge row reserves its width
+   * via :has() in holo-cinema.css so the two never overlap. Kept stateless
+   * here — the slotted component owns its own open state.
+   */
+  cornerMenu?: ReactNode;
   /** Accessible name for the card. */
   label: string;
   /** Grid position, used to stagger the entrance of the first screenful. */
@@ -43,6 +50,7 @@ export default function HoloCard({
   badges,
   info,
   actions,
+  cornerMenu,
   label,
   index = 0,
   selected = false,
@@ -139,6 +147,7 @@ export default function HoloCard({
         <div className="holo-card__glare" aria-hidden="true" />
         <div className="holo-card__scan" aria-hidden="true" />
         {badges && <div className="holo-card__badges">{badges}</div>}
+        {cornerMenu && <div className="holo-card__corner">{cornerMenu}</div>}
         <div className="holo-card__info">{info}</div>
         {actions && <div className="holo-card__actions">{actions}</div>}
         <div className="holo-card__edge" aria-hidden="true" />
